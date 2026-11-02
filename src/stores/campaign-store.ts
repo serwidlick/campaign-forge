@@ -2,11 +2,11 @@ import { create } from "zustand";
 
 import { rememberCampaign } from "@/lib/recent";
 import { errorMessage, storage } from "@/lib/tauri";
-import type { CampaignMeta, Element, ElementMeta } from "@/lib/types";
+import type { CampaignMeta, Element, ElementSummary } from "@/lib/types";
 
 interface CampaignState {
   campaign: CampaignMeta | null;
-  elements: ElementMeta[];
+  elements: ElementSummary[];
   selectedId: string | null;
   selected: Element | null;
   busy: boolean;
@@ -139,7 +139,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => ({
       if (get().selectedId === saved.id) {
         set((s) => ({
           selected: s.selected
-            ? { ...s.selected, updatedAt: saved.updatedAt }
+            ? { ...s.selected, updatedAt: saved.updatedAt, links: saved.links }
             : s.selected,
           elements: s.elements.map((e) =>
             e.id === saved.id
@@ -148,6 +148,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => ({
                   name: saved.name,
                   tags: saved.tags,
                   updatedAt: saved.updatedAt,
+                  links: saved.links,
                 }
               : e,
           ),

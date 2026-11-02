@@ -135,3 +135,29 @@ body {
   pointer-events: none;
   height: 0;
 }
+
+/* ---- Element links (mentions) ---------------------------------------- */
+
+.tiptap a[href^="cf://element/"] {
+  color: var(--color-ember-300);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--color-ember-500) 14%, transparent);
+  border-radius: 0.3rem;
+  padding: 0.05em 0.35em;
+  cursor: text;
+}
+
+.tiptap a[href^="cf://element/"]:hover {
+  background: color-mix(in srgb, var(--color-ember-500) 26%, transparent);
+}
+
+/* Ctrl/Cmd held: links become clickable. Toggled by ElementEditor. */
+.link-mode .tiptap a[href^="cf://element/"] {
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Inline decoration for the text being typed after "@" */
+.mention-query {
+  color: var(--color-ember-300);
+}

@@ -11,6 +11,7 @@ Early scaffold. What works today:
 - Create or open a campaign folder
 - World bible: create, edit, tag and delete elements across eight kinds (characters, factions, creatures, locations, items, quests, events, lore)
 - Rich text editing that reads and writes Markdown
+- Links between elements: type `@` to insert one, Ctrl+click to follow, and every element lists what it links to and what links to it
 - Recent campaigns list
 
 Planned: world map, sessions and arcs, timeline, journals with @-mentions, split-screen panes, and an opt-in AI assistant that uses your own API key.
@@ -45,6 +46,8 @@ A dockside tavern...
 ```
 
 The `id` is the stable identity. File names are derived from the element's name at creation and never used for linking, so renaming is safe.
+
+Links between elements are ordinary Markdown links with the `cf://element/<id>` scheme, for example `[The Rusty Tankard](cf://element/7f0c6a2e-...)`. The link text is a label chosen when the link was made; the id is what resolves.
 
 ## Development
 

@@ -25,9 +25,31 @@ export interface ElementMeta {
   path: string;
 }
 
-export interface Element extends ElementMeta {
+/** What the element list carries: metadata plus the ids this element links to. */
+export interface ElementSummary extends ElementMeta {
+  /** Ids of elements this one links to (`cf://element/<id>` in the body). */
+  links: string[];
+}
+
+export interface Element extends ElementSummary {
   /** Markdown body (everything after the frontmatter). */
   body: string;
+}
+
+/** The URL scheme used for links between elements. */
+export const ELEMENT_LINK_PREFIX = "cf://element/";
+
+export function elementHref(id: string): string {
+  return `${ELEMENT_LINK_PREFIX}${id}`;
+}
+
+/** Returns the element id if `href` is an element link, else null. */
+export function elementIdFromHref(
+  href: string | null | undefined,
+): string | null {
+  if (!href?.startsWith(ELEMENT_LINK_PREFIX)) return null;
+  const id = href.slice(ELEMENT_LINK_PREFIX.length);
+  return id.length === 36 ? id : null;
 }
 
 export interface SaveElementInput {

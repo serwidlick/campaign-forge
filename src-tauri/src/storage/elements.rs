@@ -7,16 +7,17 @@ use walkdir::WalkDir;
 use super::campaign::ELEMENTS_DIR;
 use super::error::StorageError;
 use super::frontmatter;
-use super::model::{Element, ElementMeta, SaveElementInput, new_id, now_rfc3339};
+use super::links::extract_links;
+use super::model::{Element, ElementMeta, ElementSummary, SaveElementInput, new_id, now_rfc3339};
 use super::slug::slugify;
 
 /// Walks `elements/` and returns every element's metadata plus an id -> path index.
-pub fn scan(root: &Path) -> Result<(Vec<ElementMeta>, HashMap<String, PathBuf>), StorageError> {
+pub fn scan(root: &Path) -> Result<(Vec<ElementSummary>, HashMap<String, PathBuf>), StorageError> {
     let dir = root.join(ELEMENTS_DIR);
-    let mut metas = Vec::new();
+    let mut summaries = Vec::new();
     let mut index = HashMap::new();
     if !dir.is_dir() {
-        return Ok((metas, index));
+        return Ok((summaries, index));
     }
 
     for entry in WalkDir::new(&dir).min_depth(2).max_depth(2) {
@@ -29,7 +30,7 @@ pub fn scan(root: &Path) -> Result<(Vec<ElementMeta>, HashMap<String, PathBuf>),
         match read(root, path) {
             Ok(element) => {
                 index.insert(element.meta.id.clone(), path.to_path_buf());
-                metas.push(element.meta);
+                summaries.push(element.summary());
             }
             Err(StorageError::InvalidFrontmatter { .. }) => {
                 // Skip files we cannot parse rather than failing the whole scan.
@@ -40,8 +41,13 @@ pub fn scan(root: &Path) -> Result<(Vec<ElementMeta>, HashMap<String, PathBuf>),
         }
     }
 
-    metas.sort_by(|a, b| a.kind.cmp(&b.kind).then_with(|| a.name.cmp(&b.name)));
-    Ok((metas, index))
+    summaries.sort_by(|a, b| {
+        a.meta
+            .kind
+            .cmp(&b.meta.kind)
+            .then_with(|| a.meta.name.cmp(&b.meta.name))
+    });
+    Ok((summaries, index))
 }
 
 pub fn read(root: &Path, path: &Path) -> Result<Element, StorageError> {
@@ -59,6 +65,7 @@ pub fn read(root: &Path, path: &Path) -> Result<Element, StorageError> {
     meta.path = relative(root, path);
     Ok(Element {
         meta,
+        links: extract_links(body),
         body: body.to_owned(),
     })
 }
@@ -85,7 +92,11 @@ pub fn create(root: &Path, kind: &str, name: &str) -> Result<Element, StorageErr
     };
     let body = format!("# {name}\n");
     write(&path, &meta, &body)?;
-    Ok(Element { meta, body })
+    Ok(Element {
+        meta,
+        links: Vec::new(),
+        body,
+    })
 }
 
 pub fn save(root: &Path, path: &Path, input: SaveElementInput) -> Result<Element, StorageError> {
@@ -108,6 +119,7 @@ pub fn save(root: &Path, path: &Path, input: SaveElementInput) -> Result<Element
     write(path, &meta, &input.body)?;
     Ok(Element {
         meta,
+        links: extract_links(&input.body),
         body: input.body,
     })
 }

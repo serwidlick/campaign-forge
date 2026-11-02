@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   CampaignMeta,
   Element,
-  ElementMeta,
+  ElementSummary,
   SaveElementInput,
 } from "./types";
 
@@ -29,7 +29,7 @@ export const storage = {
   },
 
   listElements() {
-    return invoke<ElementMeta[]>("list_elements");
+    return invoke<ElementSummary[]>("list_elements");
   },
 
   readElement(id: string) {

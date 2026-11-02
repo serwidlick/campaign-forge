@@ -1,17 +1,34 @@
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowRight, ArrowLeft, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/Button";
-import { kindById, type Element } from "@/lib/types";
+import {
+  elementIdFromHref,
+  kindById,
+  type Element,
+  type ElementSummary,
+} from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
+
+import {
+  ElementMention,
+  filterMentionItems,
+  type MentionKeyHandler,
+  type MentionState,
+} from "./element-mention";
+import { MentionPopup } from "./MentionPopup";
 
 const AUTOSAVE_MS = 600;
 
 interface Props {
   element: Element;
+}
+
+function getMentionItems(query: string): ElementSummary[] {
+  return filterMentionItems(useCampaignStore.getState().elements, query);
 }
 
 /**
@@ -22,11 +39,20 @@ interface Props {
 export function ElementEditor({ element }: Props) {
   const saveSelected = useCampaignStore((s) => s.saveSelected);
   const deleteElement = useCampaignStore((s) => s.deleteElement);
+  const select = useCampaignStore((s) => s.select);
+  const elements = useCampaignStore((s) => s.elements);
 
   const [name, setName] = useState(element.name);
   const [tagsText, setTagsText] = useState(element.tags.join(", "));
   const [status, setStatus] = useState<"saved" | "dirty" | "saving">("saved");
+  const [mention, setMention] = useState<MentionState | null>(null);
+  const [linkMode, setLinkMode] = useState(false);
 
+  // A plain mutable holder, not a React ref: it is handed to the Tiptap
+  // extension at construction time, which the hooks lint forbids for refs.
+  const [mentionKeysRef] = useState<{ current: MentionKeyHandler | null }>(
+    () => ({ current: null }),
+  );
   const pending = useRef<Partial<Pick<Element, "name" | "tags" | "body">>>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -56,15 +82,63 @@ export function ElementEditor({ element }: Props) {
   // Flush on unmount (element switch, campaign close, window close).
   useEffect(() => () => void flush(), [flush]);
 
+  // Ctrl/Cmd held turns element links into clickable links.
+  useEffect(() => {
+    const update = (e: KeyboardEvent) => setLinkMode(e.ctrlKey || e.metaKey);
+    const clear = () => setLinkMode(false);
+    window.addEventListener("keydown", update);
+    window.addEventListener("keyup", update);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keydown", update);
+      window.removeEventListener("keyup", update);
+      window.removeEventListener("blur", clear);
+    };
+  }, []);
+
   const editor = useEditor({
-    extensions: [StarterKit, Markdown],
+    extensions: [
+      StarterKit.configure({
+        link: {
+          openOnClick: false,
+          autolink: true,
+          protocols: [{ scheme: "cf", optionalSlashes: true }],
+        },
+      }),
+      Markdown,
+      ElementMention.configure({
+        getItems: getMentionItems,
+        onStateChange: setMention,
+        keyHandler: mentionKeysRef,
+      }),
+    ],
     content: element.body,
     contentType: "markdown",
     editorProps: {
       attributes: { class: "tiptap", spellcheck: "true" },
+      handleClick: (_view, _pos, event) => {
+        if (!(event.ctrlKey || event.metaKey)) return false;
+        const anchor = (event.target as HTMLElement | null)?.closest("a");
+        const id = elementIdFromHref(anchor?.getAttribute("href"));
+        if (!id) return false;
+        event.preventDefault();
+        void select(id);
+        return true;
+      },
     },
     onUpdate: ({ editor }) => queue({ body: editor.getMarkdown() }),
   });
+
+  const { linksTo, linkedFrom } = useMemo(() => {
+    const byId = new Map(elements.map((e) => [e.id, e]));
+    const linksTo = element.links
+      .map((id) => byId.get(id))
+      .filter((e): e is ElementSummary => Boolean(e));
+    const linkedFrom = elements.filter(
+      (e) => e.id !== element.id && e.links.includes(element.id),
+    );
+    return { linksTo, linkedFrom };
+  }, [elements, element.id, element.links]);
 
   function handleTagsBlur() {
     const tags = tagsText
@@ -128,14 +202,75 @@ export function ElementEditor({ element }: Props) {
           </Button>
         </div>
       </header>
+
       <div className="flex-1 overflow-y-auto px-8 py-6">
-        <div className="mx-auto max-w-3xl">
+        <div className={`mx-auto max-w-3xl ${linkMode ? "link-mode" : ""}`}>
           <EditorContent editor={editor} />
         </div>
+
+        {(linksTo.length > 0 || linkedFrom.length > 0) && (
+          <aside className="mx-auto mt-12 max-w-3xl border-t border-ink-800 pt-4">
+            <LinkList
+              title="Links to"
+              icon={<ArrowRight size={12} />}
+              items={linksTo}
+              onOpen={select}
+            />
+            <LinkList
+              title="Linked from"
+              icon={<ArrowLeft size={12} />}
+              items={linkedFrom}
+              onOpen={select}
+            />
+          </aside>
+        )}
       </div>
-      <footer className="border-t border-ink-800 px-6 py-1.5 font-mono text-[11px] text-ink-600">
-        {element.path}
+
+      <footer className="flex items-center justify-between border-t border-ink-800 px-6 py-1.5 text-[11px] text-ink-600">
+        <span className="font-mono">{element.path}</span>
+        <span>Type @ to link · Ctrl+click a link to follow</span>
       </footer>
+
+      {mention && (
+        <MentionPopup state={mention} keyHandlerRef={mentionKeysRef} />
+      )}
+    </div>
+  );
+}
+
+function LinkList({
+  title,
+  icon,
+  items,
+  onOpen,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  items: ElementSummary[];
+  onOpen: (id: string) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mb-3">
+      <div className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+        {icon} {title}
+      </div>
+      <ul className="flex flex-wrap gap-1.5">
+        {items.map((e) => (
+          <li key={e.id}>
+            <button
+              type="button"
+              onClick={() => onOpen(e.id)}
+              className="rounded-md bg-ink-850 px-2 py-1 text-xs text-ink-200 hover:bg-ink-800 hover:text-ink-100"
+            >
+              {e.name}
+              <span className="ml-1.5 text-ink-500">
+                {kindById(e.type).label}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

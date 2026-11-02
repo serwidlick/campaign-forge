@@ -4,7 +4,7 @@
 use tauri::State;
 
 use crate::storage::{
-    AppState, CampaignMeta, Element, ElementMeta, SaveElementInput, StorageError,
+    AppState, CampaignMeta, Element, ElementSummary, SaveElementInput, StorageError,
 };
 
 type CommandResult<T> = Result<T, String>;
@@ -36,7 +36,7 @@ pub fn get_campaign(state: State<'_, AppState>) -> CommandResult<Option<Campaign
 }
 
 #[tauri::command]
-pub fn list_elements(state: State<'_, AppState>) -> CommandResult<Vec<ElementMeta>> {
+pub fn list_elements(state: State<'_, AppState>) -> CommandResult<Vec<ElementSummary>> {
     state.list_elements().map_err(to_command_error)
 }
 

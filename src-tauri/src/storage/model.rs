@@ -36,13 +36,35 @@ pub struct ElementMeta {
     pub path: String,
 }
 
-/// A full element: frontmatter plus Markdown body.
+/// What the element list shows: frontmatter plus the ids this element links to.
+/// `links` is derived from the body on every read and never stored.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElementSummary {
+    #[serde(flatten)]
+    pub meta: ElementMeta,
+    #[serde(default)]
+    pub links: Vec<String>,
+}
+
+/// A full element: frontmatter, outgoing links and Markdown body.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Element {
     #[serde(flatten)]
     pub meta: ElementMeta,
+    #[serde(default)]
+    pub links: Vec<String>,
     pub body: String,
+}
+
+impl Element {
+    pub fn summary(&self) -> ElementSummary {
+        ElementSummary {
+            meta: self.meta.clone(),
+            links: self.links.clone(),
+        }
+    }
 }
 
 /// Payload for saving an existing element.

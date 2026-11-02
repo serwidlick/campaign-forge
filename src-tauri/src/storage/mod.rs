@@ -17,6 +17,7 @@ mod campaign;
 mod elements;
 mod error;
 mod frontmatter;
+mod links;
 mod model;
 mod slug;
 
@@ -25,7 +26,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
 pub use error::StorageError;
-pub use model::{CampaignMeta, Element, ElementMeta, SaveElementInput};
+pub use model::{CampaignMeta, Element, ElementSummary, SaveElementInput};
 
 /// The currently open campaign, if any.
 struct OpenCampaign {
@@ -68,12 +69,12 @@ impl AppState {
         Ok(meta)
     }
 
-    pub fn list_elements(&self) -> Result<Vec<ElementMeta>, StorageError> {
+    pub fn list_elements(&self) -> Result<Vec<ElementSummary>, StorageError> {
         let mut guard = self.lock()?;
         let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
-        let (metas, index) = elements::scan(&open.root)?;
+        let (summaries, index) = elements::scan(&open.root)?;
         open.index = index;
-        Ok(metas)
+        Ok(summaries)
     }
 
     pub fn read_element(&self, id: &str) -> Result<Element, StorageError> {
@@ -265,6 +266,6 @@ mod tests {
 
         let listed = state.list_elements().unwrap();
         assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].name, "Real");
+        assert_eq!(listed[0].meta.name, "Real");
     }
 }
