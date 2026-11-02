@@ -2,7 +2,15 @@ import { create } from "zustand";
 
 import { rememberCampaign } from "@/lib/recent";
 import { errorMessage, storage } from "@/lib/tauri";
-import type { CampaignMeta, Element, ElementSummary } from "@/lib/types";
+import {
+  extraOf,
+  type CampaignMeta,
+  type Element,
+  type ElementSummary,
+} from "@/lib/types";
+
+/** Any subset of an element's fields, including kind-specific ones. */
+export type ElementPatch = Partial<Element>;
 
 interface CampaignState {
   campaign: CampaignMeta | null;
@@ -24,10 +32,12 @@ interface CampaignState {
 
   refreshElements: () => Promise<void>;
   select: (id: string | null) => Promise<void>;
-  createElement: (kind: string, name: string) => Promise<Element | null>;
-  saveSelected: (
-    patch: Partial<Pick<Element, "name" | "tags" | "body">>,
-  ) => Promise<void>;
+  createElement: (
+    kind: string,
+    name: string,
+    extra?: Record<string, unknown>,
+  ) => Promise<Element | null>;
+  saveSelected: (patch: ElementPatch) => Promise<void>;
   deleteElement: (id: string) => Promise<void>;
 
   clearError: () => void;
@@ -109,10 +119,10 @@ export const useCampaignStore = create<CampaignState>((set, get) => ({
     }
   },
 
-  async createElement(kind, name) {
+  async createElement(kind, name, extra) {
     set({ error: null });
     try {
-      const element = await storage.createElement(kind, name);
+      const element = await storage.createElement(kind, name, extra);
       await get().refreshElements();
       set({ selectedId: element.id, selected: element });
       return element;
@@ -134,6 +144,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => ({
         name: next.name,
         tags: next.tags,
         body: next.body,
+        extra: extraOf(next),
       });
       // Only the metadata can differ (updatedAt); keep the user's latest body.
       if (get().selectedId === saved.id) {
@@ -145,6 +156,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => ({
             e.id === saved.id
               ? {
                   ...e,
+                  ...extraOf(saved),
                   name: saved.name,
                   tags: saved.tags,
                   updatedAt: saved.updatedAt,

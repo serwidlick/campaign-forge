@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+/// Kind-specific frontmatter fields (e.g. a session's `beats`, `arc`, `number`).
+/// Kept as loose JSON so the storage layer stays agnostic about kinds and
+/// unknown keys written by other tools survive a round trip untouched.
+pub type Extra = serde_json::Map<String, serde_json::Value>;
+
 /// Metadata for a campaign, persisted as `campaign.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +39,9 @@ pub struct ElementMeta {
     /// cleared before the frontmatter is written.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub path: String,
+    /// Every other frontmatter key, flattened into the same object on the wire.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 /// What the element list shows: frontmatter plus the ids this element links to.
@@ -76,6 +84,10 @@ pub struct SaveElementInput {
     #[serde(default)]
     pub tags: Vec<String>,
     pub body: String,
+    /// When present, replaces the element's kind-specific fields wholesale.
+    /// When absent, the existing fields are kept.
+    #[serde(default)]
+    pub extra: Option<Extra>,
 }
 
 pub fn now_rfc3339() -> String {

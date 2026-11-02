@@ -4,7 +4,7 @@
 use tauri::State;
 
 use crate::storage::{
-    AppState, CampaignMeta, Element, ElementSummary, SaveElementInput, StorageError,
+    AppState, CampaignMeta, Element, ElementSummary, Extra, SaveElementInput, StorageError,
 };
 
 type CommandResult<T> = Result<T, String>;
@@ -50,8 +50,11 @@ pub fn create_element(
     state: State<'_, AppState>,
     kind: String,
     name: String,
+    extra: Option<Extra>,
 ) -> CommandResult<Element> {
-    state.create_element(&kind, &name).map_err(to_command_error)
+    state
+        .create_element(&kind, &name, extra)
+        .map_err(to_command_error)
 }
 
 #[tauri::command]

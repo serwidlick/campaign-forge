@@ -23,6 +23,12 @@ export interface ElementMeta {
   updatedAt: string;
   /** Path relative to the campaign root, forward slashes. */
   path: string;
+  /**
+   * Kind-specific frontmatter fields, flattened onto the object by the Rust
+   * side (a session's `beats`, `arc`, `number`...). Read them through the
+   * feature's own parser, never directly.
+   */
+  [key: string]: unknown;
 }
 
 /** What the element list carries: metadata plus the ids this element links to. */
@@ -57,6 +63,32 @@ export interface SaveElementInput {
   name: string;
   tags: string[];
   body: string;
+  /** Replaces the kind-specific fields wholesale when present. */
+  extra?: Record<string, unknown>;
+}
+
+/** Keys owned by the element record itself; never part of `extra`. */
+export const RESERVED_ELEMENT_KEYS = new Set([
+  "id",
+  "type",
+  "name",
+  "tags",
+  "createdAt",
+  "updatedAt",
+  "path",
+  "links",
+  "body",
+]);
+
+/** The kind-specific fields of an element, minus nulls and undefineds. */
+export function extraOf(e: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(e)) {
+    if (!RESERVED_ELEMENT_KEYS.has(k) && v !== undefined && v !== null) {
+      out[k] = v;
+    }
+  }
+  return out;
 }
 
 /**
@@ -70,9 +102,10 @@ export interface ElementKind {
   family: ElementFamily;
 }
 
-export type ElementFamily = "people" | "places" | "things" | "story";
+export type ElementFamily = "play" | "people" | "places" | "things" | "story";
 
 export const ELEMENT_FAMILIES: { id: ElementFamily; label: string }[] = [
+  { id: "play", label: "Play" },
   { id: "people", label: "People" },
   { id: "places", label: "Places" },
   { id: "things", label: "Things" },
@@ -80,6 +113,8 @@ export const ELEMENT_FAMILIES: { id: ElementFamily; label: string }[] = [
 ];
 
 export const ELEMENT_KINDS: ElementKind[] = [
+  { id: "arc", label: "Arc", plural: "Arcs", family: "play" },
+  { id: "session", label: "Session", plural: "Sessions", family: "play" },
   {
     id: "character",
     label: "Character",

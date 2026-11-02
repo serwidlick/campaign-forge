@@ -4,10 +4,11 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { Button } from "@/components/Button";
 import { ErrorBanner } from "@/components/ErrorBanner";
+import { displayName, sortForList } from "@/features/sessions/session-model";
 import { ELEMENT_FAMILIES, ELEMENT_KINDS, kindById } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 
-import { ElementEditor } from "./ElementEditor";
+import { ElementEditorFor } from "./ElementEditorFor";
 
 // Numbers in react-resizable-panels v4 are pixels; strings without units are
 // percentages. Pixels suit sidebars, which should not scale with the window.
@@ -42,13 +43,14 @@ export function BibleScreen() {
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return elements.filter(
+    const filtered = elements.filter(
       (e) =>
         (!kindFilter || e.type === kindFilter) &&
         (!q ||
           e.name.toLowerCase().includes(q) ||
           e.tags.some((t) => t.toLowerCase().includes(q))),
     );
+    return sortForList(filtered, kindFilter);
   }, [elements, kindFilter, query]);
 
   async function handleCreate(e: FormEvent) {
@@ -215,7 +217,9 @@ export function BibleScreen() {
                     e.id === selectedId ? "bg-ink-700/60" : "hover:bg-ink-800"
                   }`}
                 >
-                  <div className="truncate text-sm text-ink-100">{e.name}</div>
+                  <div className="truncate text-sm text-ink-100">
+                    {displayName(e)}
+                  </div>
                   <div className="text-[11px] text-ink-500">
                     {kindById(e.type).label}
                     {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
@@ -231,7 +235,7 @@ export function BibleScreen() {
         {/* ---- Editor ----------------------------------------------- */}
         <Panel minSize={420} className="flex flex-col bg-ink-950">
           {selected ? (
-            <ElementEditor key={selected.id} element={selected} />
+            <ElementEditorFor key={selected.id} element={selected} />
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-ink-600">
               Select an element, or create one.

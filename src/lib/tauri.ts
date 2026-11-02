@@ -36,8 +36,12 @@ export const storage = {
     return invoke<Element>("read_element", { id });
   },
 
-  createElement(kind: string, name: string) {
-    return invoke<Element>("create_element", { kind, name });
+  createElement(kind: string, name: string, extra?: Record<string, unknown>) {
+    return invoke<Element>("create_element", {
+      kind,
+      name,
+      extra: extra ?? null,
+    });
   },
 
   saveElement(input: SaveElementInput) {

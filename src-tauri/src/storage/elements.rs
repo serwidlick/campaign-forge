@@ -8,7 +8,9 @@ use super::campaign::ELEMENTS_DIR;
 use super::error::StorageError;
 use super::frontmatter;
 use super::links::extract_links;
-use super::model::{Element, ElementMeta, ElementSummary, SaveElementInput, new_id, now_rfc3339};
+use super::model::{
+    Element, ElementMeta, ElementSummary, Extra, SaveElementInput, new_id, now_rfc3339,
+};
 use super::slug::slugify;
 
 /// Walks `elements/` and returns every element's metadata plus an id -> path index.
@@ -70,7 +72,33 @@ pub fn read(root: &Path, path: &Path) -> Result<Element, StorageError> {
     })
 }
 
-pub fn create(root: &Path, kind: &str, name: &str) -> Result<Element, StorageError> {
+/// Frontmatter keys owned by `ElementMeta` or derived at runtime. They are
+/// stripped from `extra` so a caller can never produce duplicate YAML keys.
+const RESERVED_KEYS: [&str; 9] = [
+    "id",
+    "type",
+    "name",
+    "tags",
+    "createdAt",
+    "updatedAt",
+    "path",
+    "links",
+    "body",
+];
+
+fn sanitize_extra(mut extra: Extra) -> Extra {
+    for key in RESERVED_KEYS {
+        extra.remove(key);
+    }
+    extra
+}
+
+pub fn create(
+    root: &Path,
+    kind: &str,
+    name: &str,
+    extra: Option<Extra>,
+) -> Result<Element, StorageError> {
     let name = name.trim();
     if name.is_empty() {
         return Err(StorageError::InvalidInput("element name is empty".into()));
@@ -89,6 +117,7 @@ pub fn create(root: &Path, kind: &str, name: &str) -> Result<Element, StorageErr
         created_at: now.clone(),
         updated_at: now,
         path: relative(root, &path),
+        extra: sanitize_extra(extra.unwrap_or_default()),
     };
     let body = format!("# {name}\n");
     write(&path, &meta, &body)?;
@@ -114,6 +143,10 @@ pub fn save(root: &Path, path: &Path, input: SaveElementInput) -> Result<Element
             .filter(|t| !t.is_empty())
             .collect(),
         updated_at: now_rfc3339(),
+        extra: match input.extra {
+            Some(extra) => sanitize_extra(extra),
+            None => existing.meta.extra,
+        },
         ..existing.meta
     };
     write(path, &meta, &input.body)?;

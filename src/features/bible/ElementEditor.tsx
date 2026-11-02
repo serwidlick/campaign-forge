@@ -11,7 +11,7 @@ import {
   type Element,
   type ElementSummary,
 } from "@/lib/types";
-import { useCampaignStore } from "@/stores/campaign-store";
+import { useCampaignStore, type ElementPatch } from "@/stores/campaign-store";
 
 import {
   ElementMention,
@@ -25,6 +25,8 @@ const AUTOSAVE_MS = 600;
 
 interface Props {
   element: Element;
+  /** Kind-specific controls rendered between the header and the body. */
+  panel?: React.ReactNode;
 }
 
 function getMentionItems(query: string): ElementSummary[] {
@@ -36,7 +38,7 @@ function getMentionItems(query: string): ElementSummary[] {
  * when the selection changes; the component owns a debounced autosave and
  * flushes it on unmount.
  */
-export function ElementEditor({ element }: Props) {
+export function ElementEditor({ element, panel }: Props) {
   const saveSelected = useCampaignStore((s) => s.saveSelected);
   const deleteElement = useCampaignStore((s) => s.deleteElement);
   const select = useCampaignStore((s) => s.select);
@@ -53,7 +55,7 @@ export function ElementEditor({ element }: Props) {
   const [mentionKeysRef] = useState<{ current: MentionKeyHandler | null }>(
     () => ({ current: null }),
   );
-  const pending = useRef<Partial<Pick<Element, "name" | "tags" | "body">>>({});
+  const pending = useRef<ElementPatch>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flush = useCallback(async () => {
@@ -70,7 +72,7 @@ export function ElementEditor({ element }: Props) {
   }, [saveSelected]);
 
   const queue = useCallback(
-    (patch: Partial<Pick<Element, "name" | "tags" | "body">>) => {
+    (patch: ElementPatch) => {
       pending.current = { ...pending.current, ...patch };
       setStatus("dirty");
       if (timer.current) clearTimeout(timer.current);
@@ -204,6 +206,7 @@ export function ElementEditor({ element }: Props) {
       </header>
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
+        {panel && <div className="mx-auto mb-8 max-w-3xl">{panel}</div>}
         <div className={`mx-auto max-w-3xl ${linkMode ? "link-mode" : ""}`}>
           <EditorContent editor={editor} />
         </div>

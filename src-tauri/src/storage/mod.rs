@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
 pub use error::StorageError;
-pub use model::{CampaignMeta, Element, ElementSummary, SaveElementInput};
+pub use model::{CampaignMeta, Element, ElementSummary, Extra, SaveElementInput};
 
 /// The currently open campaign, if any.
 struct OpenCampaign {
@@ -87,10 +87,15 @@ impl AppState {
         elements::read(&open.root, path)
     }
 
-    pub fn create_element(&self, kind: &str, name: &str) -> Result<Element, StorageError> {
+    pub fn create_element(
+        &self,
+        kind: &str,
+        name: &str,
+        extra: Option<Extra>,
+    ) -> Result<Element, StorageError> {
         let mut guard = self.lock()?;
         let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
-        let element = elements::create(&open.root, kind, name)?;
+        let element = elements::create(&open.root, kind, name, extra)?;
         open.index
             .insert(element.meta.id.clone(), open.root.join(&element.meta.path));
         Ok(element)
@@ -181,7 +186,7 @@ mod tests {
         assert!(root.0.join("campaign.json").is_file());
 
         let created = state
-            .create_element("Location", "The Rusty Tankard")
+            .create_element("Location", "The Rusty Tankard", None)
             .unwrap();
         assert_eq!(created.meta.kind, "location");
         assert_eq!(created.meta.path, "elements/location/the-rusty-tankard.md");
@@ -190,7 +195,7 @@ mod tests {
 
         // Same name again gets a distinct file but a distinct id.
         let twin = state
-            .create_element("location", "The Rusty Tankard")
+            .create_element("location", "The Rusty Tankard", None)
             .unwrap();
         assert_ne!(twin.meta.id, created.meta.id);
         assert_eq!(twin.meta.path, "elements/location/the-rusty-tankard-2.md");
@@ -202,6 +207,7 @@ mod tests {
                 name: "The Rusty Tankard (renamed)".into(),
                 tags: vec!["tavern".into(), " ".into(), "waterdeep".into()],
                 body: "# Renamed\n\nA **dockside** tavern.\n".into(),
+                extra: None,
             })
             .unwrap();
         assert_eq!(saved.meta.tags, vec!["tavern", "waterdeep"]);
@@ -253,13 +259,73 @@ mod tests {
     }
 
     #[test]
+    fn extra_fields_round_trip_and_reserved_keys_are_stripped() {
+        let root = TempRoot::new("extra");
+        let state = AppState::default();
+        state
+            .create_campaign(root.path(), "Extra".into(), None)
+            .unwrap();
+
+        let initial: Extra = serde_json::from_str(
+            r#"{"arc":"arc-1","number":3,"status":"planned","name":"EVIL","type":"EVIL"}"#,
+        )
+        .unwrap();
+        let created = state
+            .create_element("session", "Session 3", Some(initial))
+            .unwrap();
+        assert_eq!(created.meta.name, "Session 3");
+        assert_eq!(created.meta.kind, "session");
+        assert_eq!(created.meta.extra["arc"], "arc-1");
+        assert_eq!(created.meta.extra["number"], 3);
+        assert!(!created.meta.extra.contains_key("name"));
+        assert!(!created.meta.extra.contains_key("type"));
+
+        // Save without `extra` keeps the fields; save with `extra` replaces them.
+        let kept = state
+            .save_element(SaveElementInput {
+                id: created.meta.id.clone(),
+                name: "Session 3".into(),
+                tags: vec![],
+                body: "notes".into(),
+                extra: None,
+            })
+            .unwrap();
+        assert_eq!(kept.meta.extra["status"], "planned");
+
+        let replaced: Extra = serde_json::from_str(
+            r#"{"arc":"arc-1","number":3,"status":"played","beats":[{"id":"b1","title":"Arrive","role":"beat","done":true,"notes":""}]}"#,
+        )
+        .unwrap();
+        state
+            .save_element(SaveElementInput {
+                id: created.meta.id.clone(),
+                name: "Session 3".into(),
+                tags: vec![],
+                body: "notes".into(),
+                extra: Some(replaced),
+            })
+            .unwrap();
+
+        // Reopen from disk: structured fields survive the YAML round trip.
+        let fresh = AppState::default();
+        fresh.open_campaign(root.path()).unwrap();
+        let read = fresh.read_element(&created.meta.id).unwrap();
+        assert_eq!(read.meta.extra["status"], "played");
+        assert_eq!(read.meta.extra["beats"][0]["title"], "Arrive");
+        assert_eq!(read.meta.extra["beats"][0]["done"], true);
+        assert_eq!(read.meta.extra["number"], 3);
+        let listed = fresh.list_elements().unwrap();
+        assert_eq!(listed[0].meta.extra["arc"], "arc-1");
+    }
+
+    #[test]
     fn scan_skips_stray_markdown_without_frontmatter() {
         let root = TempRoot::new("stray");
         let state = AppState::default();
         state
             .create_campaign(root.path(), "Stray".into(), None)
             .unwrap();
-        state.create_element("lore", "Real").unwrap();
+        state.create_element("lore", "Real", None).unwrap();
 
         let stray_dir = root.0.join("elements").join("lore");
         std::fs::write(stray_dir.join("notes.md"), "# just notes\n").unwrap();
