@@ -67,6 +67,13 @@ export interface SaveElementInput {
   extra?: Record<string, unknown>;
 }
 
+export interface ImportedImage {
+  /** Path relative to the campaign root. */
+  path: string;
+  width: number;
+  height: number;
+}
+
 /** Keys owned by the element record itself; never part of `extra`. */
 export const RESERVED_ELEMENT_KEYS = new Set([
   "id",
@@ -124,6 +131,7 @@ export const ELEMENT_KINDS: ElementKind[] = [
   { id: "faction", label: "Faction", plural: "Factions", family: "people" },
   { id: "creature", label: "Creature", plural: "Creatures", family: "people" },
   { id: "location", label: "Location", plural: "Locations", family: "places" },
+  { id: "map", label: "Map", plural: "Maps", family: "places" },
   { id: "item", label: "Item", plural: "Items", family: "things" },
   { id: "quest", label: "Quest", plural: "Quests", family: "story" },
   { id: "event", label: "Event", plural: "Events", family: "story" },

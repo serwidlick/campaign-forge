@@ -8,6 +8,7 @@ import type {
   CampaignMeta,
   Element,
   ElementSummary,
+  ImportedImage,
   SaveElementInput,
 } from "./types";
 
@@ -50,6 +51,29 @@ export const storage = {
 
   deleteElement(id: string) {
     return invoke<void>("delete_element", { id });
+  },
+
+  /** Copies an image into the campaign's assets folder for a map element. */
+  importMapImage(mapId: string, source: string) {
+    return invoke<ImportedImage>("import_map_image", { mapId, source });
+  },
+
+  /** Imports image bytes (base64) for a map element. */
+  importMapImageBytes(mapId: string, dataBase64: string) {
+    return invoke<ImportedImage>("import_map_image_bytes", {
+      mapId,
+      dataBase64,
+    });
+  },
+
+  /** Downloads an http(s) image and imports it for a map element. */
+  importMapImageFromUrl(mapId: string, url: string) {
+    return invoke<ImportedImage>("import_map_image_from_url", { mapId, url });
+  },
+
+  /** Raw bytes of an asset by campaign-relative path. */
+  readAsset(path: string) {
+    return invoke<ArrayBuffer>("read_asset", { path });
   },
 };
 

@@ -41,6 +41,7 @@ interface CampaignState {
   deleteElement: (id: string) => Promise<void>;
 
   clearError: () => void;
+  setError: (message: string) => void;
 }
 
 export const useCampaignStore = create<CampaignState>((set, get) => ({
@@ -185,5 +186,9 @@ export const useCampaignStore = create<CampaignState>((set, get) => ({
 
   clearError() {
     set({ error: null });
+  },
+
+  setError(message) {
+    set({ error: message });
   },
 }));

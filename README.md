@@ -13,9 +13,10 @@ Early scaffold. What works today:
 - Rich text editing that reads and writes Markdown
 - Links between elements: type `@` to insert one, Ctrl+click to follow, and every element lists what it links to and what links to it
 - Arcs and sessions: a session has a number, date, status and an ordered list of beats, with one beat marked as the main encounter and one as the cliffhanger; an arc lists its sessions in play order
+- Maps: import an image (file picker, or drag and drop from Explorer or a browser), pan and zoom or lock the view, choose how the image is framed, drop pins linked to elements, draw named routes, calibrate a scale once, then measure as the crow flies or along a route for distance and travel time on foot, horseback or by wagon
 - Recent campaigns list
 
-Planned: world map, timeline, journals with @-mentions, split-screen panes, and an opt-in AI assistant that uses your own API key.
+Planned: map territories and nested maps, timeline, journals with @-mentions, split-screen panes, and an opt-in AI assistant that uses your own API key.
 
 ## On-disk format
 
@@ -27,6 +28,11 @@ Planned: world map, timeline, journals with @-mentions, split-screen panes, and 
       the-rusty-tankard-keeper.md
     location/
       the-rusty-tankard.md
+    map/
+      sword-coast.md
+  assets/
+    maps/
+      sword-coast.png
 ```
 
 Each element is a Markdown file with YAML frontmatter:

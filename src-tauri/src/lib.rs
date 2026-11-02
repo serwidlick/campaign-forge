@@ -19,6 +19,10 @@ pub fn run() {
             commands::create_element,
             commands::save_element,
             commands::delete_element,
+            commands::import_map_image,
+            commands::import_map_image_bytes,
+            commands::import_map_image_from_url,
+            commands::read_asset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -185,7 +185,7 @@ fn unique_path(dir: &Path, slug: &str) -> PathBuf {
         .expect("unbounded range always yields a free path")
 }
 
-fn relative(root: &Path, path: &Path) -> String {
+pub(super) fn relative(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
         .to_string_lossy()

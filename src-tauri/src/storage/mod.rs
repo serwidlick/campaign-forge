@@ -13,6 +13,7 @@
 //! paths so lookups do not need a directory walk on every call; it is rebuilt
 //! whenever a campaign is opened and kept in sync by the mutating methods.
 
+mod assets;
 mod campaign;
 mod elements;
 mod error;
@@ -25,6 +26,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
+pub use assets::{ImportedImage, MAX_IMAGE_BYTES};
 pub use error::StorageError;
 pub use model::{CampaignMeta, Element, ElementSummary, Extra, SaveElementInput};
 
@@ -121,6 +123,38 @@ impl AppState {
         elements::delete(&path)
     }
 
+    /// Copies an image file into the campaign's assets folder for the given
+    /// map element and returns its relative path and size.
+    pub fn import_map_image(
+        &self,
+        map_id: &str,
+        source: &str,
+    ) -> Result<ImportedImage, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        let stem = map_stem(&open.index, map_id);
+        assets::import_image(&open.root, "maps", stem, std::path::Path::new(source))
+    }
+
+    /// Same as [`Self::import_map_image`] but from bytes already in memory
+    /// (drag and drop from a browser, a download).
+    pub fn import_map_image_bytes(
+        &self,
+        map_id: &str,
+        bytes: &[u8],
+    ) -> Result<ImportedImage, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        let stem = map_stem(&open.index, map_id);
+        assets::import_image_bytes(&open.root, "maps", stem, bytes)
+    }
+
+    pub fn read_asset(&self, rel: &str) -> Result<Vec<u8>, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        assets::read(&open.root, rel)
+    }
+
     fn set_open(&self, root: PathBuf, meta: CampaignMeta) -> Result<(), StorageError> {
         let (_, index) = elements::scan(&root)?;
         let mut guard = self.lock()?;
@@ -131,6 +165,16 @@ impl AppState {
     fn lock(&self) -> Result<MutexGuard<'_, Option<OpenCampaign>>, StorageError> {
         self.inner.lock().map_err(|_| StorageError::Poisoned)
     }
+}
+
+/// File stem for assets belonging to an element: its Markdown file's stem,
+/// or "map" when the element is unknown.
+fn map_stem<'a>(index: &'a HashMap<String, PathBuf>, id: &str) -> &'a str {
+    index
+        .get(id)
+        .and_then(|p| p.file_stem())
+        .and_then(|s| s.to_str())
+        .unwrap_or("map")
 }
 
 #[cfg(test)]

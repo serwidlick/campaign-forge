@@ -1,3 +1,4 @@
+import { MapPanel } from "@/features/map/MapPanel";
 import { ArcPanel } from "@/features/sessions/ArcPanel";
 import { SessionPanel } from "@/features/sessions/SessionPanel";
 import type { Element } from "@/lib/types";
@@ -22,6 +23,13 @@ export function ElementEditorFor({ element }: { element: Element }) {
         <ElementEditor
           element={element}
           panel={<ArcPanel element={element} />}
+        />
+      );
+    case "map":
+      return (
+        <ElementEditor
+          element={element}
+          panel={<MapPanel element={element} />}
         />
       );
     default:
