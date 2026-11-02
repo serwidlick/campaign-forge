@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #0e0f13;
+  --color-ink-900: #15171d;
+  --color-ink-850: #1b1e26;
+  --color-ink-800: #22262f;
+  --color-ink-700: #2e333e;
+  --color-ink-600: #434a58;
+  --color-ink-400: #7d8595;
+  --color-ink-300: #a3abba;
+  --color-ink-200: #cfd4de;
+  --color-ink-100: #eceef2;
+  --color-ember-500: #d9833b;
+  --color-ember-400: #e69a57;
+  --color-ember-300: #f0b47d;
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-serif: Georgia, "Times New Roman", serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  @apply bg-ink-950 text-ink-100 antialiased;
+  font-family: var(--font-sans);
+  overscroll-behavior: none;
+}
+
+/* Thin, unobtrusive scrollbars (WebView2 / WebKit) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+
+/* ---- Tiptap editor ---------------------------------------------------- */
+
+.tiptap {
+  outline: none;
+  min-height: 100%;
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: var(--color-ink-100);
+}
+
+.tiptap > * + * {
+  margin-top: 0.75em;
+}
+
+.tiptap h1 {
+  font-size: 2rem;
+  line-height: 1.2;
+  font-weight: 600;
+  margin-top: 1.4em;
+}
+
+.tiptap h2 {
+  font-size: 1.5rem;
+  line-height: 1.3;
+  font-weight: 600;
+  margin-top: 1.4em;
+}
+
+.tiptap h3 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-top: 1.2em;
+}
+
+.tiptap h1:first-child,
+.tiptap h2:first-child {
+  margin-top: 0;
+}
+
+.tiptap ul,
+.tiptap ol {
+  padding-left: 1.5rem;
+}
+
+.tiptap ul {
+  list-style: disc;
+}
+
+.tiptap ol {
+  list-style: decimal;
+}
+
+.tiptap blockquote {
+  border-left: 3px solid var(--color-ember-500);
+  padding-left: 1rem;
+  color: var(--color-ink-300);
+  font-style: italic;
+}
+
+.tiptap code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--color-ink-800);
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+}
+
+.tiptap pre {
+  background: var(--color-ink-800);
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+}
+
+.tiptap pre code {
+  background: none;
+  padding: 0;
+}
+
+.tiptap hr {
+  border: none;
+  border-top: 1px solid var(--color-ink-700);
+  margin: 1.5em 0;
+}
+
+.tiptap a {
+  color: var(--color-ember-400);
+  text-decoration: underline;
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-ink-600);
+  pointer-events: none;
+  height: 0;
+}

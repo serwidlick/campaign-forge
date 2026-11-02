@@ -1,0 +1,12 @@
+pnpm exec lint-staged
+
+# Typecheck after lint-staged so we see the post-fix state of staged files.
+echo "Typechecking..."
+pnpm typecheck
+
+# Rust check only when a toolchain is present (it is optional on dev machines
+# that only touch the frontend). CI always runs it.
+if command -v cargo >/dev/null 2>&1; then
+  echo "cargo check..."
+  (cd src-tauri && cargo check --quiet)
+fi

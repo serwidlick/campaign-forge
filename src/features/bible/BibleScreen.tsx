@@ -1,0 +1,269 @@
+import { ChevronLeft, Plus, Search } from "lucide-react";
+import { useMemo, useState, type FormEvent } from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
+
+import { Button } from "@/components/Button";
+import { ErrorBanner } from "@/components/ErrorBanner";
+import { ELEMENT_FAMILIES, ELEMENT_KINDS, kindById } from "@/lib/types";
+import { useCampaignStore } from "@/stores/campaign-store";
+
+import { ElementEditor } from "./ElementEditor";
+
+// Numbers in react-resizable-panels v4 are pixels; strings without units are
+// percentages. Pixels suit sidebars, which should not scale with the window.
+const SEPARATOR_CLASS =
+  "w-1 shrink-0 bg-ink-800 transition-colors hover:bg-ember-500/70 focus-visible:bg-ember-500 data-[separator=active]:bg-ember-500";
+
+export function BibleScreen() {
+  const campaign = useCampaignStore((s) => s.campaign);
+  const elements = useCampaignStore((s) => s.elements);
+  const selectedId = useCampaignStore((s) => s.selectedId);
+  const selected = useCampaignStore((s) => s.selected);
+  const select = useCampaignStore((s) => s.select);
+  const createElement = useCampaignStore((s) => s.createElement);
+  const closeCampaign = useCampaignStore((s) => s.closeCampaign);
+
+  const [kindFilter, setKindFilter] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [newName, setNewName] = useState<string | null>(null);
+  const [newKind, setNewKind] = useState<string>("character");
+
+  function openNewForm() {
+    // Inside a kind, the kind is implied. On "Everything" the user picks one.
+    setNewKind(kindFilter ?? "character");
+    setNewName("");
+  }
+
+  const counts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of elements) map.set(e.type, (map.get(e.type) ?? 0) + 1);
+    return map;
+  }, [elements]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return elements.filter(
+      (e) =>
+        (!kindFilter || e.type === kindFilter) &&
+        (!q ||
+          e.name.toLowerCase().includes(q) ||
+          e.tags.some((t) => t.toLowerCase().includes(q))),
+    );
+  }, [elements, kindFilter, query]);
+
+  async function handleCreate(e: FormEvent) {
+    e.preventDefault();
+    if (!newName?.trim()) return;
+    await createElement(kindFilter ?? newKind, newName.trim());
+    setNewName(null);
+  }
+
+  if (!campaign) return null;
+
+  return (
+    <div className="flex h-full flex-col">
+      <ErrorBanner />
+      <Group orientation="horizontal" className="flex-1">
+        {/* ---- Kinds sidebar ---------------------------------------- */}
+        <Panel
+          defaultSize={230}
+          minSize={170}
+          maxSize={380}
+          className="flex flex-col bg-ink-900"
+        >
+          <header className="border-b border-ink-800 px-3 py-3">
+            <button
+              type="button"
+              onClick={closeCampaign}
+              className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink-200"
+            >
+              <ChevronLeft size={14} /> Campaigns
+            </button>
+            <h1 className="mt-1 truncate font-serif text-lg font-semibold">
+              {campaign.name}
+            </h1>
+            {campaign.system && (
+              <p className="text-xs text-ink-400">{campaign.system}</p>
+            )}
+          </header>
+          <nav className="flex-1 overflow-y-auto px-2 py-2">
+            <KindRow
+              label="Everything"
+              count={elements.length}
+              active={kindFilter === null}
+              onClick={() => setKindFilter(null)}
+            />
+            {ELEMENT_FAMILIES.map((family) => (
+              <div key={family.id} className="mt-3">
+                <div className="px-2 text-[10px] font-semibold uppercase tracking-wider text-ink-600">
+                  {family.label}
+                </div>
+                {ELEMENT_KINDS.filter((k) => k.family === family.id).map(
+                  (k) => (
+                    <KindRow
+                      key={k.id}
+                      label={k.plural}
+                      count={counts.get(k.id) ?? 0}
+                      active={kindFilter === k.id}
+                      onClick={() => setKindFilter(k.id)}
+                    />
+                  ),
+                )}
+              </div>
+            ))}
+          </nav>
+        </Panel>
+
+        <Separator className={SEPARATOR_CLASS} />
+
+        {/* ---- Element list ----------------------------------------- */}
+        <Panel
+          defaultSize={300}
+          minSize={210}
+          maxSize={520}
+          className="flex flex-col bg-ink-850"
+        >
+          <div className="flex items-center gap-2 border-b border-ink-800 px-3 py-2">
+            <div className="flex flex-1 items-center gap-2 rounded-md bg-ink-900 px-2 py-1.5">
+              <Search size={14} className="text-ink-500" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={
+                  kindFilter
+                    ? `Search ${kindById(kindFilter).plural.toLowerCase()}…`
+                    : "Search…"
+                }
+                className="w-full bg-transparent text-sm text-ink-100 outline-none placeholder:text-ink-600"
+              />
+            </div>
+            <Button size="sm" onClick={openNewForm} aria-label="New element">
+              <Plus size={14} /> New
+            </Button>
+          </div>
+
+          {newName !== null && (
+            <form
+              onSubmit={handleCreate}
+              className="border-b border-ink-800 px-3 py-2"
+            >
+              {kindFilter ? (
+                <p className="mb-1 text-[11px] text-ink-400">
+                  New {kindById(kindFilter).label.toLowerCase()}
+                </p>
+              ) : (
+                <label className="mb-2 block text-[11px] text-ink-400">
+                  What are you creating?
+                  <select
+                    autoFocus
+                    value={newKind}
+                    onChange={(e) => setNewKind(e.target.value)}
+                    onKeyDown={(e) => e.key === "Escape" && setNewName(null)}
+                    className="mt-1 w-full rounded-md border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm text-ink-100 outline-none focus:border-ember-500"
+                  >
+                    {ELEMENT_FAMILIES.map((family) => (
+                      <optgroup key={family.id} label={family.label}>
+                        {ELEMENT_KINDS.filter(
+                          (k) => k.family === family.id,
+                        ).map((k) => (
+                          <option key={k.id} value={k.id}>
+                            {k.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <input
+                autoFocus={kindFilter !== null}
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && setNewName(null)}
+                placeholder="Name"
+                className="w-full rounded-md border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm outline-none focus:border-ember-500"
+              />
+              <div className="mt-2 flex gap-2">
+                <Button size="sm" type="submit" disabled={!newName.trim()}>
+                  Create
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setNewName(null)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          )}
+
+          <ul className="flex-1 overflow-y-auto py-1">
+            {visible.length === 0 && (
+              <li className="px-4 py-6 text-center text-sm text-ink-500">
+                {elements.length === 0
+                  ? "Nothing here yet. Create your first element."
+                  : "No matches."}
+              </li>
+            )}
+            {visible.map((e) => (
+              <li key={e.id}>
+                <button
+                  type="button"
+                  onClick={() => void select(e.id)}
+                  className={`w-full px-4 py-2 text-left transition-colors ${
+                    e.id === selectedId ? "bg-ink-700/60" : "hover:bg-ink-800"
+                  }`}
+                >
+                  <div className="truncate text-sm text-ink-100">{e.name}</div>
+                  <div className="text-[11px] text-ink-500">
+                    {kindById(e.type).label}
+                    {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+
+        <Separator className={SEPARATOR_CLASS} />
+
+        {/* ---- Editor ----------------------------------------------- */}
+        <Panel minSize={420} className="flex flex-col bg-ink-950">
+          {selected ? (
+            <ElementEditor key={selected.id} element={selected} />
+          ) : (
+            <div className="flex flex-1 items-center justify-center text-sm text-ink-600">
+              Select an element, or create one.
+            </div>
+          )}
+        </Panel>
+      </Group>
+    </div>
+  );
+}
+
+function KindRow({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
+        active ? "bg-ink-700/60 text-ink-100" : "text-ink-300 hover:bg-ink-800"
+      }`}
+    >
+      <span>{label}</span>
+      <span className="text-xs text-ink-500">{count}</span>
+    </button>
+  );
+}
