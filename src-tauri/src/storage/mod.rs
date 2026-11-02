@@ -20,6 +20,7 @@ mod error;
 mod frontmatter;
 mod links;
 mod model;
+mod search;
 mod slug;
 
 use std::collections::HashMap;
@@ -29,6 +30,7 @@ use std::sync::{Mutex, MutexGuard};
 pub use assets::{ImportedImage, MAX_IMAGE_BYTES};
 pub use error::StorageError;
 pub use model::{CampaignMeta, Element, ElementSummary, Extra, SaveElementInput};
+pub use search::SearchHit;
 
 /// The currently open campaign, if any.
 struct OpenCampaign {
@@ -147,6 +149,17 @@ impl AppState {
         let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
         let stem = map_stem(&open.index, map_id);
         assets::import_image_bytes(&open.root, "maps", stem, bytes)
+    }
+
+    /// Case-insensitive text search over names, tags and bodies.
+    pub fn search_elements(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchHit>, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        search::search(&open.root, &open.index, query, limit)
     }
 
     pub fn read_asset(&self, rel: &str) -> Result<Vec<u8>, StorageError> {

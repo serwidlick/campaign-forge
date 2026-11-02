@@ -218,3 +218,103 @@ body {
   color: var(--color-ink-200) !important;
   border-color: var(--color-ink-700) !important;
 }
+
+/* ---- Assistant chat ------------------------------------------------- */
+
+.chat-md {
+  line-height: 1.55;
+}
+
+.chat-md > * + * {
+  margin-top: 0.5em;
+}
+
+.chat-md h1,
+.chat-md h2,
+.chat-md h3 {
+  font-weight: 600;
+  margin-top: 0.9em;
+}
+
+.chat-md h1 {
+  font-size: 1.1rem;
+}
+
+.chat-md h2 {
+  font-size: 1rem;
+}
+
+.chat-md h3 {
+  font-size: 0.95rem;
+}
+
+.chat-md ul,
+.chat-md ol {
+  padding-left: 1.25rem;
+}
+
+.chat-md ul {
+  list-style: disc;
+}
+
+.chat-md ol {
+  list-style: decimal;
+}
+
+.chat-md li + li {
+  margin-top: 0.2em;
+}
+
+.chat-md code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.85em;
+  background: var(--color-ink-800);
+  padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
+}
+
+.chat-md pre {
+  background: var(--color-ink-800);
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.4rem;
+  overflow-x: auto;
+}
+
+.chat-md pre code {
+  background: none;
+  padding: 0;
+}
+
+.chat-md blockquote {
+  border-left: 3px solid var(--color-ember-500);
+  padding-left: 0.75rem;
+  color: var(--color-ink-300);
+}
+
+.chat-md a {
+  color: var(--color-ember-400);
+  text-decoration: underline;
+}
+
+.chat-md table {
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.chat-md th,
+.chat-md td {
+  border: 1px solid var(--color-ink-700);
+  padding: 0.2em 0.5em;
+}
+
+.element-chip {
+  color: var(--color-ember-300);
+  background: color-mix(in srgb, var(--color-ember-500) 14%, transparent);
+  border-radius: 0.3rem;
+  padding: 0.05em 0.35em;
+  cursor: pointer;
+}
+
+.element-chip:hover {
+  background: color-mix(in srgb, var(--color-ember-500) 26%, transparent);
+}

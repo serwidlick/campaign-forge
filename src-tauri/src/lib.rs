@@ -1,4 +1,5 @@
 mod commands;
+mod secrets;
 mod storage;
 
 use storage::AppState;
@@ -9,6 +10,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_http::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::create_campaign,
@@ -23,6 +25,10 @@ pub fn run() {
             commands::import_map_image_bytes,
             commands::import_map_image_from_url,
             commands::read_asset,
+            commands::search_elements,
+            secrets::get_api_key,
+            secrets::set_api_key,
+            secrets::clear_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

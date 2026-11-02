@@ -16,6 +16,8 @@ interface CampaignState {
   campaign: CampaignMeta | null;
   elements: ElementSummary[];
   selectedId: string | null;
+  /** Bumped when something other than the editor rewrites the selected element. */
+  selectedRevision: number;
   selected: Element | null;
   busy: boolean;
   error: string | null;
@@ -42,12 +44,15 @@ interface CampaignState {
 
   clearError: () => void;
   setError: (message: string) => void;
+  /** Re-read the selected element from disk after an external change. */
+  reloadSelected: () => Promise<void>;
 }
 
 export const useCampaignStore = create<CampaignState>((set, get) => ({
   campaign: null,
   elements: [],
   selectedId: null,
+  selectedRevision: 0,
   selected: null,
   busy: false,
   error: null,
@@ -179,6 +184,19 @@ export const useCampaignStore = create<CampaignState>((set, get) => ({
       const wasSelected = get().selectedId === id;
       await get().refreshElements();
       if (wasSelected) set({ selectedId: null, selected: null });
+    } catch (err) {
+      set({ error: errorMessage(err) });
+    }
+  },
+
+  async reloadSelected() {
+    const id = get().selectedId;
+    if (!id) return;
+    try {
+      const selected = await storage.readElement(id);
+      if (get().selectedId === id) {
+        set((s) => ({ selected, selectedRevision: s.selectedRevision + 1 }));
+      }
     } catch (err) {
       set({ error: errorMessage(err) });
     }

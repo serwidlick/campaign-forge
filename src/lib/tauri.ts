@@ -10,6 +10,7 @@ import type {
   ElementSummary,
   ImportedImage,
   SaveElementInput,
+  SearchHit,
 } from "./types";
 
 export const storage = {
@@ -71,6 +72,11 @@ export const storage = {
     return invoke<ImportedImage>("import_map_image_from_url", { mapId, url });
   },
 
+  /** Case-insensitive text search over names, tags and bodies. */
+  searchElements(query: string, limit = 20) {
+    return invoke<SearchHit[]>("search_elements", { query, limit });
+  },
+
   /** Raw bytes of an asset by campaign-relative path. */
   readAsset(path: string) {
     return invoke<ArrayBuffer>("read_asset", { path });
@@ -83,3 +89,16 @@ export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
 }
+
+/** The user's Anthropic API key, held in the OS credential store. */
+export const secrets = {
+  getApiKey() {
+    return invoke<string | null>("get_api_key");
+  },
+  setApiKey(key: string) {
+    return invoke<void>("set_api_key", { key });
+  },
+  clearApiKey() {
+    return invoke<void>("clear_api_key");
+  },
+};

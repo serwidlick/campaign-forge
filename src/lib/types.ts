@@ -74,6 +74,14 @@ export interface ImportedImage {
   height: number;
 }
 
+export interface SearchHit {
+  id: string;
+  type: string;
+  name: string;
+  snippet: string;
+  matchedIn: "name" | "tag" | "body";
+}
+
 /** Keys owned by the element record itself; never part of `extra`. */
 export const RESERVED_ELEMENT_KEYS = new Set([
   "id",

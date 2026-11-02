@@ -14,9 +14,10 @@ Early scaffold. What works today:
 - Links between elements: type `@` to insert one, Ctrl+click to follow, and every element lists what it links to and what links to it
 - Arcs and sessions: a session has a number, date, status and an ordered list of beats, with one beat marked as the main encounter and one as the cliffhanger; an arc lists its sessions in play order
 - Maps: import an image (file picker, or drag and drop from Explorer or a browser), pan and zoom or lock the view, choose how the image is framed, drop pins linked to elements, draw named routes, calibrate a scale once, then measure as the crow flies or along a route for distance and travel time on foot, horseback or by wagon
+- Assistant: an opt-in chat pane that answers questions about the campaign by searching, listing and reading your elements, and links everything it mentions. Uses your own Anthropic API key, stored in the OS credential manager
 - Recent campaigns list
 
-Planned: map territories and nested maps, timeline, journals with @-mentions, split-screen panes, and an opt-in AI assistant that uses your own API key.
+Planned: map territories and nested maps, timeline, journals, split-screen panes, and assistant tools that can draft changes for you to accept.
 
 ## On-disk format
 

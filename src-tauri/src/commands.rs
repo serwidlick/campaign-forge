@@ -6,7 +6,7 @@ use tauri::State;
 
 use crate::storage::{
     AppState, CampaignMeta, Element, ElementSummary, Extra, ImportedImage, MAX_IMAGE_BYTES,
-    SaveElementInput, StorageError,
+    SaveElementInput, SearchHit, StorageError,
 };
 
 type CommandResult<T> = Result<T, String>;
@@ -77,6 +77,17 @@ pub fn import_map_image(
 ) -> CommandResult<ImportedImage> {
     state
         .import_map_image(&map_id, &source)
+        .map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn search_elements(
+    state: State<'_, AppState>,
+    query: String,
+    limit: Option<usize>,
+) -> CommandResult<Vec<SearchHit>> {
+    state
+        .search_elements(&query, limit.unwrap_or(20).clamp(1, 100))
         .map_err(to_command_error)
 }
 

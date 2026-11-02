@@ -1,9 +1,10 @@
-import { ChevronLeft, Plus, Search } from "lucide-react";
+import { ChevronLeft, Plus, Search, Sparkles } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { Button } from "@/components/Button";
 import { ErrorBanner } from "@/components/ErrorBanner";
+import { AgentPane } from "@/features/agent/AgentPane";
 import { displayName, sortForList } from "@/features/sessions/session-model";
 import { ELEMENT_FAMILIES, ELEMENT_KINDS, kindById } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
@@ -20,6 +21,7 @@ export function BibleScreen() {
   const elements = useCampaignStore((s) => s.elements);
   const selectedId = useCampaignStore((s) => s.selectedId);
   const selected = useCampaignStore((s) => s.selected);
+  const selectedRevision = useCampaignStore((s) => s.selectedRevision);
   const select = useCampaignStore((s) => s.select);
   const createElement = useCampaignStore((s) => s.createElement);
   const closeCampaign = useCampaignStore((s) => s.closeCampaign);
@@ -28,6 +30,24 @@ export function BibleScreen() {
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState<string | null>(null);
   const [newKind, setNewKind] = useState<string>("character");
+  const [agentOpen, setAgentOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("cf.agentOpen") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  function toggleAgent() {
+    setAgentOpen((open) => {
+      try {
+        localStorage.setItem("cf.agentOpen", open ? "0" : "1");
+      } catch {
+        /* per-viewer convenience only */
+      }
+      return !open;
+    });
+  }
 
   function openNewForm() {
     // Inside a kind, the kind is implied. On "Everything" the user picks one.
@@ -74,13 +94,29 @@ export function BibleScreen() {
           className="flex flex-col bg-ink-900"
         >
           <header className="border-b border-ink-800 px-3 py-3">
-            <button
-              type="button"
-              onClick={closeCampaign}
-              className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink-200"
-            >
-              <ChevronLeft size={14} /> Campaigns
-            </button>
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={closeCampaign}
+                className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink-200"
+              >
+                <ChevronLeft size={14} /> Campaigns
+              </button>
+              <button
+                type="button"
+                onClick={toggleAgent}
+                title={agentOpen ? "Hide assistant" : "Show assistant"}
+                aria-label={agentOpen ? "Hide assistant" : "Show assistant"}
+                aria-pressed={agentOpen}
+                className={`rounded-md p-1 transition-colors ${
+                  agentOpen
+                    ? "bg-ember-500/25 text-ember-200"
+                    : "text-ink-400 hover:bg-ink-800 hover:text-ink-200"
+                }`}
+              >
+                <Sparkles size={14} />
+              </button>
+            </div>
             <h1 className="mt-1 truncate font-serif text-lg font-semibold">
               {campaign.name}
             </h1>
@@ -235,13 +271,26 @@ export function BibleScreen() {
         {/* ---- Editor ----------------------------------------------- */}
         <Panel minSize={420} className="flex flex-col bg-ink-950">
           {selected ? (
-            <ElementEditorFor key={selected.id} element={selected} />
+            <ElementEditorFor
+              key={`${selected.id}:${selectedRevision}`}
+              element={selected}
+            />
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-ink-600">
               Select an element, or create one.
             </div>
           )}
         </Panel>
+
+        {/* ---- Assistant --------------------------------------------- */}
+        {agentOpen && (
+          <>
+            <Separator className={SEPARATOR_CLASS} />
+            <Panel defaultSize={380} minSize={300} maxSize={640}>
+              <AgentPane onClose={toggleAgent} />
+            </Panel>
+          </>
+        )}
       </Group>
     </div>
   );
