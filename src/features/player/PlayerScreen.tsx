@@ -44,6 +44,8 @@ interface Props {
   banner?: string;
   exitLabel: string;
   onExit: () => void;
+  /** Something the GM wants on screen now; a new nonce opens it again. */
+  focus?: { id: string; nonce: number };
 }
 
 /**
@@ -59,10 +61,19 @@ export function PlayerScreen({
   banner,
   exitLabel,
   onExit,
+  focus,
 }: Props) {
   const [kindFilter, setKindFilter] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The GM's spotlight: adopt it once per nonce, during render, so it does
+  // not fight the player's own clicks afterwards.
+  const [focusSeen, setFocusSeen] = useState<number | null>(null);
+  if (focus && focus.nonce !== focusSeen) {
+    setFocusSeen(focus.nonce);
+    setSelectedId(focus.id);
+    setKindFilter(null);
+  }
   const [opened, setOpened] = useState<{
     id: string;
     element: Element | null;

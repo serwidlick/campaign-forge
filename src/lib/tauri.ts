@@ -148,8 +148,12 @@ export const table = {
   },
   /** Resolves when the GM's version passes `after`, after ~25 s, or when
    *  the GM stops hosting (`closed`). */
-  waitForChange(after: number) {
-    return invoke<TableChange>("table_wait_for_change", { after });
+  waitForChange(after: number, event: number) {
+    return invoke<TableChange>("table_wait_for_change", { after, event });
+  },
+  /** Show an element on every player's screen; null clears it. */
+  spotlight(id: string | null) {
+    return invoke<HostStatus>("table_spotlight", { id });
   },
 };
 

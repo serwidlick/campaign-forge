@@ -36,6 +36,7 @@ pub fn run() {
             table::table_start_hosting,
             table::table_stop_hosting,
             table::table_host_status,
+            table::table_spotlight,
             table::table_discover,
             table::table_discover_stop,
             table::table_join,

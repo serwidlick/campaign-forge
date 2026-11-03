@@ -26,6 +26,8 @@ interface TableState {
   joining: boolean;
   /** Why the player is back on the welcome screen, e.g. the GM ended the table. */
   notice: string | null;
+  /** What the GM is showing everyone; `seq` distinguishes repeats. */
+  spotlight: { id: string; seq: number } | null;
 
   error: string | null;
 
@@ -34,6 +36,8 @@ interface TableState {
   startHosting: () => Promise<void>;
   stopHosting: () => Promise<void>;
   refreshHost: () => Promise<void>;
+  /** GM: show an element to every player, or clear with null. */
+  showToPlayers: (id: string | null) => Promise<void>;
 
   discover: () => Promise<void>;
   stopDiscovery: () => Promise<void>;
@@ -63,6 +67,7 @@ export const useTableStore = create<TableState>((set, get) => {
    */
   async function runSyncLoop(generation: number, startVersion: number) {
     let version = startVersion;
+    let event = 0;
     let needFetch = true;
     while (generation === loopGeneration) {
       try {
@@ -72,11 +77,17 @@ export const useTableStore = create<TableState>((set, get) => {
           set({ elements, version, connection: "connected" });
           needFetch = false;
         }
-        const next = await table.waitForChange(version);
+        const next = await table.waitForChange(version, event);
         if (generation !== loopGeneration) return;
         if (next.closed) {
           await detach(CLOSED_NOTICE);
           return;
+        }
+        if (next.spotlightSeq > event) {
+          event = next.spotlightSeq;
+          if (next.spotlight) {
+            set({ spotlight: { id: next.spotlight, seq: next.spotlightSeq } });
+          }
         }
         if (next.version > version) {
           version = next.version;
@@ -98,7 +109,7 @@ export const useTableStore = create<TableState>((set, get) => {
   /** Leaves the table; with a notice, the welcome screen says why. */
   async function detach(notice: string | null) {
     loopGeneration += 1;
-    set({ session: null, elements: [], version: 0, notice });
+    set({ session: null, elements: [], version: 0, notice, spotlight: null });
     try {
       await table.leave();
     } catch {
@@ -130,6 +141,7 @@ export const useTableStore = create<TableState>((set, get) => {
     connection: "connected",
     joining: false,
     notice: null,
+    spotlight: null,
     error: null,
 
     async restore() {
@@ -167,6 +179,14 @@ export const useTableStore = create<TableState>((set, get) => {
         set({ error: errorMessage(err) });
       } finally {
         set({ hostBusy: false });
+      }
+    },
+
+    async showToPlayers(id) {
+      try {
+        set({ hosting: await table.spotlight(id) });
+      } catch (err) {
+        set({ error: errorMessage(err) });
       }
     },
 

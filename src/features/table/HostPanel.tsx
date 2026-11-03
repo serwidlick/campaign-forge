@@ -1,4 +1,4 @@
-import { Eye, Radio, Square, Users, X } from "lucide-react";
+import { Eye, Presentation, Radio, Square, Users, X } from "lucide-react";
 import { useEffect } from "react";
 
 import { Button } from "@/components/Button";
@@ -26,9 +26,14 @@ export function HostPanel({
   const startHosting = useTableStore((s) => s.startHosting);
   const stopHosting = useTableStore((s) => s.stopHosting);
   const refreshHost = useTableStore((s) => s.refreshHost);
+  const showToPlayers = useTableStore((s) => s.showToPlayers);
+  const navigate = useCampaignStore((s) => s.navigate);
   const clearError = useTableStore((s) => s.clearError);
 
   const sharedCount = elements.filter(isShared).length;
+  const showing = hosting?.spotlight
+    ? elements.find((e) => e.id === hosting.spotlight)
+    : undefined;
 
   // Who is at the table, kept fresh while this panel is open.
   useEffect(() => {
@@ -171,6 +176,41 @@ export function HostPanel({
                     </li>
                   ))}
                 </ul>
+              )}
+            </section>
+
+            <section>
+              <SectionTitle>
+                <Presentation size={12} className="mr-1 inline" />
+                Showing everyone
+              </SectionTitle>
+              {showing ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => void navigate(showing.id)}
+                    className="text-green-100 hover:underline"
+                  >
+                    {showing.name}
+                  </button>
+                  <span className="text-xs text-green-300/80">
+                    is open on every player's screen
+                  </span>
+                  <span className="flex-1" />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void showToPlayers(null)}
+                  >
+                    Stop showing
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-ink-500">
+                  Nothing right now. Open any element and press{" "}
+                  <span className="text-ink-300">Show to players</span> in its
+                  header to put it on every screen.
+                </p>
               )}
             </section>
 

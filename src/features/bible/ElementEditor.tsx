@@ -1,7 +1,14 @@
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { ArrowRight, ArrowLeft, Eye, EyeOff, Trash2 } from "lucide-react";
+import {
+  ArrowRight,
+  ArrowLeft,
+  Eye,
+  EyeOff,
+  Presentation,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/Button";
@@ -12,6 +19,7 @@ import {
   type ElementSummary,
 } from "@/lib/types";
 import { useCampaignStore, type ElementPatch } from "@/stores/campaign-store";
+import { useTableStore } from "@/stores/table-store";
 
 import {
   ElementMention,
@@ -50,6 +58,18 @@ export function ElementEditor({ element, panel }: Props) {
   const [mention, setMention] = useState<MentionState | null>(null);
   const [linkMode, setLinkMode] = useState(false);
   const shared = element.shared === true;
+  const hosting = useTableStore((s) => s.hosting);
+  const showToPlayers = useTableStore((s) => s.showToPlayers);
+  const showing = hosting?.spotlight === element.id;
+
+  async function handleShow() {
+    if (showing) {
+      await showToPlayers(null);
+      return;
+    }
+    if (!shared) await saveElement(element.id, { shared: true });
+    await showToPlayers(element.id);
+  }
 
   // A plain mutable holder, not a React ref: it is handed to the Tiptap
   // extension at construction time, which the hooks lint forbids for refs.
@@ -208,6 +228,32 @@ export function ElementEditor({ element, panel }: Props) {
             {shared ? <Eye size={13} /> : <EyeOff size={13} />}
             {shared ? "Shared" : "Private"}
           </button>
+          {hosting && (
+            <button
+              type="button"
+              onClick={() => void handleShow()}
+              aria-pressed={showing}
+              title={
+                showing
+                  ? "Players are looking at this. Click to stop showing it."
+                  : shared
+                    ? "Open this on every player's screen"
+                    : "Share this and open it on every player's screen"
+              }
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
+                showing
+                  ? "bg-green-500/20 text-green-300"
+                  : "text-ink-400 hover:bg-ink-800 hover:text-ink-200"
+              }`}
+            >
+              <Presentation size={13} />
+              {showing
+                ? "Showing"
+                : shared
+                  ? "Show to players"
+                  : "Share and show"}
+            </button>
+          )}
           <span className="text-[11px] text-ink-500">
             {status === "saved"
               ? "Saved"

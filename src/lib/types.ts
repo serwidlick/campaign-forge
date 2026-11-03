@@ -198,6 +198,8 @@ export interface HostStatus {
   addresses: string[];
   players: TablePlayer[];
   announceError: string | null;
+  /** Element currently shown to everyone, if any. */
+  spotlight: string | null;
 }
 
 export interface FoundTable {
@@ -219,6 +221,10 @@ export interface TableChange {
   version: number;
   /** The GM stopped hosting; leave the table. */
   closed: boolean;
+  /** Element the GM is showing everyone, if any. */
+  spotlight: string | null;
+  /** Grows on every spotlight change. */
+  spotlightSeq: number;
 }
 
 export interface TableSession {

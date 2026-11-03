@@ -11,6 +11,7 @@ export function TableScreen() {
   const session = useTableStore((s) => s.session);
   const elements = useTableStore((s) => s.elements);
   const connection = useTableStore((s) => s.connection);
+  const spotlight = useTableStore((s) => s.spotlight);
   const leave = useTableStore((s) => s.leave);
 
   const source = useMemo(() => remoteSource(elements), [elements]);
@@ -37,6 +38,9 @@ export function TableScreen() {
         banner={banner}
         exitLabel="Leave table"
         onExit={() => void leave()}
+        focus={
+          spotlight ? { id: spotlight.id, nonce: spotlight.seq } : undefined
+        }
       />
     </div>
   );

@@ -160,6 +160,7 @@ impl Session {
             return Ok(VersionResponse {
                 version: after,
                 closed: true,
+                ..VersionResponse::default()
             });
         }
         if !resp.status().is_success() {

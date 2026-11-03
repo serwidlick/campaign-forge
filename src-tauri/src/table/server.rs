@@ -78,15 +78,32 @@ pub struct JoinResponse {
 pub struct AfterQuery {
     #[serde(default)]
     pub after: u64,
+    /// Last spotlight sequence number the player has seen.
+    #[serde(default)]
+    pub event: u64,
+}
+
+/// What the GM is showing everyone right now. `seq` grows on every change
+/// so players can tell a new spotlight from one they already opened.
+#[derive(Debug, Clone, Default)]
+pub struct Spotlight {
+    pub seq: u64,
+    pub element: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct VersionResponse {
     pub version: u64,
     /// The GM stopped hosting; the player should leave.
     #[serde(default)]
     pub closed: bool,
+    /// Element the GM is showing everyone, if any.
+    #[serde(default)]
+    pub spotlight: Option<String>,
+    #[serde(default)]
+    pub spotlight_seq: u64,
 }
 
 #[derive(Clone)]
@@ -96,6 +113,7 @@ struct Served {
     players: Players,
     /// Flips to true when the GM stops hosting.
     closing: watch::Receiver<bool>,
+    spotlight: watch::Receiver<Spotlight>,
 }
 
 /// A running server; dropping the stop sender ends it.
@@ -103,6 +121,7 @@ pub struct Running {
     pub port: u16,
     pub players: Players,
     pub stop: watch::Sender<bool>,
+    pub spotlight: watch::Sender<Spotlight>,
 }
 
 /// Binds a free port on every interface and serves until `stop` is sent.
@@ -113,12 +132,14 @@ pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let players: Players = Arc::default();
     let (stop, mut stop_rx) = watch::channel(false);
+    let (spotlight, spotlight_rx) = watch::channel(Spotlight::default());
 
     let served = Served {
         app,
         code,
         players: players.clone(),
         closing: stop_rx.clone(),
+        spotlight: spotlight_rx,
     };
     let router = Router::new()
         .route("/api/table", get(table_info))
@@ -150,6 +171,7 @@ pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
         port,
         players,
         stop,
+        spotlight,
     })
 }
 
@@ -315,36 +337,36 @@ async fn version(
     authed(&s, &headers)?;
     let mut rx = s.app.state::<AppState>().changes();
     let mut closing = s.closing.clone();
+    let mut spot_rx = s.spotlight.clone();
     let deadline = tokio::time::sleep(LONG_POLL);
     tokio::pin!(deadline);
-    let open = |version: u64| {
+    let respond = |version: u64, spot: Spotlight, closed: bool| {
         Ok(Json(VersionResponse {
             version,
-            closed: false,
+            closed,
+            spotlight: spot.element,
+            spotlight_seq: spot.seq,
         }))
     };
     loop {
         let current = *rx.borrow();
+        let spot = spot_rx.borrow().clone();
         if *closing.borrow() {
-            return Ok(Json(VersionResponse {
-                version: current,
-                closed: true,
-            }));
+            return respond(current, spot, true);
         }
-        if current > q.after {
-            return open(current);
+        if current > q.after || spot.seq > q.event {
+            return respond(current, spot, false);
         }
         tokio::select! {
-            _ = &mut deadline => return open(current),
+            _ = &mut deadline => return respond(current, spot, false),
             changed = rx.changed() => {
                 if changed.is_err() {
-                    return open(current);
+                    return respond(current, spot, false);
                 }
             }
+            _ = spot_rx.changed() => {}
             // A closed channel means the host was dropped: that is a close too.
-            _ = closing.changed() => {
-                return Ok(Json(VersionResponse { version: current, closed: true }));
-            }
+            _ = closing.changed() => return respond(current, spot, true),
         }
     }
 }

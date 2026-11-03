@@ -37,6 +37,7 @@ struct Host {
     addresses: Vec<String>,
     players: server::Players,
     stop: watch::Sender<bool>,
+    spotlight: watch::Sender<server::Spotlight>,
     /// Kept alive while hosting; dropping it unregisters the service.
     _registration: Option<discovery::Registration>,
     announce_error: Option<String>,
@@ -52,6 +53,8 @@ pub struct HostStatus {
     pub players: Vec<Player>,
     /// Set when the table is up but could not be announced on the network.
     pub announce_error: Option<String>,
+    /// Element currently shown to everyone, if any.
+    pub spotlight: Option<String>,
 }
 
 impl Host {
@@ -68,6 +71,7 @@ impl Host {
             addresses: self.addresses.clone(),
             players,
             announce_error: self.announce_error.clone(),
+            spotlight: self.spotlight.borrow().element.clone(),
         }
     }
 }
@@ -129,6 +133,7 @@ pub async fn table_start_hosting(
         addresses,
         players: running.players,
         stop: running.stop,
+        spotlight: running.spotlight,
         _registration: registration,
         announce_error,
     };
@@ -163,6 +168,23 @@ impl TableState {
             std::thread::sleep(std::time::Duration::from_millis(400));
         }
     }
+}
+
+/// Shows an element on every player's screen (`None` clears the spotlight).
+#[tauri::command]
+pub fn table_spotlight(
+    table: State<'_, TableState>,
+    id: Option<String>,
+) -> CommandResult<HostStatus> {
+    let guard = lock(&table.host)?;
+    let host = guard
+        .as_ref()
+        .ok_or_else(|| "not hosting a table".to_owned())?;
+    host.spotlight.send_modify(|s| {
+        s.seq += 1;
+        s.element = id;
+    });
+    Ok(host.status())
 }
 
 #[tauri::command]
