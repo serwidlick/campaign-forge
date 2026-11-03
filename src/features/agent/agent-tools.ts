@@ -317,7 +317,7 @@ const updateElement: AgentTool = {
 
     const store = useCampaignStore.getState();
     await store.refreshElements();
-    if (store.selectedId === id) await store.reloadSelected();
+    await store.reloadElement(id);
 
     const changed = [
       name !== undefined ? "name" : null,

@@ -18,9 +18,9 @@ import {
  */
 export function ArcPanel({ element }: { element: Element }) {
   const elements = useCampaignStore((s) => s.elements);
-  const saveSelected = useCampaignStore((s) => s.saveSelected);
+  const saveElement = useCampaignStore((s) => s.saveElement);
   const createElement = useCampaignStore((s) => s.createElement);
-  const select = useCampaignStore((s) => s.select);
+  const navigate = useCampaignStore((s) => s.navigate);
 
   const arc = useMemo(() => readArc(element), [element]);
   const sessions = useMemo(
@@ -54,7 +54,7 @@ export function ArcPanel({ element }: { element: Element }) {
           <button
             type="button"
             onClick={() =>
-              void saveSelected({
+              void saveElement(element.id, {
                 status: arc.status === "complete" ? "active" : "complete",
               })
             }
@@ -86,7 +86,9 @@ export function ArcPanel({ element }: { element: Element }) {
               <li key={s.id}>
                 <button
                   type="button"
-                  onClick={() => void select(s.id)}
+                  onClick={(e) =>
+                    void navigate(s.id, { pane: e.ctrlKey || e.metaKey })
+                  }
                   className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-ink-850"
                 >
                   <span className="w-8 shrink-0 font-mono text-xs text-ink-500">

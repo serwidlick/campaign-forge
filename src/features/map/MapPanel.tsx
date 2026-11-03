@@ -60,8 +60,8 @@ const MAP_HEIGHT = 520;
  */
 export function MapPanel({ element }: { element: Element }) {
   const elements = useCampaignStore((s) => s.elements);
-  const saveSelected = useCampaignStore((s) => s.saveSelected);
-  const select = useCampaignStore((s) => s.select);
+  const saveElement = useCampaignStore((s) => s.saveElement);
+  const navigate = useCampaignStore((s) => s.navigate);
   const setError = useCampaignStore((s) => s.setError);
 
   const data = useMemo(() => readMap(element), [element]);
@@ -119,8 +119,8 @@ export function MapPanel({ element }: { element: Element }) {
   );
 
   const persist = useCallback(
-    (patch: Record<string, unknown>) => void saveSelected(patch),
-    [saveSelected],
+    (patch: Record<string, unknown>) => void saveElement(element.id, patch),
+    [saveElement, element.id],
   );
 
   // ---- Image bytes -> blob URL -----------------------------------------
@@ -1011,7 +1011,7 @@ export function MapPanel({ element }: { element: Element }) {
             });
             setSelectedPinId(null);
           }}
-          onOpen={(id) => void select(id)}
+          onOpen={(id, pane) => void navigate(id, { pane })}
         />
       )}
     </section>
@@ -1286,7 +1286,7 @@ function PinEditor({
   currentMapId: string;
   onChange: (patch: Partial<Pin>) => void;
   onDelete: () => void;
-  onOpen: (id: string) => void;
+  onOpen: (id: string, pane: boolean) => void;
 }) {
   const [label, setLabel] = useState(pin.label);
 
@@ -1352,7 +1352,12 @@ function PinEditor({
         </select>
       </label>
       {linked && (
-        <Button size="sm" variant="ghost" onClick={() => onOpen(linked.id)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={(e) => onOpen(linked.id, e.ctrlKey || e.metaKey)}
+          title="Click to open here · Ctrl+click to open beside"
+        >
           Open {linked.name}
         </Button>
       )}

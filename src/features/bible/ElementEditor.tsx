@@ -39,9 +39,9 @@ function getMentionItems(query: string): ElementSummary[] {
  * flushes it on unmount.
  */
 export function ElementEditor({ element, panel }: Props) {
-  const saveSelected = useCampaignStore((s) => s.saveSelected);
+  const saveElement = useCampaignStore((s) => s.saveElement);
   const deleteElement = useCampaignStore((s) => s.deleteElement);
-  const select = useCampaignStore((s) => s.select);
+  const navigate = useCampaignStore((s) => s.navigate);
   const elements = useCampaignStore((s) => s.elements);
 
   const [name, setName] = useState(element.name);
@@ -67,9 +67,9 @@ export function ElementEditor({ element, panel }: Props) {
     pending.current = {};
     if (Object.keys(patch).length === 0) return;
     setStatus("saving");
-    await saveSelected(patch);
+    await saveElement(element.id, patch);
     setStatus((s) => (Object.keys(pending.current).length > 0 ? s : "saved"));
-  }, [saveSelected]);
+  }, [saveElement, element.id]);
 
   const queue = useCallback(
     (patch: ElementPatch) => {
@@ -119,12 +119,14 @@ export function ElementEditor({ element, panel }: Props) {
     editorProps: {
       attributes: { class: "tiptap", spellcheck: "true" },
       handleClick: (_view, _pos, event) => {
-        if (!(event.ctrlKey || event.metaKey)) return false;
+        // Ctrl/Cmd+click opens beside; Alt+click opens here; plain click edits.
+        const pane = event.ctrlKey || event.metaKey;
+        if (!pane && !event.altKey) return false;
         const anchor = (event.target as HTMLElement | null)?.closest("a");
         const id = elementIdFromHref(anchor?.getAttribute("href"));
         if (!id) return false;
         event.preventDefault();
-        void select(id);
+        void navigate(id, { pane });
         return true;
       },
     },
@@ -217,13 +219,13 @@ export function ElementEditor({ element, panel }: Props) {
               title="Links to"
               icon={<ArrowRight size={12} />}
               items={linksTo}
-              onOpen={select}
+              onOpen={(id, pane) => void navigate(id, { pane })}
             />
             <LinkList
               title="Linked from"
               icon={<ArrowLeft size={12} />}
               items={linkedFrom}
-              onOpen={select}
+              onOpen={(id, pane) => void navigate(id, { pane })}
             />
           </aside>
         )}
@@ -231,7 +233,9 @@ export function ElementEditor({ element, panel }: Props) {
 
       <footer className="flex items-center justify-between border-t border-ink-800 px-6 py-1.5 text-[11px] text-ink-600">
         <span className="font-mono">{element.path}</span>
-        <span>Type @ to link · Ctrl+click a link to follow</span>
+        <span>
+          Type @ to link · Ctrl+click opens beside · Alt+click opens here
+        </span>
       </footer>
 
       {mention && (
@@ -250,7 +254,7 @@ function LinkList({
   title: string;
   icon: React.ReactNode;
   items: ElementSummary[];
-  onOpen: (id: string) => void;
+  onOpen: (id: string, pane: boolean) => void;
 }) {
   if (items.length === 0) return null;
   return (
@@ -263,7 +267,8 @@ function LinkList({
           <li key={e.id}>
             <button
               type="button"
-              onClick={() => onOpen(e.id)}
+              onClick={(ev) => onOpen(e.id, ev.ctrlKey || ev.metaKey)}
+              title="Click to open here · Ctrl+click to open beside"
               className="rounded-md bg-ink-850 px-2 py-1 text-xs text-ink-200 hover:bg-ink-800 hover:text-ink-100"
             >
               {e.name}

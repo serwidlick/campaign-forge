@@ -1,5 +1,12 @@
-import { ChevronLeft, Plus, Search, Sparkles } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import {
+  ArrowLeftToLine,
+  ChevronLeft,
+  Plus,
+  Search,
+  Sparkles,
+  X,
+} from "lucide-react";
+import { Fragment, useMemo, useState, type FormEvent } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { Button } from "@/components/Button";
@@ -21,8 +28,12 @@ export function BibleScreen() {
   const elements = useCampaignStore((s) => s.elements);
   const selectedId = useCampaignStore((s) => s.selectedId);
   const selected = useCampaignStore((s) => s.selected);
-  const selectedRevision = useCampaignStore((s) => s.selectedRevision);
-  const select = useCampaignStore((s) => s.select);
+  const revisions = useCampaignStore((s) => s.revisions);
+  const paneIds = useCampaignStore((s) => s.paneIds);
+  const loaded = useCampaignStore((s) => s.loaded);
+  const closePane = useCampaignStore((s) => s.closePane);
+  const promotePane = useCampaignStore((s) => s.promotePane);
+  const navigate = useCampaignStore((s) => s.navigate);
   const createElement = useCampaignStore((s) => s.createElement);
   const closeCampaign = useCampaignStore((s) => s.closeCampaign);
 
@@ -248,7 +259,10 @@ export function BibleScreen() {
               <li key={e.id}>
                 <button
                   type="button"
-                  onClick={() => void select(e.id)}
+                  onClick={(ev) =>
+                    void navigate(e.id, { pane: ev.ctrlKey || ev.metaKey })
+                  }
+                  title="Click to open · Ctrl+click to open beside the current element"
                   className={`w-full px-4 py-2 text-left transition-colors ${
                     e.id === selectedId ? "bg-ink-700/60" : "hover:bg-ink-800"
                   }`}
@@ -268,18 +282,73 @@ export function BibleScreen() {
 
         <Separator className={SEPARATOR_CLASS} />
 
-        {/* ---- Editor ----------------------------------------------- */}
+        {/* ---- Editor and side columns -------------------------------- */}
         <Panel minSize={420} className="flex flex-col bg-ink-950">
-          {selected ? (
-            <ElementEditorFor
-              key={`${selected.id}:${selectedRevision}`}
-              element={selected}
-            />
-          ) : (
-            <div className="flex flex-1 items-center justify-center text-sm text-ink-600">
-              Select an element, or create one.
-            </div>
-          )}
+          <Group orientation="horizontal" className="h-full">
+            <Panel minSize={360} className="flex flex-col">
+              {selected ? (
+                <ElementEditorFor
+                  key={`${selected.id}:${revisions[selected.id] ?? 0}`}
+                  element={selected}
+                />
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center gap-1 text-sm text-ink-600">
+                  <span>Select an element, or create one.</span>
+                  <span className="text-xs text-ink-700">
+                    Ctrl+click opens an element beside the current one.
+                  </span>
+                </div>
+              )}
+            </Panel>
+            {paneIds.map((id) => {
+              const el = loaded[id];
+              const summary = elements.find((e) => e.id === id);
+              return (
+                <Fragment key={id}>
+                  <Separator className={SEPARATOR_CLASS} />
+                  <Panel minSize={320} className="flex flex-col">
+                    <div className="flex items-center gap-2 border-b border-ink-800 bg-ink-900/60 px-3 py-1 text-xs">
+                      <span className="text-ink-500">
+                        {kindById((summary ?? el)?.type ?? "").label}
+                      </span>
+                      <span className="truncate text-ink-200">
+                        {(summary ?? el)?.name ?? "…"}
+                      </span>
+                      <span className="flex-1" />
+                      <button
+                        type="button"
+                        onClick={() => void promotePane(id)}
+                        title="Swap into the main column"
+                        aria-label="Swap into the main column"
+                        className="rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-ink-200"
+                      >
+                        <ArrowLeftToLine size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => closePane(id)}
+                        title="Close column"
+                        aria-label="Close column"
+                        className="rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-ink-200"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                    {el ? (
+                      <ElementEditorFor
+                        key={`${id}:${revisions[id] ?? 0}`}
+                        element={el}
+                      />
+                    ) : (
+                      <div className="flex flex-1 items-center justify-center text-xs text-ink-600">
+                        Loading…
+                      </div>
+                    )}
+                  </Panel>
+                </Fragment>
+              );
+            })}
+          </Group>
         </Panel>
 
         {/* ---- Assistant --------------------------------------------- */}

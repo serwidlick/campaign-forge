@@ -36,8 +36,8 @@ const FIELD =
  */
 export function SessionPanel({ element }: { element: Element }) {
   const elements = useCampaignStore((s) => s.elements);
-  const saveSelected = useCampaignStore((s) => s.saveSelected);
-  const select = useCampaignStore((s) => s.select);
+  const saveElement = useCampaignStore((s) => s.saveElement);
+  const navigate = useCampaignStore((s) => s.navigate);
 
   const session = useMemo(() => readSession(element), [element]);
   const arcs = useMemo(
@@ -49,9 +49,9 @@ export function SessionPanel({ element }: { element: Element }) {
   const saveField = useCallback(
     (patch: Partial<SessionData>) => {
       // null means "remove the key from frontmatter"; the store drops nulls.
-      void saveSelected(patch as Record<string, unknown>);
+      void saveElement(element.id, patch as Record<string, unknown>);
     },
-    [saveSelected],
+    [saveElement, element.id],
   );
 
   // Beats are edited as a local draft and flushed on a short debounce, so
@@ -68,10 +68,10 @@ export function SessionPanel({ element }: { element: Element }) {
     if (!dirty.current) return;
     dirty.current = false;
     setBeats((current) => {
-      void saveSelected({ beats: current });
+      void saveElement(element.id, { beats: current });
       return current;
     });
-  }, [saveSelected]);
+  }, [saveElement, element.id]);
 
   const update = useCallback(
     (fn: (beats: Beat[]) => Beat[], immediate = false) => {
@@ -159,7 +159,11 @@ export function SessionPanel({ element }: { element: Element }) {
       {session.arc && (
         <button
           type="button"
-          onClick={() => void select(session.arc as string)}
+          onClick={(e) =>
+            void navigate(session.arc as string, {
+              pane: e.ctrlKey || e.metaKey,
+            })
+          }
           className="mt-2 text-[11px] text-ember-400 hover:underline"
         >
           Open arc →

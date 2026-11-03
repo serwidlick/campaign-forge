@@ -457,7 +457,7 @@ function Toggle({
 // ---- Messages --------------------------------------------------------------
 
 function MessageView({ message }: { message: UiMessage }) {
-  const select = useCampaignStore((s) => s.select);
+  const navigate = useCampaignStore((s) => s.navigate);
   const isUser = message.role === "user";
 
   if (isUser) {
@@ -496,7 +496,12 @@ function MessageView({ message }: { message: UiMessage }) {
                       return (
                         <button
                           type="button"
-                          onClick={() => void select(id)}
+                          onClick={(e) =>
+                            void navigate(id, {
+                              pane: e.ctrlKey || e.metaKey,
+                            })
+                          }
+                          title="Click to open here · Ctrl+click to open beside"
                           className="element-chip"
                         >
                           {children}
