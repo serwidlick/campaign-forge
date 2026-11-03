@@ -1,11 +1,13 @@
-import { Radio, Wifi, X } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { Radio, Search, Wifi, X } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/Button";
 import type { FoundTable } from "@/lib/types";
 import { useTableStore } from "@/stores/table-store";
 
-const DISCOVER_MS = 2000;
+/** How long one press of Find tables keeps listening. */
+const SEARCH_MS = 8000;
+const POLL_MS = 1000;
 const NAME_KEY = "cf.playerName";
 
 function rememberedName(): string {
@@ -24,6 +26,7 @@ export function JoinTable() {
   const notice = useTableStore((s) => s.notice);
   const clearNotice = useTableStore((s) => s.clearNotice);
   const discover = useTableStore((s) => s.discover);
+  const clearFound = useTableStore((s) => s.clearFound);
   const stopDiscovery = useTableStore((s) => s.stopDiscovery);
   const join = useTableStore((s) => s.join);
   const clearError = useTableStore((s) => s.clearError);
@@ -33,16 +36,47 @@ export function JoinTable() {
   const [picked, setPicked] = useState<FoundTable | null>(null);
   const [manual, setManual] = useState(false);
   const [address, setAddress] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const searchTimers = useRef<{ poll: number; end: number } | null>(null);
 
-  // Browse while this screen is up; stop when it goes away.
-  useEffect(() => {
+  function stopSearch() {
+    const t = searchTimers.current;
+    if (t) {
+      window.clearInterval(t.poll);
+      window.clearTimeout(t.end);
+      searchTimers.current = null;
+    }
+    setSearching(false);
+    void stopDiscovery();
+  }
+
+  /** Listens for a few seconds, polling what has turned up, then stops. */
+  function startSearch() {
+    stopSearch();
+    clearFound();
+    setPicked(null);
+    setSearching(true);
+    setSearched(true);
     void discover();
-    const id = setInterval(() => void discover(), DISCOVER_MS);
+    const poll = window.setInterval(() => void discover(), POLL_MS);
+    const end = window.setTimeout(() => {
+      void discover().then(() => stopSearch());
+    }, SEARCH_MS);
+    searchTimers.current = { poll, end };
+  }
+
+  // Leaving the screen stops any search in progress.
+  useEffect(() => {
     return () => {
-      clearInterval(id);
+      const t = searchTimers.current;
+      if (t) {
+        window.clearInterval(t.poll);
+        window.clearTimeout(t.end);
+      }
       void stopDiscovery();
     };
-  }, [discover, stopDiscovery]);
+  }, [stopDiscovery]);
 
   const target = manual ? address.trim() : (picked?.addresses[0] ?? "");
   const canJoin =
@@ -81,12 +115,31 @@ export function JoinTable() {
         </div>
       )}
       <div className="rounded-lg border border-ink-800 bg-ink-900">
-        {found.length === 0 ? (
-          <p className="flex items-center gap-2 px-4 py-3 text-sm text-ink-500">
-            <Wifi size={14} className="animate-pulse" />
-            Looking for a GM hosting on this network…
-          </p>
-        ) : (
+        <div className="flex items-center gap-3 px-4 py-2.5">
+          <span className="flex flex-1 items-center gap-2 text-sm text-ink-500">
+            {searching ? (
+              <>
+                <Wifi size={14} className="animate-pulse" />
+                Listening for a GM hosting on this network…
+              </>
+            ) : found.length > 0 ? (
+              `${found.length} ${found.length === 1 ? "table" : "tables"} on this network`
+            ) : searched ? (
+              "No table found. Is the GM hosting, and are you on the same Wi-Fi?"
+            ) : (
+              "Nothing is scanned until you ask."
+            )}
+          </span>
+          <Button
+            size="sm"
+            variant={found.length > 0 || searching ? "ghost" : "primary"}
+            onClick={searching ? stopSearch : startSearch}
+          >
+            <Search size={14} />{" "}
+            {searching ? "Stop" : searched ? "Search again" : "Find tables"}
+          </Button>
+        </div>
+        {found.length > 0 && (
           <ul className="divide-y divide-ink-800">
             {found.map((t) => (
               <li key={t.id} className="flex items-center gap-3 px-4 py-2.5">

@@ -40,6 +40,8 @@ interface TableState {
   showToPlayers: (id: string | null) => Promise<void>;
 
   discover: () => Promise<void>;
+  /** Forget earlier results so a new search starts clean. */
+  clearFound: () => void;
   stopDiscovery: () => Promise<void>;
   join: (address: string, name: string, code: string) => Promise<boolean>;
   leave: () => Promise<void>;
@@ -204,6 +206,10 @@ export const useTableStore = create<TableState>((set, get) => {
       } catch (err) {
         set({ error: errorMessage(err) });
       }
+    },
+
+    clearFound() {
+      set({ found: [] });
     },
 
     async stopDiscovery() {
