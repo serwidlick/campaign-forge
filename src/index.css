@@ -205,6 +205,15 @@ body {
   box-shadow: none;
 }
 
+.cf-pin-label .cf-pin-portrait {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: cover;
+  vertical-align: -5px;
+  margin-right: 5px;
+}
+
 .cf-pin-label.leaflet-tooltip-top::before {
   border-top-color: var(--color-ink-700);
 }

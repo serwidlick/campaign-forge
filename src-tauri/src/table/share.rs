@@ -66,14 +66,21 @@ pub fn shared_element(state: &AppState, id: &str) -> Result<Option<Element>, Sto
     Ok(Some(sanitize_element(element, &visible)))
 }
 
-/// Relative asset paths players may fetch: the images of shared maps.
+/// Relative asset paths players may fetch: the images of shared maps and
+/// the portraits of shared elements.
 pub fn shared_asset_paths(state: &AppState) -> Result<HashSet<String>, StorageError> {
-    Ok(shared_summaries(state)?
-        .iter()
-        .filter(|e| e.meta.kind == "map")
-        .filter_map(|e| e.meta.extra.get("image").and_then(Value::as_str))
-        .map(str::to_owned)
-        .collect())
+    let mut out = HashSet::new();
+    for e in shared_summaries(state)? {
+        if e.meta.kind == "map"
+            && let Some(image) = e.meta.extra.get("image").and_then(Value::as_str)
+        {
+            out.insert(image.to_owned());
+        }
+        if let Some(portrait) = e.meta.extra.get("portrait").and_then(Value::as_str) {
+            out.insert(portrait.to_owned());
+        }
+    }
+    Ok(out)
 }
 
 fn sanitize_summary(mut e: ElementSummary, visible: &HashSet<String>) -> ElementSummary {

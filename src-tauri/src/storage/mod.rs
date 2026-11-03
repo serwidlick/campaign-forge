@@ -217,6 +217,37 @@ impl AppState {
         Ok(imported)
     }
 
+    /// Copies a picture for any element into `assets/images/`. The caller
+    /// stores the returned path in the element's `portrait` field.
+    pub fn import_element_image(
+        &self,
+        element_id: &str,
+        source: &str,
+    ) -> Result<ImportedImage, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        let stem = map_stem(&open.index, element_id);
+        let imported =
+            assets::import_image(&open.root, "images", stem, std::path::Path::new(source))?;
+        drop(guard);
+        self.bump();
+        Ok(imported)
+    }
+
+    pub fn import_element_image_bytes(
+        &self,
+        element_id: &str,
+        bytes: &[u8],
+    ) -> Result<ImportedImage, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        let stem = map_stem(&open.index, element_id);
+        let imported = assets::import_image_bytes(&open.root, "images", stem, bytes)?;
+        drop(guard);
+        self.bump();
+        Ok(imported)
+    }
+
     /// Case-insensitive text search over names, tags and bodies.
     pub fn search_elements(
         &self,

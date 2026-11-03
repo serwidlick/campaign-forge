@@ -62,6 +62,12 @@ import {
   type RouteSnap,
   type SubMapRef,
 } from "./map-model";
+import {
+  pinTooltipHtml,
+  portraitOf,
+  usePortraitUrls,
+} from "@/features/images/portrait-model";
+
 import { TravelSettingsPanel } from "./TravelSettings";
 import {
   formatTravelTime,
@@ -96,6 +102,23 @@ export function MapPanel({ element }: { element: Element }) {
     [element.id, elements],
   );
   const subMaps = useMemo(() => subMapsOf(data, elements), [data, elements]);
+  // Thumbnails for pins whose linked element has a picture.
+  const pinPortraitPaths = useMemo(
+    () =>
+      data.pins.flatMap((p) => {
+        const linked = p.element
+          ? elements.find((e) => e.id === p.element)
+          : undefined;
+        const path = linked ? portraitOf(linked) : null;
+        return path ? [path] : [];
+      }),
+    [data.pins, elements],
+  );
+  const pinPortraits = usePortraitUrls(
+    pinPortraitPaths,
+    "local",
+    storage.readAsset,
+  );
 
   const [tool, setTool] = useState<Tool>("pan");
   const [locked, setLocked] = useState(false);
@@ -452,12 +475,21 @@ export function MapPanel({ element }: { element: Element }) {
         iconAnchor: [7, 7],
       });
       const marker = L.marker(toLatLng(pin), { icon, draggable: true });
-      marker.bindTooltip(pinName(pin, elements), {
-        permanent: true,
-        direction: "top",
-        offset: [0, -8],
-        className: "cf-pin-label",
-      });
+      const linkedPortrait = pin.element
+        ? portraitOf(elements.find((e) => e.id === pin.element) ?? {})
+        : null;
+      marker.bindTooltip(
+        pinTooltipHtml(
+          pinName(pin, elements),
+          linkedPortrait ? pinPortraits[linkedPortrait] : undefined,
+        ),
+        {
+          permanent: true,
+          direction: "top",
+          offset: [0, -8],
+          className: "cf-pin-label",
+        },
+      );
       marker.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
         setSelectedPinId(pin.id);
@@ -486,6 +518,7 @@ export function MapPanel({ element }: { element: Element }) {
     fromLatLng,
     persist,
     navigate,
+    pinPortraits,
   ]);
 
   // ---- Render saved routes ---------------------------------------------

@@ -1,6 +1,6 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   fitZoom,
@@ -8,6 +8,11 @@ import {
   territoryName,
   type MapData,
 } from "@/features/map/map-model";
+import {
+  pinTooltipHtml,
+  portraitOf,
+  usePortraitUrls,
+} from "@/features/images/portrait-model";
 import type { ElementSummary } from "@/lib/types";
 
 const MAP_HEIGHT = 480;
@@ -36,6 +41,18 @@ export function PlayerMap({
     null,
   );
   const imageUrl = loaded && loaded.path === data.image ? loaded.url : null;
+  const pinPortraitPaths = useMemo(
+    () =>
+      data.pins.flatMap((p) => {
+        const linked = p.element
+          ? elements.find((e) => e.id === p.element)
+          : undefined;
+        const path = linked ? portraitOf(linked) : null;
+        return path ? [path] : [];
+      }),
+    [data.pins, elements],
+  );
+  const pinPortraits = usePortraitUrls(pinPortraitPaths, "player", readAsset);
 
   useEffect(() => {
     let url: string | null = null;
@@ -139,12 +156,21 @@ export function PlayerMap({
         iconAnchor: [7, 7],
       });
       const marker = L.marker(toLatLng(pin), { icon, interactive: true });
-      marker.bindTooltip(pinName(pin, elements), {
-        permanent: true,
-        direction: "top",
-        offset: [0, -8],
-        className: "cf-pin-label",
-      });
+      const linkedPortrait = pin.element
+        ? portraitOf(elements.find((e) => e.id === pin.element) ?? {})
+        : null;
+      marker.bindTooltip(
+        pinTooltipHtml(
+          pinName(pin, elements),
+          linkedPortrait ? pinPortraits[linkedPortrait] : undefined,
+        ),
+        {
+          permanent: true,
+          direction: "top",
+          offset: [0, -8],
+          className: "cf-pin-label",
+        },
+      );
       if (pin.element) {
         const id = pin.element;
         marker.on("click", () => onOpen(id));
@@ -171,7 +197,7 @@ export function PlayerMap({
       map.setMinZoom(Math.min(zoom, containZoom) - 1);
       map.setView([height / 2, width / 2], zoom, { animate: false });
     }
-  }, [data, elements, imageUrl, onOpen]);
+  }, [data, elements, imageUrl, onOpen, pinPortraits]);
 
   return (
     <div

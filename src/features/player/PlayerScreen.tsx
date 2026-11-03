@@ -32,6 +32,9 @@ import {
   type ElementSummary,
 } from "@/lib/types";
 
+import { Portrait } from "@/features/images/Portrait";
+import { portraitOf } from "@/features/images/portrait-model";
+
 import { PlayerMap } from "./PlayerMap";
 import type { PlayerSource } from "./player-model";
 
@@ -224,16 +227,26 @@ export function PlayerScreen({
                 <button
                   type="button"
                   onClick={() => open(e.id)}
-                  className={`w-full px-4 py-2 text-left transition-colors ${
+                  className={`flex w-full items-center gap-3 px-4 py-2 text-left transition-colors ${
                     e.id === selectedId ? "bg-ink-700/60" : "hover:bg-ink-800"
                   }`}
                 >
-                  <div className="truncate text-sm text-ink-100">
-                    {displayName(e)}
-                  </div>
-                  <div className="text-[11px] text-ink-500">
-                    {kindById(e.type).label}
-                    {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
+                  <Portrait
+                    path={portraitOf(e)}
+                    name={e.name}
+                    kind={e.type}
+                    size={30}
+                    scope="player"
+                    load={source.readAsset}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-ink-100">
+                      {displayName(e)}
+                    </div>
+                    <div className="truncate text-[11px] text-ink-500">
+                      {kindById(e.type).label}
+                      {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
+                    </div>
                   </div>
                 </button>
               </li>
@@ -326,38 +339,50 @@ function PlayerElementView({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-ink-800 px-6 py-4">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
-          {kindById(element.type).label}
+      <header className="flex items-start gap-4 border-b border-ink-800 px-6 py-4">
+        <Portrait
+          path={portraitOf(element)}
+          name={element.name}
+          kind={element.type}
+          size={72}
+          scope="player"
+          load={source.readAsset}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+            {kindById(element.type).label}
+          </div>
+          <h2 className="mt-0.5 font-serif text-2xl font-semibold text-ink-100">
+            {element.name}
+          </h2>
+          {element.tags.length > 0 && (
+            <p className="mt-1 text-xs text-ink-400">
+              {element.tags.join(", ")}
+            </p>
+          )}
+          {details.length > 0 && (
+            <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs">
+              {details.map((d) => (
+                <div key={d.label} className="flex gap-1.5">
+                  <dt className="text-ink-500">{d.label}</dt>
+                  <dd className="text-ink-200">
+                    {d.link ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpen(d.link!)}
+                        className="text-ember-300 hover:underline"
+                      >
+                        {d.value}
+                      </button>
+                    ) : (
+                      d.value
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
-        <h2 className="mt-0.5 font-serif text-2xl font-semibold text-ink-100">
-          {element.name}
-        </h2>
-        {element.tags.length > 0 && (
-          <p className="mt-1 text-xs text-ink-400">{element.tags.join(", ")}</p>
-        )}
-        {details.length > 0 && (
-          <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs">
-            {details.map((d) => (
-              <div key={d.label} className="flex gap-1.5">
-                <dt className="text-ink-500">{d.label}</dt>
-                <dd className="text-ink-200">
-                  {d.link ? (
-                    <button
-                      type="button"
-                      onClick={() => onOpen(d.link!)}
-                      className="text-ember-300 hover:underline"
-                    >
-                      {d.value}
-                    </button>
-                  ) : (
-                    d.value
-                  )}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
       </header>
 
       <div className="flex-1 overflow-y-auto px-8 py-6">

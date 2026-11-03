@@ -23,6 +23,7 @@ import {
   PLAYERS_HEADING,
   hasPlayersSection,
 } from "@/features/player/player-model";
+import { PortraitPicker } from "@/features/images/PortraitPicker";
 import { useTableStore } from "@/stores/table-store";
 
 import {
@@ -213,8 +214,9 @@ export function ElementEditor({ element, panel }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-start gap-3 border-b border-ink-800 px-6 py-4">
-        <div className="flex-1">
+      <header className="flex items-start gap-4 border-b border-ink-800 px-6 py-4">
+        <PortraitPicker element={element} />
+        <div className="min-w-0 flex-1">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
             {kindById(element.type).label}
           </div>

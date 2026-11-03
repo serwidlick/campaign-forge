@@ -21,6 +21,8 @@ import { GraphPanel } from "@/features/graph/GraphPanel";
 import { JournalList } from "@/features/journal/JournalList";
 import { PlayerScreen } from "@/features/player/PlayerScreen";
 import { isShared, localPreviewSource } from "@/features/player/player-model";
+import { Portrait } from "@/features/images/Portrait";
+import { portraitOf } from "@/features/images/portrait-model";
 import { HostPanel } from "@/features/table/HostPanel";
 import { calendarOf } from "@/features/timeline/calendar-model";
 import { CalendarSettings } from "@/features/timeline/CalendarSettings";
@@ -459,26 +461,36 @@ export function BibleScreen() {
                         void navigate(e.id, { pane: ev.ctrlKey || ev.metaKey })
                       }
                       title="Click to open · Ctrl+click to open beside the current element"
-                      className={`w-full px-4 py-2 text-left transition-colors ${
+                      className={`flex w-full items-center gap-3 px-4 py-2 text-left transition-colors ${
                         e.id === selectedId
                           ? "bg-ink-700/60"
                           : "hover:bg-ink-800"
                       }`}
                     >
-                      <div className="flex items-center gap-1.5 text-sm text-ink-100">
-                        <span className="truncate">{displayName(e)}</span>
-                        {isShared(e) && (
-                          <span
-                            title="Shared with players"
-                            className="shrink-0 text-ember-400/80"
-                          >
-                            <Eye size={12} />
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-ink-500">
-                        {kindById(e.type).label}
-                        {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
+                      <Portrait
+                        path={portraitOf(e)}
+                        name={e.name}
+                        kind={e.type}
+                        size={30}
+                        scope="local"
+                        load={storage.readAsset}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-sm text-ink-100">
+                          <span className="truncate">{displayName(e)}</span>
+                          {isShared(e) && (
+                            <span
+                              title="Shared with players"
+                              className="shrink-0 text-ember-400/80"
+                            >
+                              <Eye size={12} />
+                            </span>
+                          )}
+                        </div>
+                        <div className="truncate text-[11px] text-ink-500">
+                          {kindById(e.type).label}
+                          {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
+                        </div>
                       </div>
                     </button>
                   </li>

@@ -77,6 +77,21 @@ export const storage = {
     return invoke<ImportedImage>("import_map_image", { mapId, source });
   },
 
+  /** Copies a picture into assets/images/ for any element. */
+  importElementImage(elementId: string, source: string) {
+    return invoke<ImportedImage>("import_element_image", {
+      elementId,
+      source,
+    });
+  },
+
+  importElementImageBytes(elementId: string, dataBase64: string) {
+    return invoke<ImportedImage>("import_element_image_bytes", {
+      elementId,
+      dataBase64,
+    });
+  },
+
   /** Imports image bytes (base64) for a map element. */
   importMapImageBytes(mapId: string, dataBase64: string) {
     return invoke<ImportedImage>("import_map_image_bytes", {

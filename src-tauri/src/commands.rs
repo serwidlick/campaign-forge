@@ -102,6 +102,31 @@ pub fn import_map_image(
 }
 
 #[tauri::command]
+pub fn import_element_image(
+    state: State<'_, AppState>,
+    element_id: String,
+    source: String,
+) -> CommandResult<ImportedImage> {
+    state
+        .import_element_image(&element_id, &source)
+        .map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn import_element_image_bytes(
+    state: State<'_, AppState>,
+    element_id: String,
+    data_base64: String,
+) -> CommandResult<ImportedImage> {
+    let bytes = BASE64_STANDARD
+        .decode(data_base64.as_bytes())
+        .map_err(|e| format!("invalid image data: {e}"))?;
+    state
+        .import_element_image_bytes(&element_id, &bytes)
+        .map_err(to_command_error)
+}
+
+#[tauri::command]
 pub fn search_elements(
     state: State<'_, AppState>,
     query: String,

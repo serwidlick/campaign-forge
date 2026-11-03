@@ -32,6 +32,8 @@ pub fn run() {
             commands::import_map_image_bytes,
             commands::import_map_image_from_url,
             commands::read_asset,
+            commands::import_element_image,
+            commands::import_element_image_bytes,
             commands::search_elements,
             commands::list_shared_elements,
             commands::read_shared_element,
