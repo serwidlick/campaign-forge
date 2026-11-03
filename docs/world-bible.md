@@ -42,7 +42,7 @@ A new element starts from a template for its kind: a body skeleton of headings s
 
 ## Character sheets
 
-In a D&D 5e campaign every character has a sheet above its body: role (player character or NPC), class, subclass, level, species, background and alignment; the six ability scores with their modifiers; AC, hit points (current, maximum, temporary) and speed; initiative, proficiency bonus and passive Perception, which are worked out for you; saving throw and skill proficiencies as chips (click a skill once for proficiency, twice for expertise), each showing its total; senses and languages.
+In a D&D 5e campaign every character has a sheet above its body: role (player character or NPC), class, subclass, level, species, background and alignment, with dropdown suggestions for the published classes, subclasses, species and backgrounds (type anything else for homebrew; picking a class fills its saving throws, picking a species sets its speed); the six ability scores with their modifiers; AC, hit points (current, maximum, temporary) and speed; initiative, proficiency bonus and passive Perception, which are worked out for you; saving throw and skill proficiencies as chips (click a skill once for proficiency, twice for expertise), each showing its total; senses and languages.
 
 The sheet is stored in the element's frontmatter as `sheet`, so it travels with the file, and the assistant can fill it in when you ask.
 

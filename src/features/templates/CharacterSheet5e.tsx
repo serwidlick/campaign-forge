@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import type { Element } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 
+import {
+  BACKGROUNDS,
+  CLASSES,
+  SPECIES,
+  classByName,
+  speciesByName,
+} from "./dnd5e-data";
 import {
   ABILITIES,
   ABILITY_NAMES,
@@ -64,6 +71,47 @@ export function CharacterSheet5e({ element }: { element: Element }) {
   });
   useEffect(() => () => flushRef.current(), []);
 
+  /**
+   * Picking a class fills its saving throws unless the GM already chose
+   * their own, and clears a subclass that belonged to the previous class.
+   */
+  function setClass(value: string) {
+    update((s) => {
+      const prev = classByName(s.class);
+      const next = classByName(value);
+      const savesUntouched =
+        s.saves.length === 0 ||
+        (prev !== undefined && sameSet(s.saves, prev.saves));
+      const subclassStale =
+        prev !== undefined &&
+        prev.subclasses.includes(s.subclass) &&
+        !(next?.subclasses.includes(s.subclass) ?? false);
+      return {
+        ...s,
+        class: value,
+        saves: next && savesUntouched ? [...next.saves] : s.saves,
+        subclass: subclassStale ? "" : s.subclass,
+      };
+    });
+  }
+
+  /** Picking a species sets its walking speed unless one was typed by hand. */
+  function setSpecies(value: string) {
+    update((s) => {
+      const prev = speciesByName(s.species);
+      const next = speciesByName(value);
+      const speedUntouched =
+        s.speed === EMPTY_SHEET.speed ||
+        (prev !== undefined && s.speed === `${prev.speed} ft.`);
+      return {
+        ...s,
+        species: value,
+        speed: next && speedUntouched ? `${next.speed} ft.` : s.speed,
+      };
+    });
+  }
+
+  const hitDie = classByName(sheet.class)?.hitDie;
   const pb = proficiencyBonus(sheet.level);
   const number = (v: string): number | null => {
     if (v.trim() === "") return null;
@@ -88,18 +136,23 @@ export function CharacterSheet5e({ element }: { element: Element }) {
             <option value="npc">NPC</option>
           </select>
         </label>
-        <Text
+        <Combo
           label="Class"
           value={sheet.class}
-          onChange={(v) => update((s) => ({ ...s, class: v }))}
+          onChange={setClass}
+          options={CLASSES.map((c) => c.name)}
           width="w-32"
           placeholder="Fighter"
         />
-        <Text
+        <Combo
           label="Subclass"
           value={sheet.subclass}
           onChange={(v) => update((s) => ({ ...s, subclass: v }))}
-          width="w-36"
+          options={
+            classByName(sheet.class)?.subclasses ??
+            CLASSES.flatMap((c) => c.subclasses)
+          }
+          width="w-44"
           placeholder="Champion"
         />
         <label className={LABEL}>
@@ -118,17 +171,19 @@ export function CharacterSheet5e({ element }: { element: Element }) {
             className={`mt-1 block w-16 ${FIELD}`}
           />
         </label>
-        <Text
+        <Combo
           label="Species"
           value={sheet.species}
-          onChange={(v) => update((s) => ({ ...s, species: v }))}
-          width="w-32"
+          onChange={setSpecies}
+          options={SPECIES.map((sp) => sp.name)}
+          width="w-36"
           placeholder="Human"
         />
-        <Text
+        <Combo
           label="Background"
           value={sheet.background}
           onChange={(v) => update((s) => ({ ...s, background: v }))}
+          options={BACKGROUNDS}
           width="w-36"
           placeholder="Soldier"
         />
@@ -255,6 +310,7 @@ export function CharacterSheet5e({ element }: { element: Element }) {
           value={signed(modifier(sheet.abilities.dex))}
         />
         <Derived label="Proficiency" value={signed(pb)} />
+        <Derived label="Hit die" value={hitDie ? `d${hitDie}` : "—"} />
         <Derived
           label="Passive Perception"
           value={String(passivePerception(sheet))}
@@ -340,6 +396,47 @@ export function CharacterSheet5e({ element }: { element: Element }) {
         />
       </div>
     </section>
+  );
+}
+
+function sameSet<T>(a: T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((x) => b.includes(x));
+}
+
+/** A text field with suggestions: pick from the list or type anything. */
+function Combo({
+  label,
+  value,
+  onChange,
+  options,
+  width,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  width: string;
+  placeholder?: string;
+}) {
+  const listId = useId();
+  return (
+    <label className={LABEL}>
+      {label}
+      <input
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
+        className={`mt-1 block ${width} ${FIELD} placeholder:text-ink-600`}
+      />
+      <datalist id={listId}>
+        {options.map((o) => (
+          <option key={o} value={o} />
+        ))}
+      </datalist>
+    </label>
   );
 }
 
