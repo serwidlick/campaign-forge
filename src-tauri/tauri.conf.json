@@ -36,7 +36,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": ["nsis", "dmg", "appimage", "deb"],
+    "targets": ["app", "nsis", "dmg", "appimage", "deb"],
     "publisher": "David Levey",
     "shortDescription": "Local-first campaign manager for tabletop game masters",
     "longDescription": "World bible, maps, sessions, timeline and journals for tabletop RPG campaigns, stored as plain Markdown files on your own disk. Play at a table over the local network.",
