@@ -8,9 +8,12 @@ import type {
   CampaignMeta,
   Element,
   ElementSummary,
+  FoundTable,
+  HostStatus,
   ImportedImage,
   SaveElementInput,
   SearchHit,
+  TableSession,
 } from "./types";
 
 export const storage = {
@@ -94,6 +97,57 @@ export const storage = {
   /** Raw bytes of an asset by campaign-relative path. */
   readAsset(path: string) {
     return invoke<ArrayBuffer>("read_asset", { path });
+  },
+
+  /** Shared elements exactly as players receive them. */
+  listSharedElements() {
+    return invoke<ElementSummary[]>("list_shared_elements");
+  },
+
+  readSharedElement(id: string) {
+    return invoke<Element | null>("read_shared_element", { id });
+  },
+};
+
+/** Hosting a table and joining one (`src-tauri/src/table`). */
+export const table = {
+  startHosting() {
+    return invoke<HostStatus>("table_start_hosting");
+  },
+  stopHosting() {
+    return invoke<void>("table_stop_hosting");
+  },
+  hostStatus() {
+    return invoke<HostStatus | null>("table_host_status");
+  },
+  /** Starts browsing if needed and returns the tables seen so far. */
+  discover() {
+    return invoke<FoundTable[]>("table_discover");
+  },
+  discoverStop() {
+    return invoke<void>("table_discover_stop");
+  },
+  join(address: string, name: string, code: string) {
+    return invoke<TableSession>("table_join", { address, name, code });
+  },
+  leave() {
+    return invoke<void>("table_leave");
+  },
+  session() {
+    return invoke<TableSession | null>("table_session");
+  },
+  fetchElements() {
+    return invoke<ElementSummary[]>("table_fetch_elements");
+  },
+  fetchElement(id: string) {
+    return invoke<Element | null>("table_fetch_element", { id });
+  },
+  fetchAsset(path: string) {
+    return invoke<ArrayBuffer>("table_fetch_asset", { path });
+  },
+  /** Resolves when the GM's version passes `after`, or after ~25 s. */
+  waitForChange(after: number) {
+    return invoke<number>("table_wait_for_change", { after });
   },
 };
 

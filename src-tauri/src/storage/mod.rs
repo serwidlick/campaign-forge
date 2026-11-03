@@ -27,6 +27,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
+use tokio::sync::watch;
+
 pub use assets::{ImportedImage, MAX_IMAGE_BYTES};
 pub use error::StorageError;
 pub use model::{CampaignMeta, Element, ElementSummary, Extra, SaveElementInput};
@@ -41,12 +43,37 @@ struct OpenCampaign {
 }
 
 /// Tauri-managed application state.
-#[derive(Default)]
 pub struct AppState {
     inner: Mutex<Option<OpenCampaign>>,
+    /// Bumped after every write so long-lived readers (the table server) can
+    /// wait for "something changed" instead of polling the disk.
+    changes: watch::Sender<u64>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            inner: Mutex::new(None),
+            changes: watch::channel(0).0,
+        }
+    }
 }
 
 impl AppState {
+    /// Current change counter. Monotonic for the life of the process.
+    pub fn version(&self) -> u64 {
+        *self.changes.borrow()
+    }
+
+    /// A receiver that wakes whenever the counter is bumped.
+    pub fn changes(&self) -> watch::Receiver<u64> {
+        self.changes.subscribe()
+    }
+
+    fn bump(&self) {
+        self.changes.send_modify(|v| *v += 1);
+    }
+
     pub fn current_campaign(&self) -> Option<CampaignMeta> {
         self.inner
             .lock()
@@ -91,6 +118,8 @@ impl AppState {
             extra,
         )?;
         open.meta = meta.clone();
+        drop(guard);
+        self.bump();
         Ok(meta)
     }
 
@@ -123,6 +152,8 @@ impl AppState {
         let element = elements::create(&open.root, kind, name, extra)?;
         open.index
             .insert(element.meta.id.clone(), open.root.join(&element.meta.path));
+        drop(guard);
+        self.bump();
         Ok(element)
     }
 
@@ -133,7 +164,10 @@ impl AppState {
             .index
             .get(&input.id)
             .ok_or_else(|| StorageError::ElementNotFound(input.id.clone()))?;
-        elements::save(&open.root, path, input)
+        let saved = elements::save(&open.root, path, input)?;
+        drop(guard);
+        self.bump();
+        Ok(saved)
     }
 
     pub fn delete_element(&self, id: &str) -> Result<(), StorageError> {
@@ -143,7 +177,10 @@ impl AppState {
             .index
             .remove(id)
             .ok_or_else(|| StorageError::ElementNotFound(id.to_owned()))?;
-        elements::delete(&path)
+        elements::delete(&path)?;
+        drop(guard);
+        self.bump();
+        Ok(())
     }
 
     /// Copies an image file into the campaign's assets folder for the given
@@ -156,7 +193,11 @@ impl AppState {
         let guard = self.lock()?;
         let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
         let stem = map_stem(&open.index, map_id);
-        assets::import_image(&open.root, "maps", stem, std::path::Path::new(source))
+        let imported =
+            assets::import_image(&open.root, "maps", stem, std::path::Path::new(source))?;
+        drop(guard);
+        self.bump();
+        Ok(imported)
     }
 
     /// Same as [`Self::import_map_image`] but from bytes already in memory
@@ -169,7 +210,10 @@ impl AppState {
         let guard = self.lock()?;
         let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
         let stem = map_stem(&open.index, map_id);
-        assets::import_image_bytes(&open.root, "maps", stem, bytes)
+        let imported = assets::import_image_bytes(&open.root, "maps", stem, bytes)?;
+        drop(guard);
+        self.bump();
+        Ok(imported)
     }
 
     /// Case-insensitive text search over names, tags and bodies.
@@ -193,6 +237,8 @@ impl AppState {
         let (_, index) = elements::scan(&root)?;
         let mut guard = self.lock()?;
         *guard = Some(OpenCampaign { root, meta, index });
+        drop(guard);
+        self.bump();
         Ok(())
     }
 

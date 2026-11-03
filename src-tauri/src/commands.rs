@@ -8,6 +8,7 @@ use crate::storage::{
     AppState, CampaignMeta, Element, ElementSummary, Extra, ImportedImage, MAX_IMAGE_BYTES,
     SaveElementInput, SearchHit, StorageError,
 };
+use crate::table::share;
 
 type CommandResult<T> = Result<T, String>;
 
@@ -161,4 +162,19 @@ pub async fn import_map_image_from_url(
 pub fn read_asset(state: State<'_, AppState>, path: String) -> CommandResult<tauri::ipc::Response> {
     let bytes = state.read_asset(&path).map_err(to_command_error)?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Shared elements exactly as the table server would send them: the GM's
+/// "preview as player" reads through this so it can never drift.
+#[tauri::command]
+pub fn list_shared_elements(state: State<'_, AppState>) -> CommandResult<Vec<ElementSummary>> {
+    share::shared_summaries(&state).map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn read_shared_element(
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<Option<Element>> {
+    share::shared_element(&state, &id).map_err(to_command_error)
 }

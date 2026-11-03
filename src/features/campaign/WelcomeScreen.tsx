@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/Button";
 import { ErrorBanner } from "@/components/ErrorBanner";
+import { JoinTable } from "@/features/table/JoinTable";
 import {
   forgetCampaign,
   getRecentCampaigns,
@@ -160,6 +161,8 @@ export function WelcomeScreen() {
               </ul>
             </section>
           )}
+
+          {!draftPath && <JoinTable />}
         </div>
       </main>
     </div>

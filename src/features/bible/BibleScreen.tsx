@@ -4,13 +4,14 @@ import {
   CalendarDays,
   ChevronLeft,
   Eye,
+  Radio,
   Waypoints,
   Plus,
   Search,
   Sparkles,
   X,
 } from "lucide-react";
-import { Fragment, useMemo, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { Button } from "@/components/Button";
@@ -20,12 +21,20 @@ import { GraphPanel } from "@/features/graph/GraphPanel";
 import { JournalList } from "@/features/journal/JournalList";
 import { PlayerScreen } from "@/features/player/PlayerScreen";
 import { isShared, localPreviewSource } from "@/features/player/player-model";
+import { HostPanel } from "@/features/table/HostPanel";
 import { calendarOf } from "@/features/timeline/calendar-model";
 import { CalendarSettings } from "@/features/timeline/CalendarSettings";
 import { TimelineList } from "@/features/timeline/TimelineList";
 import { displayName, sortForList } from "@/features/sessions/session-model";
-import { ELEMENT_FAMILIES, ELEMENT_KINDS, kindById } from "@/lib/types";
+import { storage } from "@/lib/tauri";
+import {
+  ELEMENT_FAMILIES,
+  ELEMENT_KINDS,
+  kindById,
+  type ElementSummary,
+} from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
+import { useTableStore } from "@/stores/table-store";
 
 import { ElementEditorFor } from "./ElementEditorFor";
 import { OverviewPanel } from "./OverviewPanel";
@@ -55,11 +64,33 @@ export function BibleScreen() {
   const [newName, setNewName] = useState<string | null>(null);
   const [newKind, setNewKind] = useState<string>("character");
   const [view, setView] = useState<
-    "elements" | "timeline" | "graph" | "journal"
+    "elements" | "timeline" | "graph" | "journal" | "table"
   >("elements");
+  const hosting = useTableStore((s) => s.hosting);
+  const stopHosting = useTableStore((s) => s.stopHosting);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [playerPreview, setPlayerPreview] = useState(false);
-  const previewSource = useMemo(() => localPreviewSource(elements), [elements]);
+  // The preview reads through the same Rust sanitiser as the table server.
+  const [sharedElements, setSharedElements] = useState<ElementSummary[]>([]);
+  useEffect(() => {
+    if (!playerPreview) return;
+    let cancelled = false;
+    storage
+      .listSharedElements()
+      .then((list) => {
+        if (!cancelled) setSharedElements(list);
+      })
+      .catch(() => {
+        /* the error banner already reports storage failures */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [playerPreview, elements]);
+  const previewSource = useMemo(
+    () => localPreviewSource(sharedElements),
+    [sharedElements],
+  );
   const calendar = useMemo(() => calendarOf(campaign), [campaign]);
   const sharedCount = useMemo(
     () => elements.filter(isShared).length,
@@ -175,12 +206,37 @@ export function BibleScreen() {
             <div className="flex items-center justify-between">
               <button
                 type="button"
-                onClick={closeCampaign}
+                onClick={() => {
+                  void stopHosting();
+                  closeCampaign();
+                }}
                 className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink-200"
               >
                 <ChevronLeft size={14} /> Campaigns
               </button>
               <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setView((v) => (v === "table" ? "elements" : "table"))
+                  }
+                  title={
+                    hosting
+                      ? `Hosting a table · code ${hosting.code}`
+                      : "Host a table"
+                  }
+                  aria-label="Table"
+                  aria-pressed={view === "table"}
+                  className={`rounded-md p-1 transition-colors ${
+                    hosting
+                      ? "bg-green-500/20 text-green-300"
+                      : view === "table"
+                        ? "bg-ink-700/60 text-ink-100"
+                        : "text-ink-400 hover:bg-ink-800 hover:text-ink-200"
+                  }`}
+                >
+                  <Radio size={14} />
+                </button>
                 <button
                   type="button"
                   onClick={() => setPlayerPreview(true)}
@@ -438,7 +494,12 @@ export function BibleScreen() {
         <Panel minSize={420} className="flex flex-col bg-ink-950">
           <Group orientation="horizontal" className="h-full">
             <Panel minSize={360} className="flex flex-col">
-              {view === "graph" ? (
+              {view === "table" ? (
+                <HostPanel
+                  onClose={() => setView("elements")}
+                  onPreview={() => setPlayerPreview(true)}
+                />
+              ) : view === "graph" ? (
                 <GraphPanel />
               ) : calendarOpen && view === "timeline" ? (
                 <CalendarSettings onClose={() => setCalendarOpen(false)} />

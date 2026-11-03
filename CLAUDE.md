@@ -15,6 +15,7 @@ A local-first desktop campaign manager for tabletop game masters (world bible, m
 
 - `src-tauri/src/storage/` — Rust storage layer. Owns all file IO. Elements are `elements/<kind>/<slug>.md` with YAML frontmatter; campaign metadata is `campaign.json`.
 - `src-tauri/src/commands.rs` — Tauri commands exposed to the frontend. Thin wrappers over `storage`.
+- `src-tauri/src/table/` — hosting and joining a table over the LAN (axum server, mDNS discovery, reqwest client, sharing rules).
 - `src/lib/tauri.ts` — typed `invoke` wrappers. The only place the frontend calls Rust.
 - `src/features/<area>/` — one folder per screen area (`campaign`, `bible`, later `map`, `sessions`, `agent`).
 - `src/stores/` — zustand stores.
@@ -24,7 +25,7 @@ A local-first desktop campaign manager for tabletop game masters (world bible, m
 - **Files are the source of truth.** Never cache campaign content anywhere the user cannot see. Every write goes through the Rust storage layer, never `plugin-fs` from the frontend.
 - **Link by ID, never by title.** Every element has a stable `id` in its frontmatter. Renames must not break links.
 - **Markdown must round-trip.** If the editor cannot represent something, preserve it rather than drop it.
-- **No network calls** except the opt-in AI agent, which uses the user's own API key.
+- **No network calls** except the opt-in AI agent (user's own API key) and the LAN table (`src-tauri/src/table/`: the GM hosts an HTTP API for players on the same network; what it serves is decided only by `table/share.rs`).
 
 ## Conventional Commits
 

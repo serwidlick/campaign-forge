@@ -22,7 +22,9 @@ Early scaffold. What works today:
 - Journal: dated entries that belong to the campaign, an arc or a session, listed newest first in a Journal view and under each arc and session, with an optional in-world date that places them on the timeline
 - Recent campaigns list
 
-Planned: play over the local network. The GM hosts a table, players join from their laptops and see what is shared, live.
+- Play at a table over the local network: the GM presses Host a table and reads out a six-digit code; players open Campaign Forge on their own laptops, pick the table from the list (or type the GM address) and get the player view live, updating within a second of the GM sharing or editing something. Nothing leaves the network and there are no accounts.
+
+Planned: table tools (show this to everyone, map reveal, dice, player notes back to the GM) and a browser join for phones.
 
 ## On-disk format
 

@@ -182,3 +182,40 @@ export function kindById(id: string): ElementKind {
     }
   );
 }
+
+// ---- Playing at a table over the local network -----------------------------
+
+export interface TablePlayer {
+  name: string;
+  joinedAt: string;
+  lastSeen: string;
+}
+
+export interface HostStatus {
+  port: number;
+  code: string;
+  /** `ip:port` pairs players can type if discovery fails. */
+  addresses: string[];
+  players: TablePlayer[];
+  announceError: string | null;
+}
+
+export interface FoundTable {
+  id: string;
+  name: string;
+  system: string | null;
+  addresses: string[];
+}
+
+export interface TableInfo {
+  name: string;
+  system: string | null;
+  calendar: unknown;
+  version: number;
+}
+
+export interface TableSession {
+  address: string;
+  playerName: string;
+  info: TableInfo;
+}
