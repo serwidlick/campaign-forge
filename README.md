@@ -76,6 +76,8 @@ Send people to the download page: **https://serwidlick.github.io/campaign-forge/
 
 Players only need the same installer. They do not need a campaign folder; they join a table from the welcome screen.
 
+**Updates.** The app checks GitHub Releases a few seconds after launch and every few hours after that. When a newer version exists, a strip across the top offers _Install and restart_; the welcome screen also has a _Check for updates_ link. Update packages are signed, and the app only installs a package whose signature matches the public key built into it. Nothing else is contacted. On Windows and with the Linux AppImage the update installs itself; the `.deb` is reinstalled by hand.
+
 ### Making a release
 
 Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub Actions for Windows, macOS (Apple Silicon) and Linux. Bump the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit, then tag and push:
@@ -83,6 +85,15 @@ Installers are built by the [Release workflow](.github/workflows/release.yml) on
 ```bash
 git tag v0.2.0 && git push origin v0.2.0
 ```
+
+**Update signing.** Every release must be signed with the updater key or the workflow fails, because installed copies would refuse the update. The key pair was made with `pnpm tauri signer generate`; the public half is in `src-tauri/tauri.conf.json`, the private half lives outside the repository and in these secrets:
+
+| Secret                               | Value                                      |
+| ------------------------------------ | ------------------------------------------ |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Contents of the private key file           |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Its password, or empty if the key has none |
+
+Losing the private key means installed copies can never update again; a new key would need a fresh install from the download page.
 
 **macOS signing.** The macOS build is signed and notarised when these repository secrets exist (Settings → Secrets and variables → Actions); without them it is built unsigned.
 

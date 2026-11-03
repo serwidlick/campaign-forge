@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { BibleScreen } from "@/features/bible/BibleScreen";
 import { WelcomeScreen } from "@/features/campaign/WelcomeScreen";
 import { TableScreen } from "@/features/table/TableScreen";
+import { UpdateBanner } from "@/features/updates/UpdateBanner";
 import { useCampaignStore } from "@/stores/campaign-store";
 import { useTableStore } from "@/stores/table-store";
 
@@ -19,6 +20,18 @@ export default function App() {
     void restoreTable();
   }, [restore, restoreTable]);
 
-  if (session) return <TableScreen />;
-  return campaign ? <BibleScreen /> : <WelcomeScreen />;
+  const screen = session ? (
+    <TableScreen />
+  ) : campaign ? (
+    <BibleScreen />
+  ) : (
+    <WelcomeScreen />
+  );
+
+  return (
+    <div className="flex h-full flex-col">
+      <UpdateBanner />
+      <div className="min-h-0 flex-1">{screen}</div>
+    </div>
+  );
 }

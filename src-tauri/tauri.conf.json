@@ -24,9 +24,18 @@
       "csp": null
     }
   },
-  "plugins": {},
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM3RDZCNDQ3MjQ3QUFGQjUKUldTMXIzb2tSN1RXTi9aRURDWjVPSW1WMTBwR3ZYM2FMczhGcjZ1a0JOdjlEczI2MkxWU2NaS2kK",
+      "endpoints": [
+        "https://github.com/serwidlick/campaign-forge/releases/latest/download/latest.json"
+      ],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis", "dmg", "appimage", "deb"],
     "publisher": "David Levey",
     "shortDescription": "Local-first campaign manager for tabletop game masters",
