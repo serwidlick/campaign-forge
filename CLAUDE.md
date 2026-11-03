@@ -33,7 +33,7 @@ Commit subjects follow `type: subject` and are enforced by commitlint + husky. T
 
 ## Git
 
-Do not commit, push, tag, merge, rebase, or open PRs unless the user asks for it in the current session. Stop at "files edited, checks pass" and summarise. When asked to commit, use the format above.
+Do not commit, push, tag, merge, rebase, or open PRs unless the user asks for it in the current session. Stop at "files edited, checks pass" and summarise. When asked to commit, use the format above. Commits are authored only by real people: never add a `Co-Authored-By` trailer for Claude or any other AI tool to a commit message or PR description, including messages drafted for the user to paste.
 
 ## Checks
 
