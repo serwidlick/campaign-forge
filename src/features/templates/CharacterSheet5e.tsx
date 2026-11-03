@@ -7,8 +7,11 @@ import {
   BACKGROUNDS,
   CLASSES,
   SPECIES,
+  THIRD_CASTERS,
+  backgroundByName,
   classByName,
   speciesByName,
+  type Asi,
 } from "./dnd5e-data";
 import {
   ABILITIES,
@@ -24,8 +27,10 @@ import {
   signed,
   skillBonus,
   type Ability,
+  slotsFor,
   type Sheet5e,
 } from "./dnd5e-model";
+import { SheetExtras } from "./SheetExtras";
 
 const FIELD =
   "rounded-md border border-ink-700 bg-ink-900 px-2 py-1 text-sm text-ink-100 outline-none focus:border-ember-500";
@@ -86,32 +91,139 @@ export function CharacterSheet5e({ element }: { element: Element }) {
         prev !== undefined &&
         prev.subclasses.includes(s.subclass) &&
         !(next?.subclasses.includes(s.subclass) ?? false);
-      return {
+      const startingHp = next
+        ? Math.max(1, next.hitDie + modifier(s.abilities.con))
+        : null;
+      const hp =
+        s.hp.max === null && startingHp !== null
+          ? { ...s.hp, max: startingHp, current: s.hp.current ?? startingHp }
+          : s.hp;
+      return withAutoSlots({
         ...s,
+        hp,
         class: value,
         saves: next && savesUntouched ? [...next.saves] : s.saves,
         subclass: subclassStale ? "" : s.subclass,
-      };
+      });
     });
   }
 
-  /** Picking a species sets its walking speed unless one was typed by hand. */
+  /**
+   * Picking a species applies what it grants: fixed ability bonuses go
+   * straight onto the scores, its skills are ticked, and speed, senses and
+   * languages are filled in unless typed by hand. Whatever the previous
+   * species had given is taken back first.
+   */
   function setSpecies(value: string) {
     update((s) => {
       const prev = speciesByName(s.species);
       const next = speciesByName(value);
+      let abilities = s.abilities;
+      if (prev && s.asiFrom === prev.name) {
+        abilities = shiftAbilities(abilities, prev.asi, -1);
+      }
+      abilities = shiftAbilities(abilities, s.asiChosen, -1);
+      if (next) abilities = shiftAbilities(abilities, next.asi, 1);
+
       const speedUntouched =
         s.speed === EMPTY_SHEET.speed ||
         (prev !== undefined && s.speed === `${prev.speed} ft.`);
+      const prevSenses = prev?.darkvision
+        ? `Darkvision ${prev.darkvision} ft.`
+        : "";
+      const sensesUntouched = s.senses.trim() === "" || s.senses === prevSenses;
+      const languagesUntouched =
+        s.languages.trim() === "" || s.languages === prev?.languages;
+
       return {
         ...s,
         species: value,
+        abilities,
+        asiFrom: next && Object.keys(next.asi).length > 0 ? next.name : "",
+        asiChosen: {},
+        skills: withGrantedSkills(
+          s.skills,
+          prev?.skills ?? [],
+          next?.skills ?? [],
+        ),
         speed: next && speedUntouched ? `${next.speed} ft.` : s.speed,
+        senses: sensesUntouched
+          ? next?.darkvision
+            ? `Darkvision ${next.darkvision} ft.`
+            : ""
+          : s.senses,
+        languages: languagesUntouched && next ? next.languages : s.languages,
+      };
+    });
+  }
+
+  /** Places or removes one bonus point from the species' pool. */
+  function adjustChoice(a: Ability, delta: 1 | -1) {
+    update((s) => {
+      const pool = speciesByName(s.species)?.asiChoice;
+      if (!pool) return s;
+      const current = s.asiChosen[a] ?? 0;
+      const used = Object.values(s.asiChosen).reduce((n, v) => n + (v ?? 0), 0);
+      if (delta > 0 && (used >= pool.points || current >= pool.maxPer)) {
+        return s;
+      }
+      if (delta < 0 && current <= 0) return s;
+      const asiChosen = { ...s.asiChosen, [a]: current + delta };
+      if (asiChosen[a] === 0) delete asiChosen[a];
+      return {
+        ...s,
+        asiChosen,
+        abilities: shiftAbilities(s.abilities, { [a]: 1 }, delta),
+      };
+    });
+  }
+
+  /** For sheets made before bonuses applied themselves. */
+  function applyAsi() {
+    update((s) => {
+      const sp = speciesByName(s.species);
+      if (!sp || s.asiFrom === sp.name) return s;
+      return {
+        ...s,
+        abilities: shiftAbilities(s.abilities, sp.asi, 1),
+        asiFrom: sp.name,
+      };
+    });
+  }
+
+  /** Picking a background swaps its skill proficiencies in. */
+  function setBackground(value: string) {
+    update((s) => {
+      const prev = backgroundByName(s.background);
+      const next = backgroundByName(value);
+      return {
+        ...s,
+        background: value,
+        skills: withGrantedSkills(
+          s.skills,
+          prev?.skills ?? [],
+          next?.skills ?? [],
+        ),
       };
     });
   }
 
   const hitDie = classByName(sheet.class)?.hitDie;
+  const classSkills = classByName(sheet.class)?.skills.from ?? [];
+  const speciesInfo = speciesByName(sheet.species);
+  const pool = speciesInfo?.asiChoice;
+  const choiceUsed = Object.values(sheet.asiChosen).reduce(
+    (n, v) => n + (v ?? 0),
+    0,
+  );
+  const choiceLeft = pool ? Math.max(0, pool.points - choiceUsed) : 0;
+  const fixedApplied =
+    speciesInfo !== undefined && sheet.asiFrom === speciesInfo.name;
+  const fixedText = speciesInfo
+    ? (Object.entries(speciesInfo.asi) as [Ability, number][])
+        .map(([k, v]) => `${signed(v)} ${k.toUpperCase()}`)
+        .join(", ")
+    : "";
   const pb = proficiencyBonus(sheet.level);
   const number = (v: string): number | null => {
     if (v.trim() === "") return null;
@@ -147,7 +259,7 @@ export function CharacterSheet5e({ element }: { element: Element }) {
         <Combo
           label="Subclass"
           value={sheet.subclass}
-          onChange={(v) => update((s) => ({ ...s, subclass: v }))}
+          onChange={(v) => update((s) => withAutoSlots({ ...s, subclass: v }))}
           options={
             classByName(sheet.class)?.subclasses ??
             CLASSES.flatMap((c) => c.subclasses)
@@ -163,10 +275,12 @@ export function CharacterSheet5e({ element }: { element: Element }) {
             max={20}
             value={sheet.level}
             onChange={(e) =>
-              update((s) => ({
-                ...s,
-                level: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
-              }))
+              update((s) =>
+                withAutoSlots({
+                  ...s,
+                  level: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
+                }),
+              )
             }
             className={`mt-1 block w-16 ${FIELD}`}
           />
@@ -182,8 +296,8 @@ export function CharacterSheet5e({ element }: { element: Element }) {
         <Combo
           label="Background"
           value={sheet.background}
-          onChange={(v) => update((s) => ({ ...s, background: v }))}
-          options={BACKGROUNDS}
+          onChange={setBackground}
+          options={BACKGROUNDS.map((b) => b.name)}
           width="w-36"
           placeholder="Soldier"
         />
@@ -206,41 +320,108 @@ export function CharacterSheet5e({ element }: { element: Element }) {
         </label>
       </div>
 
+      <Grants sheet={sheet} />
+
       {/* Abilities */}
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-        {ABILITIES.map((a) => (
-          <div
-            key={a}
-            className="flex flex-col items-center rounded-md border border-ink-800 bg-ink-900 px-2 py-2"
+      {pool && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          <span className="font-semibold">
+            {speciesInfo?.name}: {choiceLeft === 0 ? "all" : choiceLeft} of{" "}
+            {pool.points} bonus {pool.points === 1 ? "point" : "points"}{" "}
+            {choiceLeft === 0 ? "placed" : "still to place"}
+          </span>
+          <span className="text-amber-200/80">
+            at most +{pool.maxPer} to one score · use the + and − under each
+            score
+          </span>
+        </div>
+      )}
+      {speciesInfo && !fixedApplied && fixedText && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-ink-700 bg-ink-900 px-3 py-2 text-xs text-ink-300">
+          <span>
+            {speciesInfo.name} gives {fixedText}. These scores do not include it
+            yet.
+          </span>
+          <button
+            type="button"
+            onClick={applyAsi}
+            className="rounded border border-ember-500/50 px-2 py-0.5 text-ember-200 hover:bg-ember-500/15"
           >
-            <span className="text-[10px] font-semibold tracking-wider text-ink-500 uppercase">
-              {a}
-            </span>
-            <span className="font-serif text-2xl font-semibold text-ink-100">
-              {signed(modifier(sheet.abilities[a]))}
-            </span>
-            <input
-              type="number"
-              min={1}
-              max={30}
-              value={sheet.abilities[a]}
-              onChange={(e) =>
-                update((s) => ({
-                  ...s,
-                  abilities: {
-                    ...s.abilities,
-                    [a]: Math.max(
-                      1,
-                      Math.min(30, Number(e.target.value) || 10),
-                    ),
-                  },
-                }))
-              }
-              aria-label={`${ABILITY_NAMES[a]} score`}
-              className="mt-1 w-14 rounded border border-ink-700 bg-ink-850 px-1 py-0.5 text-center text-xs text-ink-200 outline-none focus:border-ember-500"
-            />
-          </div>
-        ))}
+            Add to scores
+          </button>
+        </div>
+      )}
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+        {ABILITIES.map((a) => {
+          const chosen = sheet.asiChosen[a] ?? 0;
+          const fixed =
+            fixedApplied && speciesInfo ? (speciesInfo.asi[a] ?? 0) : 0;
+          return (
+            <div
+              key={a}
+              className="flex flex-col items-center rounded-md border border-ink-800 bg-ink-900 px-2 py-2"
+            >
+              <span className="text-[10px] font-semibold tracking-wider text-ink-500 uppercase">
+                {a}
+              </span>
+              <span className="font-serif text-2xl font-semibold text-ink-100">
+                {signed(modifier(sheet.abilities[a]))}
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={30}
+                value={sheet.abilities[a]}
+                onChange={(e) =>
+                  update((s) => ({
+                    ...s,
+                    abilities: {
+                      ...s.abilities,
+                      [a]: Math.max(
+                        1,
+                        Math.min(30, Number(e.target.value) || 10),
+                      ),
+                    },
+                  }))
+                }
+                aria-label={`${ABILITY_NAMES[a]} score`}
+                className="mt-1 w-14 rounded border border-ink-700 bg-ink-850 px-1 py-0.5 text-center text-xs text-ink-200 outline-none focus:border-ember-500"
+              />
+              {(fixed > 0 || chosen > 0) && (
+                <span className="mt-1 text-[10px] text-ember-300">
+                  {fixed > 0 ? `+${fixed} species` : ""}
+                  {fixed > 0 && chosen > 0 ? " · " : ""}
+                  {chosen > 0 ? `+${chosen} chosen` : ""}
+                </span>
+              )}
+              {pool && (
+                <div className="mt-1 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => adjustChoice(a, -1)}
+                    disabled={chosen <= 0}
+                    aria-label={`Remove a bonus point from ${ABILITY_NAMES[a]}`}
+                    className="h-5 w-5 rounded border border-ink-700 text-xs text-ink-300 hover:bg-ink-800 disabled:opacity-30"
+                  >
+                    −
+                  </button>
+                  <span className="w-6 text-center text-xs text-ember-200">
+                    {chosen > 0 ? `+${chosen}` : "0"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => adjustChoice(a, 1)}
+                    disabled={choiceLeft <= 0 || chosen >= pool.maxPer}
+                    aria-label={`Add a bonus point to ${ABILITY_NAMES[a]}`}
+                    className="h-5 w-5 rounded border border-ink-700 text-xs text-ink-300 hover:bg-ink-800 disabled:opacity-30"
+                  >
+                    +
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Combat */}
@@ -340,7 +521,8 @@ export function CharacterSheet5e({ element }: { element: Element }) {
           <div className={LABEL}>
             Skills
             <span className="ml-2 text-ink-600">
-              click for proficiency, click again for expertise
+              click for proficiency, click again for expertise · dot marks a
+              class skill choice
             </span>
           </div>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -369,6 +551,11 @@ export function CharacterSheet5e({ element }: { element: Element }) {
                   }
                   title={`${sk.name} (${ABILITY_NAMES[sk.ability]})`}
                 >
+                  {classSkills.includes(sk.id) && (
+                    <span className="mr-1 text-ember-400" aria-hidden="true">
+                      •
+                    </span>
+                  )}
                   {sk.name} <span className="text-ink-500">{sk.ability}</span>{" "}
                   {signed(skillBonus(sheet, sk))}
                 </Chip>
@@ -395,7 +582,142 @@ export function CharacterSheet5e({ element }: { element: Element }) {
           placeholder="Common, Elvish"
         />
       </div>
+
+      <SheetExtras sheet={sheet} update={update} />
     </section>
+  );
+}
+
+/**
+ * Keeps the spellcasting ability and slot maximums in step with class,
+ * subclass and level, until the GM edits a maximum by hand.
+ */
+function withAutoSlots(s: Sheet5e): Sheet5e {
+  const cls = classByName(s.class);
+  const third = THIRD_CASTERS[s.subclass.trim()];
+  const progression =
+    cls?.spellcasting?.progression ?? (third ? "third" : null);
+  const ability = cls?.spellcasting?.ability ?? third ?? null;
+  const sc = s.spellcasting;
+  const nextAbility = sc.ability || ability || "";
+  if (!sc.slotsAuto) {
+    return nextAbility === sc.ability
+      ? s
+      : { ...s, spellcasting: { ...sc, ability: nextAbility } };
+  }
+  const maxes = progression ? slotsFor(progression, s.level) : {};
+  const slots: Sheet5e["spellcasting"]["slots"] = {};
+  for (const [level, max] of Object.entries(maxes)) {
+    const used = sc.slots[level]?.used ?? 0;
+    slots[level] = { max, used: Math.min(used, max) };
+  }
+  return { ...s, spellcasting: { ...sc, ability: nextAbility, slots } };
+}
+
+function shiftAbilities(
+  abilities: Sheet5e["abilities"],
+  asi: Asi,
+  sign: 1 | -1,
+): Sheet5e["abilities"] {
+  const out = { ...abilities };
+  for (const [key, bonus] of Object.entries(asi) as [Ability, number][]) {
+    out[key] = Math.max(1, Math.min(30, out[key] + sign * bonus));
+  }
+  return out;
+}
+
+/** Drops skills the previous pick granted and adds the next pick's. */
+function withGrantedSkills(
+  current: string[],
+  previous: string[],
+  next: string[],
+): string[] {
+  const kept = current.filter(
+    (id) => !previous.includes(id) || next.includes(id),
+  );
+  for (const id of next) if (!kept.includes(id)) kept.push(id);
+  return kept;
+}
+
+function skillName(id: string): string {
+  return SKILLS.find((s) => s.id === id)?.name ?? id;
+}
+
+/** What the chosen class, species and background give, in one glance. */
+function Grants({ sheet }: { sheet: Sheet5e }) {
+  const cls = classByName(sheet.class);
+  const sp = speciesByName(sheet.species);
+  const bg = backgroundByName(sheet.background);
+  if (!cls && !sp && !bg) return null;
+
+  const fixed = sp
+    ? (Object.entries(sp.asi) as [Ability, number][])
+        .map(([a, n]) => `${signed(n)} ${a.toUpperCase()}`)
+        .join(", ")
+    : "";
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-ink-800 bg-ink-900/60 px-3 py-2 text-[11px] leading-relaxed text-ink-400">
+      {cls && (
+        <GrantRow label={cls.name}>
+          Hit die d{cls.hitDie} · Saves{" "}
+          {cls.saves.map((a) => a.toUpperCase()).join(" and ")} · Skills: choose{" "}
+          {cls.skills.choose}
+          {cls.skills.from.length > 0
+            ? ` from ${cls.skills.from.map(skillName).join(", ")}`
+            : " of any"}{" "}
+          · Armour: {cls.armor} · Weapons: {cls.weapons}
+        </GrantRow>
+      )}
+      {sp && (
+        <GrantRow label={sp.name}>
+          {fixed
+            ? `Ability scores ${fixed}${sheet.asiFrom === sp.name ? " (applied)" : ""} · `
+            : ""}
+          {sp.asiChoice
+            ? `${sp.asiChoice.points} bonus ${sp.asiChoice.points === 1 ? "point" : "points"} of your choice, at most +${sp.asiChoice.maxPer} per score · `
+            : ""}
+          Speed {sp.speed} ft. · {sp.size}
+          {sp.darkvision ? ` · Darkvision ${sp.darkvision} ft.` : ""}
+          {sp.skills?.length
+            ? ` · Skills: ${sp.skills.map(skillName).join(", ")}`
+            : ""}
+          {sp.traits.length > 0 ? ` · Traits: ${sp.traits.join(", ")}` : ""} ·
+          Languages: {sp.languages}
+        </GrantRow>
+      )}
+      {bg && (
+        <GrantRow label={bg.name}>
+          Skills:{" "}
+          {[
+            ...bg.skills.map(skillName),
+            ...(bg.choose
+              ? [
+                  `choose ${bg.choose.count} of ${bg.choose.from.map(skillName).join(", ")}`,
+                ]
+              : []),
+          ].join(", ") || "none"}
+          {bg.tools ? ` · Tools: ${bg.tools}` : ""}
+          {bg.languages ? ` · Languages: ${bg.languages}` : ""}
+        </GrantRow>
+      )}
+    </div>
+  );
+}
+
+function GrantRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <span className="font-semibold text-ink-200">{label}</span>
+      <span className="mx-1.5 text-ink-600">·</span>
+      {children}
+    </div>
   );
 }
 

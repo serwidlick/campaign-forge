@@ -1,29 +1,66 @@
 /**
- * Reference lists for the 5e sheet's dropdowns: names only, as published
- * for Dungeons & Dragons fifth edition. Anything can still be typed by hand
- * for homebrew.
+ * Reference data for the 5e sheet: what a class, species or background
+ * grants, as names and numbers only (no rules text). Anything can still be
+ * typed by hand for homebrew; these lists drive the dropdowns and the
+ * automatic fills.
  */
-import type { Ability } from "./dnd5e-model";
+import type { Ability, SpellProgression } from "./dnd5e-model";
 
 export interface ClassInfo {
   name: string;
   hitDie: number;
   /** Saving throw proficiencies the class grants. */
   saves: [Ability, Ability];
+  /** Skill proficiencies: choose `choose` from `from` (skill ids; empty = any). */
+  skills: { choose: number; from: string[] };
+  armor: string;
+  weapons: string;
   subclasses: string[];
+  /** Spellcasting ability and slot table, for casting classes. */
+  spellcasting?: { ability: Ability; progression: SpellProgression };
 }
+
+const ANY_SKILL: string[] = [];
 
 export const CLASSES: ClassInfo[] = [
   {
     name: "Artificer",
     hitDie: 8,
+    spellcasting: { ability: "int", progression: "artificer" },
     saves: ["con", "int"],
+    skills: {
+      choose: 2,
+      from: [
+        "arcana",
+        "history",
+        "investigation",
+        "medicine",
+        "nature",
+        "perception",
+        "sleight-of-hand",
+      ],
+    },
+    armor: "light, medium, shields",
+    weapons: "simple",
     subclasses: ["Alchemist", "Armorer", "Artillerist", "Battle Smith"],
   },
   {
     name: "Barbarian",
     hitDie: 12,
     saves: ["str", "con"],
+    skills: {
+      choose: 2,
+      from: [
+        "animal-handling",
+        "athletics",
+        "intimidation",
+        "nature",
+        "perception",
+        "survival",
+      ],
+    },
+    armor: "light, medium, shields",
+    weapons: "simple, martial",
     subclasses: [
       "Path of the Berserker",
       "Path of the Totem Warrior",
@@ -38,7 +75,11 @@ export const CLASSES: ClassInfo[] = [
   {
     name: "Bard",
     hitDie: 8,
+    spellcasting: { ability: "cha", progression: "full" },
     saves: ["dex", "cha"],
+    skills: { choose: 3, from: ANY_SKILL },
+    armor: "light",
+    weapons: "simple, hand crossbows, longswords, rapiers, shortswords",
     subclasses: [
       "College of Lore",
       "College of Valor",
@@ -53,7 +94,14 @@ export const CLASSES: ClassInfo[] = [
   {
     name: "Cleric",
     hitDie: 8,
+    spellcasting: { ability: "wis", progression: "full" },
     saves: ["wis", "cha"],
+    skills: {
+      choose: 2,
+      from: ["history", "insight", "medicine", "persuasion", "religion"],
+    },
+    armor: "light, medium, shields",
+    weapons: "simple",
     subclasses: [
       "Knowledge Domain",
       "Life Domain",
@@ -73,7 +121,24 @@ export const CLASSES: ClassInfo[] = [
   {
     name: "Druid",
     hitDie: 8,
+    spellcasting: { ability: "wis", progression: "full" },
     saves: ["int", "wis"],
+    skills: {
+      choose: 2,
+      from: [
+        "arcana",
+        "animal-handling",
+        "insight",
+        "medicine",
+        "nature",
+        "perception",
+        "religion",
+        "survival",
+      ],
+    },
+    armor: "light, medium, shields (no metal)",
+    weapons:
+      "clubs, daggers, darts, javelins, maces, quarterstaffs, scimitars, sickles, slings, spears",
     subclasses: [
       "Circle of the Land",
       "Circle of the Moon",
@@ -89,6 +154,21 @@ export const CLASSES: ClassInfo[] = [
     name: "Fighter",
     hitDie: 10,
     saves: ["str", "con"],
+    skills: {
+      choose: 2,
+      from: [
+        "acrobatics",
+        "animal-handling",
+        "athletics",
+        "history",
+        "insight",
+        "intimidation",
+        "perception",
+        "survival",
+      ],
+    },
+    armor: "all armour, shields",
+    weapons: "simple, martial",
     subclasses: [
       "Champion",
       "Battle Master",
@@ -106,6 +186,19 @@ export const CLASSES: ClassInfo[] = [
     name: "Monk",
     hitDie: 8,
     saves: ["str", "dex"],
+    skills: {
+      choose: 2,
+      from: [
+        "acrobatics",
+        "athletics",
+        "history",
+        "insight",
+        "religion",
+        "stealth",
+      ],
+    },
+    armor: "none",
+    weapons: "simple, shortswords",
     subclasses: [
       "Way of the Open Hand",
       "Way of Shadow",
@@ -122,7 +215,21 @@ export const CLASSES: ClassInfo[] = [
   {
     name: "Paladin",
     hitDie: 10,
+    spellcasting: { ability: "cha", progression: "half" },
     saves: ["wis", "cha"],
+    skills: {
+      choose: 2,
+      from: [
+        "athletics",
+        "insight",
+        "intimidation",
+        "medicine",
+        "persuasion",
+        "religion",
+      ],
+    },
+    armor: "all armour, shields",
+    weapons: "simple, martial",
     subclasses: [
       "Oath of Devotion",
       "Oath of the Ancients",
@@ -138,7 +245,23 @@ export const CLASSES: ClassInfo[] = [
   {
     name: "Ranger",
     hitDie: 10,
+    spellcasting: { ability: "wis", progression: "half" },
     saves: ["str", "dex"],
+    skills: {
+      choose: 3,
+      from: [
+        "animal-handling",
+        "athletics",
+        "insight",
+        "investigation",
+        "nature",
+        "perception",
+        "stealth",
+        "survival",
+      ],
+    },
+    armor: "light, medium, shields",
+    weapons: "simple, martial",
     subclasses: [
       "Hunter",
       "Beast Master",
@@ -154,6 +277,24 @@ export const CLASSES: ClassInfo[] = [
     name: "Rogue",
     hitDie: 8,
     saves: ["dex", "int"],
+    skills: {
+      choose: 4,
+      from: [
+        "acrobatics",
+        "athletics",
+        "deception",
+        "insight",
+        "intimidation",
+        "investigation",
+        "perception",
+        "performance",
+        "persuasion",
+        "sleight-of-hand",
+        "stealth",
+      ],
+    },
+    armor: "light",
+    weapons: "simple, hand crossbows, longswords, rapiers, shortswords",
     subclasses: [
       "Thief",
       "Assassin",
@@ -169,7 +310,21 @@ export const CLASSES: ClassInfo[] = [
   {
     name: "Sorcerer",
     hitDie: 6,
+    spellcasting: { ability: "cha", progression: "full" },
     saves: ["con", "cha"],
+    skills: {
+      choose: 2,
+      from: [
+        "arcana",
+        "deception",
+        "insight",
+        "intimidation",
+        "persuasion",
+        "religion",
+      ],
+    },
+    armor: "none",
+    weapons: "daggers, darts, slings, quarterstaffs, light crossbows",
     subclasses: [
       "Draconic Bloodline",
       "Wild Magic",
@@ -184,7 +339,22 @@ export const CLASSES: ClassInfo[] = [
   {
     name: "Warlock",
     hitDie: 8,
+    spellcasting: { ability: "cha", progression: "pact" },
     saves: ["wis", "cha"],
+    skills: {
+      choose: 2,
+      from: [
+        "arcana",
+        "deception",
+        "history",
+        "intimidation",
+        "investigation",
+        "nature",
+        "religion",
+      ],
+    },
+    armor: "light",
+    weapons: "simple",
     subclasses: [
       "The Archfey",
       "The Fiend",
@@ -200,7 +370,21 @@ export const CLASSES: ClassInfo[] = [
   {
     name: "Wizard",
     hitDie: 6,
+    spellcasting: { ability: "int", progression: "full" },
     saves: ["int", "wis"],
+    skills: {
+      choose: 2,
+      from: [
+        "arcana",
+        "history",
+        "insight",
+        "investigation",
+        "medicine",
+        "religion",
+      ],
+    },
+    armor: "none",
+    weapons: "daggers, darts, slings, quarterstaffs, light crossbows",
     subclasses: [
       "School of Abjuration",
       "School of Conjuration",
@@ -219,75 +403,678 @@ export const CLASSES: ClassInfo[] = [
   },
 ];
 
+/** Subclasses that cast a third of a full caster's slots, with their ability. */
+export const THIRD_CASTERS: Record<string, Ability> = {
+  "Eldritch Knight": "int",
+  "Arcane Trickster": "int",
+};
+
 export function classByName(name: string): ClassInfo | undefined {
   const n = name.trim().toLowerCase();
   return CLASSES.find((c) => c.name.toLowerCase() === n);
 }
 
+export type Asi = Partial<Record<Ability, number>>;
+
 export interface SpeciesInfo {
   name: string;
   /** Base walking speed in feet. */
   speed: number;
+  size: string;
+  /** Fixed ability score increases; empty when the player chooses. */
+  asi: Asi;
+  /** Describes a choice the player makes, e.g. "+1 to two others". */
+  /** Bonus points the player places, when the species leaves it open. */
+  asiChoice?: { points: number; maxPer: number };
+  darkvision?: number;
+  /** Skill proficiencies the species grants outright (skill ids). */
+  skills?: string[];
+  traits: string[];
+  languages: string;
 }
 
+/** Most newer species: +2 and +1, or three +1s, placed by the player. */
+const FLEX = { points: 3, maxPer: 2 };
+
 export const SPECIES: SpeciesInfo[] = [
-  { name: "Aarakocra", speed: 25 },
-  { name: "Aasimar", speed: 30 },
-  { name: "Bugbear", speed: 30 },
-  { name: "Centaur", speed: 40 },
-  { name: "Changeling", speed: 30 },
-  { name: "Dragonborn", speed: 30 },
-  { name: "Dwarf", speed: 25 },
-  { name: "Hill Dwarf", speed: 25 },
-  { name: "Mountain Dwarf", speed: 25 },
-  { name: "Duergar", speed: 25 },
-  { name: "Elf", speed: 30 },
-  { name: "High Elf", speed: 30 },
-  { name: "Wood Elf", speed: 35 },
-  { name: "Drow", speed: 30 },
-  { name: "Eladrin", speed: 30 },
-  { name: "Sea Elf", speed: 30 },
-  { name: "Shadar-kai", speed: 30 },
-  { name: "Fairy", speed: 30 },
-  { name: "Firbolg", speed: 30 },
-  { name: "Genasi (Air)", speed: 30 },
-  { name: "Genasi (Earth)", speed: 30 },
-  { name: "Genasi (Fire)", speed: 30 },
-  { name: "Genasi (Water)", speed: 30 },
-  { name: "Githyanki", speed: 30 },
-  { name: "Githzerai", speed: 30 },
-  { name: "Gnome", speed: 25 },
-  { name: "Forest Gnome", speed: 25 },
-  { name: "Rock Gnome", speed: 25 },
-  { name: "Deep Gnome", speed: 25 },
-  { name: "Goblin", speed: 30 },
-  { name: "Goliath", speed: 30 },
-  { name: "Half-Elf", speed: 30 },
-  { name: "Half-Orc", speed: 30 },
-  { name: "Halfling", speed: 25 },
-  { name: "Lightfoot Halfling", speed: 25 },
-  { name: "Stout Halfling", speed: 25 },
-  { name: "Harengon", speed: 30 },
-  { name: "Hobgoblin", speed: 30 },
-  { name: "Human", speed: 30 },
-  { name: "Variant Human", speed: 30 },
-  { name: "Kalashtar", speed: 30 },
-  { name: "Kenku", speed: 30 },
-  { name: "Kobold", speed: 30 },
-  { name: "Leonin", speed: 35 },
-  { name: "Lizardfolk", speed: 30 },
-  { name: "Loxodon", speed: 30 },
-  { name: "Minotaur", speed: 30 },
-  { name: "Orc", speed: 30 },
-  { name: "Owlin", speed: 30 },
-  { name: "Satyr", speed: 35 },
-  { name: "Shifter", speed: 30 },
-  { name: "Tabaxi", speed: 30 },
-  { name: "Tiefling", speed: 30 },
-  { name: "Tortle", speed: 30 },
-  { name: "Triton", speed: 30 },
-  { name: "Warforged", speed: 30 },
-  { name: "Yuan-ti", speed: 30 },
+  {
+    name: "Aarakocra",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    traits: ["Flight 50 ft.", "Talons", "Wind Caller"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Aasimar",
+    speed: 30,
+    size: "Medium or Small",
+    asi: {},
+    asiChoice: FLEX,
+    darkvision: 60,
+    traits: [
+      "Celestial Resistance",
+      "Healing Hands",
+      "Light Bearer",
+      "Celestial Revelation",
+    ],
+    languages: "Common and one other",
+  },
+  {
+    name: "Bugbear",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    darkvision: 60,
+    skills: ["stealth"],
+    traits: [
+      "Long-Limbed",
+      "Powerful Build",
+      "Sneaky",
+      "Surprise Attack",
+      "Fey Ancestry",
+    ],
+    languages: "Common and one other",
+  },
+  {
+    name: "Centaur",
+    speed: 40,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    traits: ["Charge", "Equine Build", "Hooves", "Natural Affinity"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Changeling",
+    speed: 30,
+    size: "Medium or Small",
+    asi: {},
+    asiChoice: FLEX,
+    traits: ["Shapechanger", "Changeling Instincts"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Dragonborn",
+    speed: 30,
+    size: "Medium",
+    asi: { str: 2, cha: 1 },
+    traits: ["Draconic Ancestry", "Breath Weapon", "Damage Resistance"],
+    languages: "Common, Draconic",
+  },
+  {
+    name: "Dwarf",
+    speed: 25,
+    size: "Medium",
+    asi: { con: 2 },
+    darkvision: 60,
+    traits: [
+      "Dwarven Resilience",
+      "Dwarven Combat Training",
+      "Tool Proficiency",
+      "Stonecunning",
+    ],
+    languages: "Common, Dwarvish",
+  },
+  {
+    name: "Hill Dwarf",
+    speed: 25,
+    size: "Medium",
+    asi: { con: 2, wis: 1 },
+    darkvision: 60,
+    traits: [
+      "Dwarven Resilience",
+      "Dwarven Combat Training",
+      "Tool Proficiency",
+      "Stonecunning",
+      "Dwarven Toughness",
+    ],
+    languages: "Common, Dwarvish",
+  },
+  {
+    name: "Mountain Dwarf",
+    speed: 25,
+    size: "Medium",
+    asi: { con: 2, str: 2 },
+    darkvision: 60,
+    traits: [
+      "Dwarven Resilience",
+      "Dwarven Combat Training",
+      "Tool Proficiency",
+      "Stonecunning",
+      "Dwarven Armor Training",
+    ],
+    languages: "Common, Dwarvish",
+  },
+  {
+    name: "Duergar",
+    speed: 25,
+    size: "Medium",
+    asi: { con: 2, str: 1 },
+    darkvision: 120,
+    traits: ["Duergar Resilience", "Duergar Magic", "Sunlight Sensitivity"],
+    languages: "Common, Dwarvish, Undercommon",
+  },
+  {
+    name: "Elf",
+    speed: 30,
+    size: "Medium",
+    asi: { dex: 2 },
+    darkvision: 60,
+    skills: ["perception"],
+    traits: ["Keen Senses", "Fey Ancestry", "Trance"],
+    languages: "Common, Elvish",
+  },
+  {
+    name: "High Elf",
+    speed: 30,
+    size: "Medium",
+    asi: { dex: 2, int: 1 },
+    darkvision: 60,
+    skills: ["perception"],
+    traits: [
+      "Keen Senses",
+      "Fey Ancestry",
+      "Trance",
+      "Elf Weapon Training",
+      "Cantrip",
+      "Extra Language",
+    ],
+    languages: "Common, Elvish and one other",
+  },
+  {
+    name: "Wood Elf",
+    speed: 35,
+    size: "Medium",
+    asi: { dex: 2, wis: 1 },
+    darkvision: 60,
+    skills: ["perception"],
+    traits: [
+      "Keen Senses",
+      "Fey Ancestry",
+      "Trance",
+      "Elf Weapon Training",
+      "Fleet of Foot",
+      "Mask of the Wild",
+    ],
+    languages: "Common, Elvish",
+  },
+  {
+    name: "Drow",
+    speed: 30,
+    size: "Medium",
+    asi: { dex: 2, cha: 1 },
+    darkvision: 120,
+    skills: ["perception"],
+    traits: [
+      "Keen Senses",
+      "Fey Ancestry",
+      "Trance",
+      "Superior Darkvision",
+      "Sunlight Sensitivity",
+      "Drow Magic",
+      "Drow Weapon Training",
+    ],
+    languages: "Common, Elvish",
+  },
+  {
+    name: "Eladrin",
+    speed: 30,
+    size: "Medium",
+    asi: { dex: 2, cha: 1 },
+    darkvision: 60,
+    skills: ["perception"],
+    traits: ["Keen Senses", "Fey Ancestry", "Trance", "Fey Step"],
+    languages: "Common, Elvish",
+  },
+  {
+    name: "Sea Elf",
+    speed: 30,
+    size: "Medium",
+    asi: { dex: 2, con: 1 },
+    darkvision: 60,
+    skills: ["perception"],
+    traits: [
+      "Keen Senses",
+      "Fey Ancestry",
+      "Trance",
+      "Child of the Sea (swim 30 ft.)",
+      "Friend of the Sea",
+    ],
+    languages: "Common, Elvish, Aquan",
+  },
+  {
+    name: "Shadar-kai",
+    speed: 30,
+    size: "Medium",
+    asi: { dex: 2, con: 1 },
+    darkvision: 60,
+    skills: ["perception"],
+    traits: [
+      "Keen Senses",
+      "Fey Ancestry",
+      "Trance",
+      "Necrotic Resistance",
+      "Blessing of the Raven Queen",
+    ],
+    languages: "Common, Elvish",
+  },
+  {
+    name: "Fairy",
+    speed: 30,
+    size: "Small",
+    asi: {},
+    asiChoice: FLEX,
+    traits: ["Flight", "Fairy Magic"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Firbolg",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    traits: [
+      "Firbolg Magic",
+      "Hidden Step",
+      "Powerful Build",
+      "Speech of Beast and Leaf",
+    ],
+    languages: "Common and one other",
+  },
+  {
+    name: "Genasi (Air)",
+    speed: 30,
+    size: "Medium",
+    asi: { con: 2, dex: 1 },
+    traits: ["Unending Breath", "Mingle with the Wind"],
+    languages: "Common, Primordial",
+  },
+  {
+    name: "Genasi (Earth)",
+    speed: 30,
+    size: "Medium",
+    asi: { con: 2, str: 1 },
+    traits: ["Earth Walk", "Merge with Stone"],
+    languages: "Common, Primordial",
+  },
+  {
+    name: "Genasi (Fire)",
+    speed: 30,
+    size: "Medium",
+    asi: { con: 2, int: 1 },
+    darkvision: 60,
+    traits: ["Fire Resistance", "Reach to the Blaze"],
+    languages: "Common, Primordial",
+  },
+  {
+    name: "Genasi (Water)",
+    speed: 30,
+    size: "Medium",
+    asi: { con: 2, wis: 1 },
+    traits: [
+      "Acid Resistance",
+      "Amphibious",
+      "Swim 30 ft.",
+      "Call to the Wave",
+    ],
+    languages: "Common, Primordial",
+  },
+  {
+    name: "Githyanki",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    traits: ["Astral Knowledge", "Githyanki Psionics", "Psychic Resilience"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Githzerai",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    traits: ["Githzerai Psionics", "Mental Discipline", "Psychic Resilience"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Gnome",
+    speed: 25,
+    size: "Small",
+    asi: { int: 2 },
+    darkvision: 60,
+    traits: ["Gnome Cunning"],
+    languages: "Common, Gnomish",
+  },
+  {
+    name: "Forest Gnome",
+    speed: 25,
+    size: "Small",
+    asi: { int: 2, dex: 1 },
+    darkvision: 60,
+    traits: ["Gnome Cunning", "Natural Illusionist", "Speak with Small Beasts"],
+    languages: "Common, Gnomish",
+  },
+  {
+    name: "Rock Gnome",
+    speed: 25,
+    size: "Small",
+    asi: { int: 2, con: 1 },
+    darkvision: 60,
+    traits: ["Gnome Cunning", "Artificer's Lore", "Tinker"],
+    languages: "Common, Gnomish",
+  },
+  {
+    name: "Deep Gnome",
+    speed: 25,
+    size: "Small",
+    asi: { int: 2, dex: 1 },
+    darkvision: 120,
+    traits: ["Gnome Cunning", "Superior Darkvision", "Stone Camouflage"],
+    languages: "Common, Gnomish, Undercommon",
+  },
+  {
+    name: "Goblin",
+    speed: 30,
+    size: "Small",
+    asi: {},
+    asiChoice: FLEX,
+    darkvision: 60,
+    traits: ["Fury of the Small", "Nimble Escape", "Fey Ancestry"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Goliath",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    traits: [
+      "Stone's Endurance",
+      "Powerful Build",
+      "Mountain Born",
+      "Little Giant",
+    ],
+    languages: "Common and one other",
+  },
+  {
+    name: "Half-Elf",
+    speed: 30,
+    size: "Medium",
+    asi: { cha: 2 },
+    asiChoice: { points: 2, maxPer: 1 },
+    darkvision: 60,
+    traits: ["Fey Ancestry", "Skill Versatility (two skills of your choice)"],
+    languages: "Common, Elvish and one other",
+  },
+  {
+    name: "Half-Orc",
+    speed: 30,
+    size: "Medium",
+    asi: { str: 2, con: 1 },
+    darkvision: 60,
+    skills: ["intimidation"],
+    traits: ["Menacing", "Relentless Endurance", "Savage Attacks"],
+    languages: "Common, Orc",
+  },
+  {
+    name: "Halfling",
+    speed: 25,
+    size: "Small",
+    asi: { dex: 2 },
+    traits: ["Lucky", "Brave", "Halfling Nimbleness"],
+    languages: "Common, Halfling",
+  },
+  {
+    name: "Lightfoot Halfling",
+    speed: 25,
+    size: "Small",
+    asi: { dex: 2, cha: 1 },
+    traits: ["Lucky", "Brave", "Halfling Nimbleness", "Naturally Stealthy"],
+    languages: "Common, Halfling",
+  },
+  {
+    name: "Stout Halfling",
+    speed: 25,
+    size: "Small",
+    asi: { dex: 2, con: 1 },
+    traits: ["Lucky", "Brave", "Halfling Nimbleness", "Stout Resilience"],
+    languages: "Common, Halfling",
+  },
+  {
+    name: "Harengon",
+    speed: 30,
+    size: "Medium or Small",
+    asi: {},
+    asiChoice: FLEX,
+    skills: ["perception"],
+    traits: ["Hare-Trigger", "Leporine Senses", "Lucky Footwork", "Rabbit Hop"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Hobgoblin",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    darkvision: 60,
+    traits: ["Fey Gift", "Fortune from the Many", "Fey Ancestry"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Human",
+    speed: 30,
+    size: "Medium",
+    asi: { str: 1, dex: 1, con: 1, int: 1, wis: 1, cha: 1 },
+    traits: [],
+    languages: "Common and one other",
+  },
+  {
+    name: "Variant Human",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: { points: 2, maxPer: 1 },
+    traits: ["One skill of your choice", "One feat"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Kalashtar",
+    speed: 30,
+    size: "Medium",
+    asi: { wis: 2, cha: 1 },
+    traits: [
+      "Dual Mind",
+      "Mental Discipline",
+      "Mind Link",
+      "Severed from Dreams",
+    ],
+    languages: "Common, Quori and one other",
+  },
+  {
+    name: "Kenku",
+    speed: 30,
+    size: "Medium or Small",
+    asi: {},
+    asiChoice: FLEX,
+    traits: ["Expert Duplication", "Kenku Recall", "Mimicry"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Kobold",
+    speed: 30,
+    size: "Small",
+    asi: {},
+    asiChoice: FLEX,
+    darkvision: 60,
+    traits: ["Draconic Cry", "Kobold Legacy"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Leonin",
+    speed: 35,
+    size: "Medium",
+    asi: { con: 2, str: 1 },
+    darkvision: 60,
+    traits: ["Claws", "Hunter's Instincts", "Daunting Roar"],
+    languages: "Common, Leonin",
+  },
+  {
+    name: "Lizardfolk",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    traits: [
+      "Bite",
+      "Hold Breath",
+      "Hungry Jaws",
+      "Natural Armor",
+      "Nature's Intuition (two skills)",
+      "Swim 30 ft.",
+    ],
+    languages: "Common and one other",
+  },
+  {
+    name: "Loxodon",
+    speed: 30,
+    size: "Medium",
+    asi: { con: 2, wis: 1 },
+    traits: ["Loxodon Serenity", "Natural Armor", "Trunk", "Keen Smell"],
+    languages: "Common, Loxodon",
+  },
+  {
+    name: "Minotaur",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    traits: ["Horns", "Goring Rush", "Hammering Horns", "Labyrinthine Recall"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Orc",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    darkvision: 60,
+    traits: ["Adrenaline Rush", "Powerful Build", "Relentless Endurance"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Owlin",
+    speed: 30,
+    size: "Medium or Small",
+    asi: {},
+    asiChoice: FLEX,
+    darkvision: 120,
+    skills: ["stealth"],
+    traits: ["Flight", "Silent Feathers"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Satyr",
+    speed: 35,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    skills: ["performance", "persuasion"],
+    traits: ["Fey", "Ram", "Magic Resistance", "Mirthful Leaps", "Reveler"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Shifter",
+    speed: 30,
+    size: "Medium",
+    asi: {},
+    asiChoice: FLEX,
+    darkvision: 60,
+    traits: ["Bestial Instincts", "Shifting"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Tabaxi",
+    speed: 30,
+    size: "Medium or Small",
+    asi: {},
+    asiChoice: FLEX,
+    darkvision: 60,
+    skills: ["perception", "stealth"],
+    traits: ["Cat's Claws", "Cat's Talent", "Feline Agility"],
+    languages: "Common and one other",
+  },
+  {
+    name: "Tiefling",
+    speed: 30,
+    size: "Medium",
+    asi: { cha: 2, int: 1 },
+    darkvision: 60,
+    traits: ["Hellish Resistance", "Infernal Legacy"],
+    languages: "Common, Infernal",
+  },
+  {
+    name: "Tortle",
+    speed: 30,
+    size: "Medium or Small",
+    asi: {},
+    asiChoice: FLEX,
+    skills: ["survival"],
+    traits: [
+      "Claws",
+      "Hold Breath",
+      "Natural Armor (AC 17)",
+      "Shell Defense",
+      "Survival Instinct",
+    ],
+    languages: "Common and one other",
+  },
+  {
+    name: "Triton",
+    speed: 30,
+    size: "Medium",
+    asi: { str: 1, con: 1, cha: 1 },
+    darkvision: 60,
+    traits: [
+      "Amphibious",
+      "Control Air and Water",
+      "Emissary of the Sea",
+      "Guardians of the Depths",
+      "Swim 30 ft.",
+    ],
+    languages: "Common, Primordial",
+  },
+  {
+    name: "Warforged",
+    speed: 30,
+    size: "Medium",
+    asi: { con: 2 },
+    asiChoice: { points: 1, maxPer: 1 },
+    traits: [
+      "Constructed Resilience",
+      "Sentry's Rest",
+      "Integrated Protection",
+      "Specialized Design",
+    ],
+    languages: "Common and one other",
+  },
+  {
+    name: "Yuan-ti",
+    speed: 30,
+    size: "Medium or Small",
+    asi: {},
+    asiChoice: FLEX,
+    darkvision: 60,
+    traits: [
+      "Magic Resistance",
+      "Poison Resilience",
+      "Serpentine Spellcasting",
+    ],
+    languages: "Common and one other",
+  },
 ];
 
 export function speciesByName(name: string): SpeciesInfo | undefined {
@@ -295,36 +1082,212 @@ export function speciesByName(name: string): SpeciesInfo | undefined {
   return SPECIES.find((s) => s.name.toLowerCase() === n);
 }
 
-export const BACKGROUNDS: string[] = [
-  "Acolyte",
-  "Anthropologist",
-  "Archaeologist",
-  "Charlatan",
-  "City Watch",
-  "Clan Crafter",
-  "Cloistered Scholar",
-  "Courtier",
-  "Criminal",
-  "Entertainer",
-  "Faction Agent",
-  "Far Traveler",
-  "Folk Hero",
-  "Gladiator",
-  "Guild Artisan",
-  "Guild Merchant",
-  "Haunted One",
-  "Hermit",
-  "Inheritor",
-  "Investigator",
-  "Knight",
-  "Mercenary Veteran",
-  "Noble",
-  "Outlander",
-  "Pirate",
-  "Sage",
-  "Sailor",
-  "Soldier",
-  "Spy",
-  "Urban Bounty Hunter",
-  "Urchin",
+export interface BackgroundInfo {
+  name: string;
+  /** Skill proficiencies granted outright (skill ids). */
+  skills: string[];
+  /** A further choice, when the background offers one. */
+  choose?: { count: number; from: string[] };
+  tools?: string;
+  languages?: string;
+}
+
+export const BACKGROUNDS: BackgroundInfo[] = [
+  {
+    name: "Acolyte",
+    skills: ["insight", "religion"],
+    languages: "two of your choice",
+  },
+  {
+    name: "Anthropologist",
+    skills: ["insight", "religion"],
+    languages: "two of your choice",
+  },
+  {
+    name: "Archaeologist",
+    skills: ["history", "survival"],
+    tools: "cartographer's or navigator's tools",
+    languages: "one of your choice",
+  },
+  {
+    name: "Charlatan",
+    skills: ["deception", "sleight-of-hand"],
+    tools: "disguise kit, forgery kit",
+  },
+  {
+    name: "City Watch",
+    skills: ["athletics", "insight"],
+    languages: "two of your choice",
+  },
+  {
+    name: "Clan Crafter",
+    skills: ["history", "insight"],
+    tools: "one type of artisan's tools",
+    languages: "Dwarvish",
+  },
+  {
+    name: "Cloistered Scholar",
+    skills: ["history"],
+    choose: { count: 1, from: ["arcana", "nature", "religion"] },
+    languages: "two of your choice",
+  },
+  {
+    name: "Courtier",
+    skills: ["insight", "persuasion"],
+    languages: "two of your choice",
+  },
+  {
+    name: "Criminal",
+    skills: ["deception", "stealth"],
+    tools: "one gaming set, thieves' tools",
+  },
+  {
+    name: "Entertainer",
+    skills: ["acrobatics", "performance"],
+    tools: "disguise kit, one musical instrument",
+  },
+  {
+    name: "Faction Agent",
+    skills: ["insight"],
+    choose: {
+      count: 1,
+      from: [
+        "arcana",
+        "animal-handling",
+        "deception",
+        "history",
+        "intimidation",
+        "investigation",
+        "medicine",
+        "nature",
+        "performance",
+        "persuasion",
+        "religion",
+        "survival",
+      ],
+    },
+    languages: "two of your choice",
+  },
+  {
+    name: "Far Traveler",
+    skills: ["insight", "perception"],
+    tools: "one musical instrument or gaming set",
+    languages: "one of your choice",
+  },
+  {
+    name: "Folk Hero",
+    skills: ["animal-handling", "survival"],
+    tools: "one type of artisan's tools, vehicles (land)",
+  },
+  {
+    name: "Gladiator",
+    skills: ["acrobatics", "performance"],
+    tools: "disguise kit, one unusual weapon",
+  },
+  {
+    name: "Guild Artisan",
+    skills: ["insight", "persuasion"],
+    tools: "one type of artisan's tools",
+    languages: "one of your choice",
+  },
+  {
+    name: "Guild Merchant",
+    skills: ["insight", "persuasion"],
+    tools: "navigator's tools or one extra language",
+    languages: "one of your choice",
+  },
+  {
+    name: "Haunted One",
+    skills: [],
+    choose: {
+      count: 2,
+      from: ["arcana", "investigation", "religion", "survival"],
+    },
+    languages: "one exotic language",
+  },
+  {
+    name: "Hermit",
+    skills: ["medicine", "religion"],
+    tools: "herbalism kit",
+    languages: "one of your choice",
+  },
+  {
+    name: "Inheritor",
+    skills: ["survival"],
+    choose: { count: 1, from: ["arcana", "history", "religion"] },
+    tools: "one gaming set or musical instrument",
+    languages: "one of your choice",
+  },
+  {
+    name: "Investigator",
+    skills: ["insight", "investigation"],
+    tools: "disguise kit, thieves' tools",
+  },
+  {
+    name: "Knight",
+    skills: ["history", "persuasion"],
+    tools: "one gaming set",
+    languages: "one of your choice",
+  },
+  {
+    name: "Mercenary Veteran",
+    skills: ["athletics", "persuasion"],
+    tools: "one gaming set, vehicles (land)",
+  },
+  {
+    name: "Noble",
+    skills: ["history", "persuasion"],
+    tools: "one gaming set",
+    languages: "one of your choice",
+  },
+  {
+    name: "Outlander",
+    skills: ["athletics", "survival"],
+    tools: "one musical instrument",
+    languages: "one of your choice",
+  },
+  {
+    name: "Pirate",
+    skills: ["athletics", "perception"],
+    tools: "navigator's tools, vehicles (water)",
+  },
+  {
+    name: "Sage",
+    skills: ["arcana", "history"],
+    languages: "two of your choice",
+  },
+  {
+    name: "Sailor",
+    skills: ["athletics", "perception"],
+    tools: "navigator's tools, vehicles (water)",
+  },
+  {
+    name: "Soldier",
+    skills: ["athletics", "intimidation"],
+    tools: "one gaming set, vehicles (land)",
+  },
+  {
+    name: "Spy",
+    skills: ["deception", "stealth"],
+    tools: "one gaming set, thieves' tools",
+  },
+  {
+    name: "Urban Bounty Hunter",
+    skills: [],
+    choose: {
+      count: 2,
+      from: ["deception", "insight", "persuasion", "stealth"],
+    },
+    tools: "two of: gaming set, musical instrument, thieves' tools",
+  },
+  {
+    name: "Urchin",
+    skills: ["sleight-of-hand", "stealth"],
+    tools: "disguise kit, thieves' tools",
+  },
 ];
+
+export function backgroundByName(name: string): BackgroundInfo | undefined {
+  const n = name.trim().toLowerCase();
+  return BACKGROUNDS.find((b) => b.name.toLowerCase() === n);
+}
