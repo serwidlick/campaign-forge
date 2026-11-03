@@ -17,6 +17,7 @@ Early scaffold. What works today:
 - Assistant: an opt-in chat pane that answers questions about the campaign by searching, listing and reading your elements, and links everything it mentions. Uses your own Anthropic API key, stored in the OS credential manager
 - Split screen: Ctrl+click any element reference (list row, link, backlink, pin, session, assistant chip) to open it in a column beside the current one; columns swap, close, and are remembered per campaign
 - Timeline: a campaign calendar you define (months of any length, weekday names, eras, the in-world today), events with a date and optional end date, sessions with an in-world date, and a Timeline view listing everything in order with a today marker
+- Overview wheel and graph: the Everything view is a wheel of six spokes (Play, People, Factions, Places, Things, Story) with every element one click away, and the Graph view is a force-directed map of how elements connect through links, arcs and map pins
 - Recent campaigns list
 
 Planned: journals, map territories and nested maps, leap-year rules, and travel paces as a campaign setting.

@@ -2,6 +2,7 @@ import {
   ArrowLeftToLine,
   CalendarDays,
   ChevronLeft,
+  Waypoints,
   Plus,
   Search,
   Sparkles,
@@ -13,6 +14,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { Button } from "@/components/Button";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { AgentPane } from "@/features/agent/AgentPane";
+import { GraphPanel } from "@/features/graph/GraphPanel";
 import { CalendarSettings } from "@/features/timeline/CalendarSettings";
 import { TimelineList } from "@/features/timeline/TimelineList";
 import { displayName, sortForList } from "@/features/sessions/session-model";
@@ -20,6 +22,7 @@ import { ELEMENT_FAMILIES, ELEMENT_KINDS, kindById } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 
 import { ElementEditorFor } from "./ElementEditorFor";
+import { OverviewPanel } from "./OverviewPanel";
 
 // Numbers in react-resizable-panels v4 are pixels; strings without units are
 // percentages. Pixels suit sidebars, which should not scale with the window.
@@ -37,6 +40,7 @@ export function BibleScreen() {
   const closePane = useCampaignStore((s) => s.closePane);
   const promotePane = useCampaignStore((s) => s.promotePane);
   const navigate = useCampaignStore((s) => s.navigate);
+  const select = useCampaignStore((s) => s.select);
   const createElement = useCampaignStore((s) => s.createElement);
   const closeCampaign = useCampaignStore((s) => s.closeCampaign);
 
@@ -44,7 +48,9 @@ export function BibleScreen() {
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState<string | null>(null);
   const [newKind, setNewKind] = useState<string>("character");
-  const [view, setView] = useState<"elements" | "timeline">("elements");
+  const [view, setView] = useState<"elements" | "timeline" | "graph">(
+    "elements",
+  );
   const [calendarOpen, setCalendarOpen] = useState(false);
   const datedCount = useMemo(
     () =>
@@ -61,6 +67,15 @@ export function BibleScreen() {
   function showKind(kind: string | null) {
     setView("elements");
     setKindFilter(kind);
+    // "Everything" is the overview page; clear the selection so it shows.
+    if (kind === null) void select(null);
+  }
+
+  function startNew(kind: string) {
+    setView("elements");
+    setKindFilter(kind);
+    setNewKind(kind);
+    setNewName("");
   }
 
   const [agentOpen, setAgentOpen] = useState<boolean>(() => {
@@ -172,6 +187,20 @@ export function BibleScreen() {
                 Timeline
               </span>
               <span className="text-xs text-ink-500">{datedCount}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("graph")}
+              className={`mb-2 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
+                view === "graph"
+                  ? "bg-ink-700/60 text-ink-100"
+                  : "text-ink-300 hover:bg-ink-800"
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Waypoints size={14} className="text-ember-400" />
+                Graph
+              </span>
             </button>
             <KindRow
               label="Everything"
@@ -341,8 +370,12 @@ export function BibleScreen() {
         <Panel minSize={420} className="flex flex-col bg-ink-950">
           <Group orientation="horizontal" className="h-full">
             <Panel minSize={360} className="flex flex-col">
-              {calendarOpen && view === "timeline" ? (
+              {view === "graph" ? (
+                <GraphPanel />
+              ) : calendarOpen && view === "timeline" ? (
                 <CalendarSettings onClose={() => setCalendarOpen(false)} />
+              ) : view === "elements" && kindFilter === null && !selected ? (
+                <OverviewPanel onNew={startNew} />
               ) : selected ? (
                 <ElementEditorFor
                   key={`${selected.id}:${revisions[selected.id] ?? 0}`}
