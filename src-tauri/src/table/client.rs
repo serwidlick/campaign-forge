@@ -9,6 +9,9 @@ use crate::storage::{Element, ElementSummary};
 
 use super::server::{JoinResponse, TableInfo, VersionResponse};
 
+/// Error text the frontend recognises as "the table closed".
+pub const CLOSED_ERROR: &str = "TABLE_CLOSED";
+
 /// A joined table. Cheap to clone; the HTTP client is reference counted.
 #[derive(Clone)]
 pub struct Session {
@@ -40,6 +43,9 @@ fn normalise(address: &str) -> String {
 
 async fn describe(resp: reqwest::Response) -> String {
     let status = resp.status();
+    if status == reqwest::StatusCode::GONE {
+        return CLOSED_ERROR.to_owned();
+    }
     let body: serde_json::Value = resp.json().await.unwrap_or_default();
     body.get("error")
         .and_then(|v| v.as_str())
@@ -144,16 +150,21 @@ impl Session {
 
     /// Returns once the GM's campaign has changed past `after`, or after the
     /// server's long-poll window with the current version.
-    pub async fn wait_for_change(&self, after: u64) -> Result<u64, String> {
+    pub async fn wait_for_change(&self, after: u64) -> Result<VersionResponse, String> {
         let resp = self
             .get(&format!("/api/version?after={after}"))
             .send()
             .await
             .map_err(connection_error)?;
+        if resp.status() == reqwest::StatusCode::GONE {
+            return Ok(VersionResponse {
+                version: after,
+                closed: true,
+            });
+        }
         if !resp.status().is_success() {
             return Err(describe(resp).await);
         }
-        let v: VersionResponse = resp.json().await.map_err(|e| e.to_string())?;
-        Ok(v.version)
+        resp.json().await.map_err(|e| e.to_string())
     }
 }

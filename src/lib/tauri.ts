@@ -13,6 +13,7 @@ import type {
   ImportedImage,
   SaveElementInput,
   SearchHit,
+  TableChange,
   TableSession,
 } from "./types";
 
@@ -145,9 +146,10 @@ export const table = {
   fetchAsset(path: string) {
     return invoke<ArrayBuffer>("table_fetch_asset", { path });
   },
-  /** Resolves when the GM's version passes `after`, or after ~25 s. */
+  /** Resolves when the GM's version passes `after`, after ~25 s, or when
+   *  the GM stops hosting (`closed`). */
   waitForChange(after: number) {
-    return invoke<number>("table_wait_for_change", { after });
+    return invoke<TableChange>("table_wait_for_change", { after });
   },
 };
 

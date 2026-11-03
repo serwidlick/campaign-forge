@@ -36,6 +36,9 @@ use super::share;
 /// How long a version long-poll waits before answering "nothing new".
 const LONG_POLL: Duration = Duration::from_secs(25);
 
+/// Sent to players once the GM has stopped hosting.
+pub const CLOSED_MESSAGE: &str = "the GM ended the table";
+
 /// What a player learns about the table on joining.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,8 +81,12 @@ pub struct AfterQuery {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VersionResponse {
     pub version: u64,
+    /// The GM stopped hosting; the player should leave.
+    #[serde(default)]
+    pub closed: bool,
 }
 
 #[derive(Clone)]
@@ -87,6 +94,8 @@ struct Served {
     app: AppHandle,
     code: String,
     players: Players,
+    /// Flips to true when the GM stops hosting.
+    closing: watch::Receiver<bool>,
 }
 
 /// A running server; dropping the stop sender ends it.
@@ -109,6 +118,7 @@ pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
         app,
         code,
         players: players.clone(),
+        closing: stop_rx.clone(),
     };
     let router = Router::new()
         .route("/api/table", get(table_info))
@@ -179,6 +189,9 @@ fn now() -> String {
 
 /// Checks the bearer token and records that the player is still around.
 fn authed(s: &Served, headers: &HeaderMap) -> Result<(), ApiError> {
+    if *s.closing.borrow() {
+        return Err(ApiError(StatusCode::GONE, CLOSED_MESSAGE.to_owned()));
+    }
     let token = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -301,19 +314,36 @@ async fn version(
 ) -> Result<Json<VersionResponse>, ApiError> {
     authed(&s, &headers)?;
     let mut rx = s.app.state::<AppState>().changes();
+    let mut closing = s.closing.clone();
     let deadline = tokio::time::sleep(LONG_POLL);
     tokio::pin!(deadline);
+    let open = |version: u64| {
+        Ok(Json(VersionResponse {
+            version,
+            closed: false,
+        }))
+    };
     loop {
         let current = *rx.borrow();
+        if *closing.borrow() {
+            return Ok(Json(VersionResponse {
+                version: current,
+                closed: true,
+            }));
+        }
         if current > q.after {
-            return Ok(Json(VersionResponse { version: current }));
+            return open(current);
         }
         tokio::select! {
-            _ = &mut deadline => return Ok(Json(VersionResponse { version: current })),
+            _ = &mut deadline => return open(current),
             changed = rx.changed() => {
                 if changed.is_err() {
-                    return Ok(Json(VersionResponse { version: current }));
+                    return open(current);
                 }
+            }
+            // A closed channel means the host was dropped: that is a close too.
+            _ = closing.changed() => {
+                return Ok(Json(VersionResponse { version: current, closed: true }));
             }
         }
     }

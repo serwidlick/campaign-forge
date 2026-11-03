@@ -214,6 +214,13 @@ export interface TableInfo {
   version: number;
 }
 
+/** Answer to a version long-poll. */
+export interface TableChange {
+  version: number;
+  /** The GM stopped hosting; leave the table. */
+  closed: boolean;
+}
+
 export interface TableSession {
   address: string;
   playerName: string;

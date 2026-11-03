@@ -21,6 +21,8 @@ export function JoinTable() {
   const found = useTableStore((s) => s.found);
   const joining = useTableStore((s) => s.joining);
   const error = useTableStore((s) => s.error);
+  const notice = useTableStore((s) => s.notice);
+  const clearNotice = useTableStore((s) => s.clearNotice);
   const discover = useTableStore((s) => s.discover);
   const stopDiscovery = useTableStore((s) => s.stopDiscovery);
   const join = useTableStore((s) => s.join);
@@ -65,6 +67,19 @@ export function JoinTable() {
       <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-400">
         <Radio size={12} /> Join a table
       </h2>
+      {notice && (
+        <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+          <span className="flex-1">{notice}</span>
+          <button
+            type="button"
+            onClick={clearNotice}
+            aria-label="Dismiss"
+            className="text-amber-200 hover:text-amber-50"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
       <div className="rounded-lg border border-ink-800 bg-ink-900">
         {found.length === 0 ? (
           <p className="flex items-center gap-2 px-4 py-3 text-sm text-ink-500">

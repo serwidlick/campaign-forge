@@ -5,6 +5,7 @@ mod table;
 
 use storage::AppState;
 use table::TableState;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -48,6 +49,14 @@ pub fn run() {
             secrets::set_api_key,
             secrets::clear_api_key,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Quitting while hosting: players are told the table closed.
+            if let tauri::RunEvent::ExitRequested { .. } = event
+                && let Some(table) = app.try_state::<TableState>()
+            {
+                table.shutdown();
+            }
+        });
 }

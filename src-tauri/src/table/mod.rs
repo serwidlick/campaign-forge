@@ -21,7 +21,7 @@ use crate::storage::{AppState, Element, ElementSummary};
 
 pub use client::SessionInfo;
 pub use discovery::FoundTable;
-pub use server::Player;
+pub use server::{Player, VersionResponse};
 
 /// Everything about hosting and joining, managed by Tauri.
 #[derive(Default)]
@@ -144,6 +144,27 @@ pub fn table_stop_hosting(table: State<'_, TableState>) -> CommandResult<()> {
     Ok(())
 }
 
+impl TableState {
+    /// Called when the app is quitting: tell waiting players the table
+    /// closed and give the server a moment to deliver that before the
+    /// process goes away.
+    pub fn shutdown(&self) {
+        let had_players = {
+            let Ok(mut guard) = self.host.lock() else {
+                return;
+            };
+            let had = guard
+                .as_ref()
+                .is_some_and(|h| h.players.lock().map(|p| !p.is_empty()).unwrap_or(false));
+            *guard = None;
+            had
+        };
+        if had_players {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+    }
+}
+
 #[tauri::command]
 pub fn table_host_status(table: State<'_, TableState>) -> CommandResult<Option<HostStatus>> {
     Ok(lock(&table.host)?.as_ref().map(Host::status))
@@ -225,6 +246,9 @@ pub async fn table_fetch_asset(
 }
 
 #[tauri::command]
-pub async fn table_wait_for_change(table: State<'_, TableState>, after: u64) -> CommandResult<u64> {
+pub async fn table_wait_for_change(
+    table: State<'_, TableState>,
+    after: u64,
+) -> CommandResult<VersionResponse> {
     session(&table)?.wait_for_change(after).await
 }

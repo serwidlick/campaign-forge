@@ -24,6 +24,8 @@ interface TableState {
   version: number;
   connection: Connection;
   joining: boolean;
+  /** Why the player is back on the welcome screen, e.g. the GM ended the table. */
+  notice: string | null;
 
   error: string | null;
 
@@ -39,9 +41,13 @@ interface TableState {
   leave: () => Promise<void>;
 
   clearError: () => void;
+  clearNotice: () => void;
 }
 
 const RETRY_MS = 3000;
+/** Error text the Rust client uses when the GM ended the table. */
+const CLOSED_ERROR = "TABLE_CLOSED";
+const CLOSED_NOTICE = "The GM ended the table.";
 
 /** Bumped to cancel the running sync loop. */
 let loopGeneration = 0;
@@ -68,16 +74,35 @@ export const useTableStore = create<TableState>((set, get) => {
         }
         const next = await table.waitForChange(version);
         if (generation !== loopGeneration) return;
-        if (next > version) {
-          version = next;
+        if (next.closed) {
+          await detach(CLOSED_NOTICE);
+          return;
+        }
+        if (next.version > version) {
+          version = next.version;
           needFetch = true;
         }
-      } catch {
+      } catch (err) {
         if (generation !== loopGeneration) return;
+        if (errorMessage(err) === CLOSED_ERROR) {
+          await detach(CLOSED_NOTICE);
+          return;
+        }
         set({ connection: "reconnecting" });
         needFetch = true;
         await sleep(RETRY_MS);
       }
+    }
+  }
+
+  /** Leaves the table; with a notice, the welcome screen says why. */
+  async function detach(notice: string | null) {
+    loopGeneration += 1;
+    set({ session: null, elements: [], version: 0, notice });
+    try {
+      await table.leave();
+    } catch {
+      /* already gone */
     }
   }
 
@@ -104,6 +129,7 @@ export const useTableStore = create<TableState>((set, get) => {
     version: 0,
     connection: "connected",
     joining: false,
+    notice: null,
     error: null,
 
     async restore() {
@@ -172,6 +198,7 @@ export const useTableStore = create<TableState>((set, get) => {
       set({ joining: true, error: null });
       try {
         const session = await table.join(address, name, code);
+        set({ notice: null });
         attach(session);
         void get().stopDiscovery();
         return true;
@@ -184,17 +211,15 @@ export const useTableStore = create<TableState>((set, get) => {
     },
 
     async leave() {
-      loopGeneration += 1;
-      set({ session: null, elements: [], version: 0 });
-      try {
-        await table.leave();
-      } catch {
-        /* already gone */
-      }
+      await detach(null);
     },
 
     clearError() {
       set({ error: null });
+    },
+
+    clearNotice() {
+      set({ notice: null });
     },
   };
 });
