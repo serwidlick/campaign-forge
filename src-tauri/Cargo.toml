@@ -1,6 +1,6 @@
 [package]
 name = "campaign-forge"
-version = "0.1.0"
+version = "0.1.1"
 description = "A local-first desktop campaign manager for tabletop game masters"
 authors = ["David Levey"]
 edition = "2024"
