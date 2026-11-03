@@ -183,6 +183,13 @@ body {
     color-mix(in srgb, var(--color-ember-500) 45%, transparent);
 }
 
+/* A pin that opens another map. */
+.cf-pin.is-map {
+  border-radius: 3px;
+  background: #7dd3fc;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #7dd3fc 45%, transparent);
+}
+
 .cf-pin.is-selected {
   background: var(--color-ink-100);
   box-shadow: 0 0 0 3px var(--color-ember-500);
@@ -200,6 +207,25 @@ body {
 
 .cf-pin-label.leaflet-tooltip-top::before {
   border-top-color: var(--color-ink-700);
+}
+
+.cf-territory-label.leaflet-tooltip {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  color: var(--color-ink-100);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-shadow:
+    0 0 3px var(--color-ink-950),
+    0 0 8px var(--color-ink-950);
+}
+
+.cf-territory-label.leaflet-tooltip::before {
+  display: none;
 }
 
 .cf-measure-label.leaflet-tooltip {

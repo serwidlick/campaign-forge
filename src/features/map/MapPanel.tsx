@@ -3,8 +3,11 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
+  CornerLeftUp,
   Hand,
   ImagePlus,
+  LandPlot,
+  Layers,
   Lock,
   LockOpen,
   MapPin,
@@ -24,37 +27,49 @@ import {
   FIT_MODES,
   PIN_LINK_KIND_ORDER,
   ROUTE_COLORS,
+  TERRITORY_COLORS,
+  TERRITORY_LINK_KIND_ORDER,
   TRAVEL_MODES,
   fitZoom,
+  formatArea,
   formatDistance,
   formatTravelTime,
   imageUrlFromDrag,
   isImagePath,
   newId,
+  parentMapsOf,
   pathPixelLength,
   pinName,
   pixelDistance,
+  polygonPixelArea,
   readMap,
   routeColor,
   routeSubPath,
   snapToRoute,
+  subMapsOf,
+  territoryColor,
+  territoryName,
+  toArea,
   toDistance,
   type FitMode,
   type MapData,
   type MapPin as Pin,
   type MapRoute,
   type MapScale,
+  type MapTerritory,
   type Point,
   type RouteSnap,
+  type SubMapRef,
 } from "./map-model";
 
-type Tool = "pan" | "pin" | "route" | "measure" | "scale";
+type Tool = "pan" | "pin" | "route" | "territory" | "measure" | "scale";
 type MeasureMode = "crow" | "route";
 
 const MAP_HEIGHT = 520;
 
 /**
- * Image map with pins, routes, a calibrated scale and a measuring tool.
+ * Image map with pins, routes, territories, a calibrated scale and a
+ * measuring tool. A pin or territory linked to another map nests it.
  * Leaflet runs in CRS.Simple so coordinates are image pixels; we flip y so
  * stored points use a top-left origin like any image editor would.
  */
@@ -62,9 +77,15 @@ export function MapPanel({ element }: { element: Element }) {
   const elements = useCampaignStore((s) => s.elements);
   const saveElement = useCampaignStore((s) => s.saveElement);
   const navigate = useCampaignStore((s) => s.navigate);
+  const refreshElements = useCampaignStore((s) => s.refreshElements);
   const setError = useCampaignStore((s) => s.setError);
 
   const data = useMemo(() => readMap(element), [element]);
+  const parents = useMemo(
+    () => parentMapsOf(element.id, elements),
+    [element.id, elements],
+  );
+  const subMaps = useMemo(() => subMapsOf(data, elements), [data, elements]);
 
   const [tool, setTool] = useState<Tool>("pan");
   const [locked, setLocked] = useState(false);
@@ -72,6 +93,14 @@ export function MapPanel({ element }: { element: Element }) {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [routeDraft, setRouteDraft] = useState<Point[]>([]);
   const [routeNaming, setRouteNaming] = useState<string | null>(null);
+  const [selectedTerritoryId, setSelectedTerritoryId] = useState<string | null>(
+    null,
+  );
+  const [territoryDraft, setTerritoryDraft] = useState<Point[]>([]);
+  const [territoryNaming, setTerritoryNaming] = useState<{
+    name: string;
+    element: string | null;
+  } | null>(null);
   const [measureMode, setMeasureMode] = useState<MeasureMode>("crow");
   const [measureRouteId, setMeasureRouteId] = useState<string | null>(null);
   const [measure, setMeasure] = useState<Point[]>([]);
@@ -93,6 +122,7 @@ export function MapPanel({ element }: { element: Element }) {
   const mapRef = useRef<L.Map | null>(null);
   const overlayRef = useRef<L.ImageOverlay | null>(null);
   const pinsLayerRef = useRef<L.LayerGroup>(L.layerGroup());
+  const territoriesLayerRef = useRef<L.LayerGroup>(L.layerGroup());
   const routesLayerRef = useRef<L.LayerGroup>(L.layerGroup());
   const drawLayerRef = useRef<L.LayerGroup>(L.layerGroup());
   // Mirrors for Leaflet handlers, which would otherwise close over stale state.
@@ -160,6 +190,7 @@ export function MapPanel({ element }: { element: Element }) {
       // Solid bounds: the view stops at maxBounds instead of bouncing back.
       maxBoundsViscosity: 1,
     });
+    territoriesLayerRef.current.addTo(map);
     routesLayerRef.current.addTo(map);
     pinsLayerRef.current.addTo(map);
     drawLayerRef.current.addTo(map);
@@ -247,6 +278,9 @@ export function MapPanel({ element }: { element: Element }) {
         case "route":
           setRouteDraft((pts) => [...pts, p]);
           break;
+        case "territory":
+          setTerritoryDraft((pts) => [...pts, p]);
+          break;
         case "measure":
           // Two points: a third click starts a new measurement.
           setMeasure((pts) => (pts.length >= 2 ? [p] : [...pts, p]));
@@ -266,6 +300,7 @@ export function MapPanel({ element }: { element: Element }) {
         default:
           setSelectedPinId(null);
           setSelectedRouteId(null);
+          setSelectedTerritoryId(null);
       }
     };
     map.on("click", onClick);
@@ -285,9 +320,11 @@ export function MapPanel({ element }: { element: Element }) {
     setScaleDraft(null);
     setRouteDraft([]);
     setRouteNaming(null);
+    setTerritoryDraft([]);
+    setTerritoryNaming(null);
   }, []);
 
-  // Escape cancels; Enter finishes a route being drawn.
+  // Escape cancels; Enter finishes a route or territory being drawn.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -296,6 +333,12 @@ export function MapPanel({ element }: { element: Element }) {
       if (e.key === "Enter" && toolRef.current === "route") {
         setRouteDraft((pts) => {
           if (pts.length >= 2) setRouteNaming("");
+          return pts;
+        });
+      }
+      if (e.key === "Enter" && toolRef.current === "territory") {
+        setTerritoryDraft((pts) => {
+          if (pts.length >= 3) setTerritoryNaming({ name: "", element: null });
           return pts;
         });
       }
@@ -382,9 +425,17 @@ export function MapPanel({ element }: { element: Element }) {
     const layer = pinsLayerRef.current;
     layer.clearLayers();
     for (const pin of data.pins) {
+      const linksMap = elements.some(
+        (e) => e.id === pin.element && e.type === "map",
+      );
+      const classes = [
+        "cf-pin",
+        pin.id === selectedPinId ? "is-selected" : "",
+        linksMap ? "is-map" : "",
+      ].join(" ");
       const icon = L.divIcon({
         className: "",
-        html: `<div class="cf-pin ${pin.id === selectedPinId ? "is-selected" : ""}"></div>`,
+        html: `<div class="${classes}"></div>`,
         iconSize: [14, 14],
         iconAnchor: [7, 7],
       });
@@ -399,6 +450,11 @@ export function MapPanel({ element }: { element: Element }) {
         L.DomEvent.stopPropagation(e);
         setSelectedPinId(pin.id);
         setSelectedRouteId(null);
+        setSelectedTerritoryId(null);
+      });
+      marker.on("dblclick", (e) => {
+        L.DomEvent.stopPropagation(e);
+        if (pin.element) void navigate(pin.element, { pane: false });
       });
       marker.on("dragend", () => {
         const p = fromLatLng(marker.getLatLng());
@@ -410,7 +466,15 @@ export function MapPanel({ element }: { element: Element }) {
       });
       marker.addTo(layer);
     }
-  }, [data.pins, elements, selectedPinId, toLatLng, fromLatLng, persist]);
+  }, [
+    data.pins,
+    elements,
+    selectedPinId,
+    toLatLng,
+    fromLatLng,
+    persist,
+    navigate,
+  ]);
 
   // ---- Render saved routes ---------------------------------------------
   useEffect(() => {
@@ -433,10 +497,46 @@ export function MapPanel({ element }: { element: Element }) {
         L.DomEvent.stopPropagation(e);
         setSelectedRouteId(route.id);
         setSelectedPinId(null);
+        setSelectedTerritoryId(null);
       });
       line.addTo(layer);
     }
   }, [data.routes, selectedRouteId, toLatLng]);
+
+  // ---- Render territories --------------------------------------------
+  useEffect(() => {
+    const layer = territoriesLayerRef.current;
+    layer.clearLayers();
+    for (const t of data.territories) {
+      if (t.points.length < 3) continue;
+      const selected = t.id === selectedTerritoryId;
+      const poly = L.polygon(t.points.map(toLatLng), {
+        color: t.color,
+        weight: selected ? 3 : 1.5,
+        opacity: selected ? 1 : 0.8,
+        fillColor: t.color,
+        fillOpacity: selected ? 0.4 : 0.2,
+      });
+      poly.bindTooltip(territoryName(t, elements), {
+        permanent: true,
+        direction: "center",
+        className: "cf-territory-label",
+      });
+      poly.on("click", (e) => {
+        if (toolRef.current !== "pan") return;
+        L.DomEvent.stopPropagation(e);
+        setSelectedTerritoryId(t.id);
+        setSelectedPinId(null);
+        setSelectedRouteId(null);
+      });
+      poly.on("dblclick", (e) => {
+        if (toolRef.current !== "pan" || !t.element) return;
+        L.DomEvent.stopPropagation(e);
+        void navigate(t.element, { pane: false });
+      });
+      poly.addTo(layer);
+    }
+  }, [data.territories, elements, selectedTerritoryId, toLatLng, navigate]);
 
   // ---- Measurement -----------------------------------------------------
   const measureRoute =
@@ -502,6 +602,21 @@ export function MapPanel({ element }: { element: Element }) {
     for (const p of routeDraft) dot(p, draftColor);
     dashed(routeDraft, draftColor);
 
+    // Territory draft: the outline so far, plus a preview of the closed area.
+    const tColor = territoryColor(data.territories.length);
+    for (const p of territoryDraft) dot(p, tColor);
+    dashed(territoryDraft, tColor);
+    if (territoryDraft.length >= 3) {
+      L.polygon(territoryDraft.map(toLatLng), {
+        color: tColor,
+        weight: 1,
+        dashArray: "4 4",
+        fillColor: tColor,
+        fillOpacity: 0.15,
+        interactive: false,
+      }).addTo(layer);
+    }
+
     // Measurement
     if (measureMode === "crow") {
       for (const p of measure) dot(p, "#e69a57");
@@ -547,7 +662,9 @@ export function MapPanel({ element }: { element: Element }) {
     snaps,
     measureRoute,
     scalePoints,
+    territoryDraft,
     data.routes.length,
+    data.territories.length,
     toLatLng,
   ]);
 
@@ -591,6 +708,60 @@ export function MapPanel({ element }: { element: Element }) {
     if (measureRouteId === id) setMeasureRouteId(null);
   }
 
+  function finishTerritory(name: string, elementId: string | null) {
+    if (territoryDraft.length < 3) return;
+    const territory: MapTerritory = {
+      id: newId(),
+      name: name.trim(),
+      color: territoryColor(data.territories.length),
+      element: elementId,
+      points: territoryDraft,
+    };
+    persist({ territories: [...data.territories, territory] });
+    setTerritoryDraft([]);
+    setTerritoryNaming(null);
+    setTool("pan");
+    setSelectedTerritoryId(territory.id);
+  }
+
+  function updateTerritory(id: string, patch: Partial<MapTerritory>) {
+    persist({
+      territories: data.territories.map((t) =>
+        t.id === id ? { ...t, ...patch } : t,
+      ),
+    });
+  }
+
+  function deleteTerritory(id: string) {
+    persist({ territories: data.territories.filter((t) => t.id !== id) });
+    setSelectedTerritoryId(null);
+  }
+
+  function zoomTo(points: Point[]) {
+    if (points.length === 0) return;
+    mapRef.current?.fitBounds(L.latLngBounds(points.map(toLatLng)), {
+      padding: [40, 40],
+      animate: true,
+    });
+  }
+
+  /** New map for a pin's place, linked from the pin, then opened. */
+  async function createSubMap(pin: Pin) {
+    const name = pin.label.trim() || `${element.name} · detail`;
+    try {
+      const created = await storage.createElement("map", name, {});
+      await saveElement(element.id, {
+        pins: dataRef.current.pins.map((p) =>
+          p.id === pin.id ? { ...p, element: created.id } : p,
+        ),
+      });
+      await refreshElements();
+      await navigate(created.id, { pane: false });
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
   function applyScale() {
     const [a, b] = scalePoints;
     const distance = Number(scaleDraft?.distance);
@@ -622,25 +793,35 @@ export function MapPanel({ element }: { element: Element }) {
   const selectedPin = data.pins.find((p) => p.id === selectedPinId) ?? null;
   const selectedRoute =
     data.routes.find((r) => r.id === selectedRouteId) ?? null;
+  const selectedTerritory =
+    data.territories.find((t) => t.id === selectedTerritoryId) ?? null;
 
   const hint =
     tool === "pin"
       ? "Click the map to place a pin"
       : tool === "route"
         ? "Click to add points · Enter or Finish when done"
-        : tool === "measure"
-          ? measureMode === "crow"
-            ? "Click a start and an end point"
-            : data.routes.length === 0
-              ? "Draw a route first"
-              : "Click two points near the route"
-          : tool === "scale"
-            ? "Click two points a known distance apart"
-            : null;
+        : tool === "territory"
+          ? "Click around the area · Enter or Finish when done"
+          : tool === "measure"
+            ? measureMode === "crow"
+              ? "Click a start and an end point"
+              : data.routes.length === 0
+                ? "Draw a route first"
+                : "Click two points near the route"
+            : tool === "scale"
+              ? "Click two points a known distance apart"
+              : null;
 
   // ---- UI ----------------------------------------------------------------
   return (
     <section className="rounded-lg border border-ink-800 bg-ink-900/60">
+      <MapNesting
+        parents={parents}
+        subMaps={subMaps}
+        onOpen={(id, pane) => void navigate(id, { pane })}
+      />
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-1 border-b border-ink-800 px-2 py-1.5">
         <ToolButton
@@ -665,6 +846,14 @@ export function MapPanel({ element }: { element: Element }) {
           disabled={!data.image}
         >
           <RouteIcon size={14} />
+        </ToolButton>
+        <ToolButton
+          active={tool === "territory"}
+          onClick={() => pickTool("territory")}
+          label="Draw territory"
+          disabled={!data.image}
+        >
+          <LandPlot size={14} />
         </ToolButton>
         <ToolButton
           active={tool === "measure"}
@@ -836,6 +1025,98 @@ export function MapPanel({ element }: { element: Element }) {
         </form>
       )}
 
+      {/* Territory drawing */}
+      {tool === "territory" && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (territoryNaming === null) {
+              if (territoryDraft.length >= 3) {
+                setTerritoryNaming({ name: "", element: null });
+              }
+            } else {
+              finishTerritory(territoryNaming.name, territoryNaming.element);
+            }
+          }}
+          className="flex flex-wrap items-center gap-2 border-t border-ink-800 px-3 py-2 text-xs"
+        >
+          {territoryNaming === null ? (
+            <>
+              <span className="text-ink-400">
+                {territoryDraft.length} point
+                {territoryDraft.length === 1 ? "" : "s"}
+                {territoryDraft.length >= 3 && data.scale && (
+                  <>
+                    {" "}
+                    ·{" "}
+                    {formatArea(
+                      toArea(polygonPixelArea(territoryDraft), data.scale),
+                      data.scale.unit,
+                    )}
+                  </>
+                )}
+              </span>
+              <span className="flex-1" />
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setTerritoryDraft((pts) => pts.slice(0, -1))}
+                disabled={territoryDraft.length === 0}
+              >
+                Undo point
+              </Button>
+              <Button
+                size="sm"
+                type="submit"
+                disabled={territoryDraft.length < 3}
+              >
+                Finish territory
+              </Button>
+              <Button size="sm" variant="ghost" onClick={cancelTool}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              <span className="text-ink-400">Name</span>
+              <input
+                autoFocus
+                value={territoryNaming.name}
+                onChange={(e) =>
+                  setTerritoryNaming({
+                    ...territoryNaming,
+                    name: e.target.value,
+                  })
+                }
+                placeholder="Leave blank to use the linked element's name"
+                className="w-64 rounded-md border border-ink-700 bg-ink-900 px-2 py-1 text-sm outline-none placeholder:text-ink-600 focus:border-ember-500"
+              />
+              <span className="text-ink-400">Belongs to</span>
+              <LinkSelect
+                value={territoryNaming.element}
+                onChange={(id) =>
+                  setTerritoryNaming({ ...territoryNaming, element: id })
+                }
+                elements={elements}
+                excludeId={element.id}
+                order={TERRITORY_LINK_KIND_ORDER}
+                className="w-56"
+              />
+              <Button size="sm" type="submit">
+                Save territory
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setTerritoryNaming(null)}
+              >
+                Back
+              </Button>
+            </>
+          )}
+        </form>
+      )}
+
       {/* Scale entry */}
       {tool === "scale" && scaleDraft && scalePoints.length === 2 && (
         <form
@@ -956,13 +1237,9 @@ export function MapPanel({ element }: { element: Element }) {
           onSelect={(route) => {
             setTool("pan");
             setSelectedPinId(null);
+            setSelectedTerritoryId(null);
             setSelectedRouteId(route.id);
-            if (route.points.length >= 2) {
-              mapRef.current?.fitBounds(
-                L.latLngBounds(route.points.map(toLatLng)),
-                { padding: [40, 40], animate: true },
-              );
-            }
+            if (route.points.length >= 2) zoomTo(route.points);
           }}
           onMeasure={(route) => {
             setMeasureRouteId(route.id);
@@ -971,6 +1248,38 @@ export function MapPanel({ element }: { element: Element }) {
             setTool("measure");
           }}
           onDelete={(route) => deleteRoute(route.id)}
+        />
+      )}
+
+      {/* All territories */}
+      {data.territories.length > 0 && tool !== "territory" && (
+        <TerritoriesList
+          territories={data.territories}
+          elements={elements}
+          scale={data.scale}
+          selectedId={selectedTerritoryId}
+          onSelect={(t) => {
+            setTool("pan");
+            setSelectedPinId(null);
+            setSelectedRouteId(null);
+            setSelectedTerritoryId(t.id);
+            zoomTo(t.points);
+          }}
+          onDelete={(t) => deleteTerritory(t.id)}
+        />
+      )}
+
+      {/* Selected territory */}
+      {selectedTerritory && tool === "pan" && (
+        <TerritoryEditor
+          key={selectedTerritory.id}
+          territory={selectedTerritory}
+          elements={elements}
+          currentMapId={element.id}
+          scale={data.scale}
+          onChange={(patch) => updateTerritory(selectedTerritory.id, patch)}
+          onDelete={() => deleteTerritory(selectedTerritory.id)}
+          onOpen={(id, pane) => void navigate(id, { pane })}
         />
       )}
 
@@ -1012,6 +1321,7 @@ export function MapPanel({ element }: { element: Element }) {
             setSelectedPinId(null);
           }}
           onOpen={(id, pane) => void navigate(id, { pane })}
+          onCreateSubMap={() => void createSubMap(selectedPin)}
         />
       )}
     </section>
@@ -1280,6 +1590,7 @@ function PinEditor({
   onChange,
   onDelete,
   onOpen,
+  onCreateSubMap,
 }: {
   pin: Pin;
   elements: ElementSummary[];
@@ -1287,35 +1598,9 @@ function PinEditor({
   onChange: (patch: Partial<Pin>) => void;
   onDelete: () => void;
   onOpen: (id: string, pane: boolean) => void;
+  onCreateSubMap: () => void;
 }) {
   const [label, setLabel] = useState(pin.label);
-
-  // Grouped by kind in the order a pin is most likely to want: locations
-  // first, then other maps, then everything else.
-  const groups = useMemo(() => {
-    const byKind = new Map<string, ElementSummary[]>();
-    for (const e of elements) {
-      if (e.id === currentMapId) continue;
-      const list = byKind.get(e.type) ?? [];
-      list.push(e);
-      byKind.set(e.type, list);
-    }
-    const order = [
-      ...PIN_LINK_KIND_ORDER,
-      ...Array.from(byKind.keys()).filter(
-        (k) => !PIN_LINK_KIND_ORDER.includes(k),
-      ),
-    ];
-    return order
-      .filter((k) => byKind.has(k))
-      .map((k) => ({
-        kind: kindById(k),
-        items: (byKind.get(k) ?? []).sort((a, b) =>
-          a.name.localeCompare(b.name),
-        ),
-      }));
-  }, [elements, currentMapId]);
-
   const linked = pin.element
     ? elements.find((e) => e.id === pin.element)
     : undefined;
@@ -1334,31 +1619,33 @@ function PinEditor({
       </label>
       <label className="text-[11px] text-ink-400">
         Linked element
-        <select
-          value={pin.element ?? ""}
-          onChange={(e) => onChange({ element: e.target.value || null })}
-          className="mt-1 block w-56 rounded-md border border-ink-700 bg-ink-900 px-2 py-1 text-sm text-ink-100 outline-none focus:border-ember-500"
-        >
-          <option value="">None</option>
-          {groups.map((g) => (
-            <optgroup key={g.kind.id} label={g.kind.plural}>
-              {g.items.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+        <LinkSelect
+          value={pin.element}
+          onChange={(id) => onChange({ element: id })}
+          elements={elements}
+          excludeId={currentMapId}
+          order={PIN_LINK_KIND_ORDER}
+          className="mt-1 block w-56"
+        />
       </label>
-      {linked && (
+      {linked ? (
         <Button
           size="sm"
           variant="ghost"
           onClick={(e) => onOpen(linked.id, e.ctrlKey || e.metaKey)}
-          title="Click to open here · Ctrl+click to open beside"
+          title="Click to open here · Ctrl+click to open beside · or double-click the pin"
         >
+          {linked.type === "map" ? <Layers size={14} /> : null}
           Open {linked.name}
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onCreateSubMap}
+          title="Create a new map for this place and link the pin to it"
+        >
+          <Layers size={14} /> New sub-map
         </Button>
       )}
       <span className="font-mono text-[11px] text-ink-600">
@@ -1373,6 +1660,298 @@ function PinEditor({
       >
         <Trash2 size={14} />
       </Button>
+    </div>
+  );
+}
+
+function TerritoriesList({
+  territories,
+  elements,
+  scale,
+  selectedId,
+  onSelect,
+  onDelete,
+}: {
+  territories: MapTerritory[];
+  elements: ElementSummary[];
+  scale: MapScale | null;
+  selectedId: string | null;
+  onSelect: (territory: MapTerritory) => void;
+  onDelete: (territory: MapTerritory) => void;
+}) {
+  return (
+    <div className="border-t border-ink-800 px-3 py-2">
+      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+        Territories
+        <span className="ml-2 font-normal normal-case tracking-normal text-ink-600">
+          {territories.length}
+        </span>
+      </div>
+      <ul className="divide-y divide-ink-800 rounded-md border border-ink-800 bg-ink-900">
+        {territories.map((t) => {
+          const linked = t.element
+            ? elements.find((e) => e.id === t.element)
+            : undefined;
+          const px = polygonPixelArea(t.points);
+          const area = scale ? toArea(px, scale) : null;
+          const active = t.id === selectedId;
+          return (
+            <li
+              key={t.id}
+              className={`flex items-center gap-3 px-3 py-1.5 text-xs ${
+                active ? "bg-ink-800/70" : "hover:bg-ink-850"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => onSelect(t)}
+                className="flex flex-1 items-center gap-3 text-left"
+                title="Select and zoom to this territory"
+              >
+                <span
+                  className="h-3 w-3 shrink-0 rounded-sm"
+                  style={{ background: t.color }}
+                />
+                <span className="truncate text-sm text-ink-100">
+                  {territoryName(t, elements)}
+                </span>
+                {linked && (
+                  <span className="truncate text-ink-500">
+                    {kindById(linked.type).label} · {linked.name}
+                  </span>
+                )}
+                <span className="ml-auto shrink-0 text-ink-300">
+                  {area !== null && scale
+                    ? formatArea(area, scale.unit)
+                    : `${t.points.length} points`}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(t)}
+                title="Delete territory"
+                aria-label={`Delete ${territoryName(t, elements)}`}
+                className="rounded p-1 text-ink-600 hover:bg-ink-800 hover:text-red-300"
+              >
+                <Trash2 size={13} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function TerritoryEditor({
+  territory,
+  elements,
+  currentMapId,
+  scale,
+  onChange,
+  onDelete,
+  onOpen,
+}: {
+  territory: MapTerritory;
+  elements: ElementSummary[];
+  currentMapId: string;
+  scale: MapScale | null;
+  onChange: (patch: Partial<MapTerritory>) => void;
+  onDelete: () => void;
+  onOpen: (id: string, pane: boolean) => void;
+}) {
+  const [name, setName] = useState(territory.name);
+  const linked = territory.element
+    ? elements.find((e) => e.id === territory.element)
+    : undefined;
+  const px = polygonPixelArea(territory.points);
+  const area = scale ? toArea(px, scale) : null;
+
+  return (
+    <div className="flex flex-wrap items-end gap-3 border-t border-ink-800 px-3 py-2">
+      <label className="text-[11px] text-ink-400">
+        Territory
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => name !== territory.name && onChange({ name })}
+          placeholder={linked ? linked.name : "Name this area"}
+          className="mt-1 block w-48 rounded-md border border-ink-700 bg-ink-900 px-2 py-1 text-sm outline-none placeholder:text-ink-600 focus:border-ember-500"
+        />
+      </label>
+      <label className="text-[11px] text-ink-400">
+        Belongs to
+        <LinkSelect
+          value={territory.element}
+          onChange={(id) => onChange({ element: id })}
+          elements={elements}
+          excludeId={currentMapId}
+          order={TERRITORY_LINK_KIND_ORDER}
+          className="mt-1 block w-56"
+        />
+      </label>
+      <div className="text-[11px] text-ink-400">
+        Colour
+        <div className="mt-1.5 flex gap-1">
+          {TERRITORY_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => onChange({ color: c })}
+              aria-label={`Use colour ${c}`}
+              className={`h-5 w-5 rounded-sm border-2 ${
+                c === territory.color ? "border-ink-100" : "border-transparent"
+              }`}
+              style={{ background: c }}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="text-xs text-ink-400">
+        <div className="text-[11px]">Area</div>
+        <div className="mt-1 text-ink-200">
+          {area !== null && scale
+            ? formatArea(area, scale.unit)
+            : `${Math.round(px).toLocaleString()} px²`}
+          <span className="ml-2 text-ink-500">
+            {territory.points.length} points
+          </span>
+        </div>
+      </div>
+      {linked && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={(e) => onOpen(linked.id, e.ctrlKey || e.metaKey)}
+          title="Click to open here · Ctrl+click to open beside · or double-click the area"
+        >
+          {linked.type === "map" ? <Layers size={14} /> : null}
+          Open {linked.name}
+        </Button>
+      )}
+      <span className="flex-1" />
+      <Button
+        size="sm"
+        variant="danger"
+        onClick={onDelete}
+        aria-label="Delete territory"
+      >
+        <Trash2 size={14} />
+      </Button>
+    </div>
+  );
+}
+
+/** Element picker grouped by kind, in the order the caller finds likeliest. */
+function LinkSelect({
+  value,
+  onChange,
+  elements,
+  excludeId,
+  order,
+  className = "",
+  autoFocus,
+}: {
+  value: string | null;
+  onChange: (id: string | null) => void;
+  elements: ElementSummary[];
+  excludeId: string;
+  order: string[];
+  className?: string;
+  autoFocus?: boolean;
+}) {
+  const groups = useMemo(() => {
+    const byKind = new Map<string, ElementSummary[]>();
+    for (const e of elements) {
+      if (e.id === excludeId) continue;
+      const list = byKind.get(e.type) ?? [];
+      list.push(e);
+      byKind.set(e.type, list);
+    }
+    const ordered = [
+      ...order,
+      ...Array.from(byKind.keys()).filter((k) => !order.includes(k)),
+    ];
+    return ordered
+      .filter((k) => byKind.has(k))
+      .map((k) => ({
+        kind: kindById(k),
+        items: (byKind.get(k) ?? []).sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      }));
+  }, [elements, excludeId, order]);
+
+  return (
+    <select
+      autoFocus={autoFocus}
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value || null)}
+      className={`rounded-md border border-ink-700 bg-ink-900 px-2 py-1 text-sm text-ink-100 outline-none focus:border-ember-500 ${className}`}
+    >
+      <option value="">None</option>
+      {groups.map((g) => (
+        <optgroup key={g.kind.id} label={g.kind.plural}>
+          {g.items.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.name}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
+
+/** Where this map sits: the maps it is pinned on, and the maps nested in it. */
+function MapNesting({
+  parents,
+  subMaps,
+  onOpen,
+}: {
+  parents: ElementSummary[];
+  subMaps: SubMapRef[];
+  onOpen: (id: string, pane: boolean) => void;
+}) {
+  if (parents.length === 0 && subMaps.length === 0) return null;
+  const chip =
+    "inline-flex items-center gap-1 rounded-full border border-ink-700 bg-ink-900 px-2 py-0.5 text-[11px] text-ink-200 hover:border-ember-500 hover:text-ember-200";
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-ink-800 px-3 py-1.5 text-[11px] text-ink-500">
+      {parents.length > 0 && (
+        <span className="flex flex-wrap items-center gap-1.5">
+          <CornerLeftUp size={12} />
+          Within
+          {parents.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              className={chip}
+              onClick={(e) => onOpen(m.id, e.ctrlKey || e.metaKey)}
+              title="Open the parent map · Ctrl+click opens beside"
+            >
+              {m.name}
+            </button>
+          ))}
+        </span>
+      )}
+      {subMaps.length > 0 && (
+        <span className="flex flex-wrap items-center gap-1.5">
+          <Layers size={12} />
+          Maps inside
+          {subMaps.map((s) => (
+            <button
+              key={s.map.id}
+              type="button"
+              className={chip}
+              onClick={(e) => onOpen(s.map.id, e.ctrlKey || e.metaKey)}
+              title={`Reached through the ${s.via} "${s.label}" · Ctrl+click opens beside`}
+            >
+              {s.map.name}
+            </button>
+          ))}
+        </span>
+      )}
     </div>
   );
 }

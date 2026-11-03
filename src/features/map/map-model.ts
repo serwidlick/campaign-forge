@@ -9,6 +9,9 @@
  *   scale:  { pixels: 512, distance: 100, unit: miles }
  *   pins:   [{ id, x, y, label, element }]      (x, y in image pixels, top-left origin)
  *   routes: [{ id, name, color, points: [{ x, y }] }]
+ *   territories: [{ id, name, color, element, points: [{ x, y }] }]
+ *
+ * A pin or territory linked to another map nests that map inside this one.
  */
 import type { ElementSummary } from "@/lib/types";
 
@@ -28,6 +31,16 @@ export interface MapRoute {
   id: string;
   name: string;
   color: string;
+  points: Point[];
+}
+
+/** A named area: a faction's reach, a kingdom, a forest. Closed polygon. */
+export interface MapTerritory {
+  id: string;
+  name: string;
+  color: string;
+  /** Linked element id (usually a faction or location), if any. */
+  element: string | null;
   points: Point[];
 }
 
@@ -58,6 +71,7 @@ export interface MapData {
   scale: MapScale | null;
   pins: MapPin[];
   routes: MapRoute[];
+  territories: MapTerritory[];
 }
 
 export interface TravelMode {
@@ -84,6 +98,32 @@ export const ROUTE_COLORS = [
   "#f9a8d4",
   "#c4b5fd",
   "#fde68a",
+];
+
+export const TERRITORY_COLORS = [
+  "#ef6b6b",
+  "#5aa9e6",
+  "#6fcf8a",
+  "#c084fc",
+  "#f2c14e",
+  "#f08a4b",
+  "#2dd4bf",
+  "#f472b6",
+];
+
+/** Territories are usually a faction's or a realm's; then other maps. */
+export const TERRITORY_LINK_KIND_ORDER = [
+  "faction",
+  "location",
+  "map",
+  "character",
+  "creature",
+  "event",
+  "quest",
+  "lore",
+  "item",
+  "arc",
+  "session",
 ];
 
 /**
@@ -168,6 +208,25 @@ export function readMap(e: Record<string, unknown>): MapData {
       })
     : [];
 
+  const territories: MapTerritory[] = Array.isArray(e.territories)
+    ? e.territories.flatMap((t, i) => {
+        if (!t || typeof t !== "object") return [];
+        const o = t as Record<string, unknown>;
+        const points = Array.isArray(o.points)
+          ? o.points.map(point).filter((p): p is Point => p !== null)
+          : [];
+        return [
+          {
+            id: str(o.id) ?? newId(),
+            name: str(o.name) ?? `Territory ${i + 1}`,
+            color: str(o.color) ?? territoryColor(i),
+            element: str(o.element),
+            points,
+          },
+        ];
+      })
+    : [];
+
   const fit = FIT_MODES.some((m) => m.id === e.fit)
     ? (e.fit as FitMode)
     : "contain";
@@ -180,6 +239,7 @@ export function readMap(e: Record<string, unknown>): MapData {
     scale,
     pins,
     routes,
+    territories,
   };
 }
 
@@ -189,6 +249,10 @@ export function newId(): string {
 
 export function routeColor(index: number): string {
   return ROUTE_COLORS[index % ROUTE_COLORS.length] ?? "#e69a57";
+}
+
+export function territoryColor(index: number): string {
+  return TERRITORY_COLORS[index % TERRITORY_COLORS.length] ?? "#ef6b6b";
 }
 
 // ---- Geometry ----------------------------------------------------------
@@ -205,6 +269,18 @@ export function pathPixelLength(points: Point[]): number {
     if (prev && cur) total += pixelDistance(prev, cur);
   }
   return total;
+}
+
+/** Area of a closed polygon in square image pixels (shoelace formula). */
+export function polygonPixelArea(points: Point[]): number {
+  if (points.length < 3) return 0;
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    if (a && b) sum += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(sum) / 2;
 }
 
 export interface RouteSnap {
@@ -282,6 +358,18 @@ export function toDistance(pixels: number, scale: MapScale): number {
   return (pixels / scale.pixels) * scale.distance;
 }
 
+/** Square pixels to square map units. */
+export function toArea(pixelArea: number, scale: MapScale): number {
+  const perPixel = scale.distance / scale.pixels;
+  return pixelArea * perPixel * perPixel;
+}
+
+export function formatArea(value: number, unit: string): string {
+  const rounded =
+    value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  return `${rounded.toLocaleString()} sq ${unit}`;
+}
+
 export function formatDistance(value: number, unit: string): string {
   const rounded =
     value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
@@ -330,6 +418,66 @@ export function pinName(pin: MapPin, elements: ElementSummary[]): string {
     ? elements.find((e) => e.id === pin.element)
     : undefined;
   return linked?.name ?? "Unnamed pin";
+}
+
+/** Display name for a territory: its name, else the linked element's name. */
+export function territoryName(
+  t: MapTerritory,
+  elements: ElementSummary[],
+): string {
+  if (t.name.trim()) return t.name;
+  const linked = t.element
+    ? elements.find((e) => e.id === t.element)
+    : undefined;
+  return linked?.name ?? "Unnamed territory";
+}
+
+// ---- Nesting -----------------------------------------------------------
+
+export interface SubMapRef {
+  /** What on this map leads to the sub-map. */
+  via: "pin" | "territory";
+  label: string;
+  map: ElementSummary;
+}
+
+/** Maps reachable from this one through a pin or a territory. */
+export function subMapsOf(
+  data: MapData,
+  elements: ElementSummary[],
+): SubMapRef[] {
+  const out: SubMapRef[] = [];
+  const seen = new Set<string>();
+  const mapById = (id: string | null) =>
+    id ? elements.find((e) => e.id === id && e.type === "map") : undefined;
+  for (const pin of data.pins) {
+    const map = mapById(pin.element);
+    if (!map || seen.has(map.id)) continue;
+    seen.add(map.id);
+    out.push({ via: "pin", label: pinName(pin, elements), map });
+  }
+  for (const t of data.territories) {
+    const map = mapById(t.element);
+    if (!map || seen.has(map.id)) continue;
+    seen.add(map.id);
+    out.push({ via: "territory", label: territoryName(t, elements), map });
+  }
+  return out;
+}
+
+/** Maps that contain this one through a pin or a territory. */
+export function parentMapsOf(
+  mapId: string,
+  elements: ElementSummary[],
+): ElementSummary[] {
+  return elements.filter((e) => {
+    if (e.type !== "map" || e.id === mapId) return false;
+    const d = readMap(e);
+    return (
+      d.pins.some((p) => p.element === mapId) ||
+      d.territories.some((t) => t.element === mapId)
+    );
+  });
 }
 
 /** Pulls an image URL out of a browser drag, if there is one. */

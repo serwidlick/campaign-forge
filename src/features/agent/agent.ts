@@ -51,7 +51,7 @@ const SYSTEM_PROMPT = [
   "",
   "## The campaign",
   "Everything the GM has written lives in elements of these kinds: character, faction, creature, location, map, item, quest, event, lore, arc, session, journal. Each element has an id, a name, tags, kind-specific fields and a Markdown body.",
-  "Sessions have a number, a date, a status (planned/played), an arc, and a list of beats; one beat may be the main encounter and one the cliffhanger. Arcs group sessions. Maps have pins that link to elements, routes, and a scale. Journal entries have a real-world date, an optional in-world date, and a scope: the campaign, an arc, or a session; they hold recaps and notes.",
+  "Sessions have a number, a date, a status (planned/played), an arc, and a list of beats; one beat may be the main encounter and one the cliffhanger. Arcs group sessions. Maps have pins that link to elements, territories (named areas, usually a faction's or a realm's, each optionally linked to an element), routes, and a scale; a pin or territory linked to another map nests that map inside this one. Journal entries have a real-world date, an optional in-world date, and a scope: the campaign, an arc, or a session; they hold recaps and notes.",
   "",
   "## How to work",
   "- Look things up with the tools before answering questions about the campaign. Never invent campaign facts; if the files do not say, say so.",

@@ -13,7 +13,7 @@ Early scaffold. What works today:
 - Rich text editing that reads and writes Markdown
 - Links between elements: type `@` to insert one, Ctrl+click to follow, and every element lists what it links to and what links to it
 - Arcs and sessions: a session has a number, date, status and an ordered list of beats, with one beat marked as the main encounter and one as the cliffhanger; an arc lists its sessions in play order
-- Maps: import an image (file picker, or drag and drop from Explorer or a browser), pan and zoom or lock the view, choose how the image is framed, drop pins linked to elements, draw named routes, calibrate a scale once, then measure as the crow flies or along a route for distance and travel time on foot, horseback or by wagon
+- Maps: import an image (file picker, or drag and drop from Explorer or a browser), pan and zoom or lock the view, choose how the image is framed, drop pins linked to elements, draw named routes, calibrate a scale once, then measure as the crow flies or along a route for distance and travel time on foot, horseback or by wagon; outline territories (a faction's reach, a kingdom, a forest) with area in map units; nest maps by linking a pin or territory to another map, or create a sub-map straight from a pin
 - Assistant: an opt-in chat pane that answers questions about the campaign by searching, listing and reading your elements, and links everything it mentions. Uses your own Anthropic API key, stored in the OS credential manager
 - Split screen: Ctrl+click any element reference (list row, link, backlink, pin, session, assistant chip) to open it in a column beside the current one; columns swap, close, and are remembered per campaign
 - Timeline: a campaign calendar you define (months of any length, weekday names, eras, the in-world today), events with a date and optional end date, sessions with an in-world date, and a Timeline view listing everything in order with a today marker
@@ -21,7 +21,7 @@ Early scaffold. What works today:
 - Journal: dated entries that belong to the campaign, an arc or a session, listed newest first in a Journal view and under each arc and session, with an optional in-world date that places them on the timeline
 - Recent campaigns list
 
-Planned: map territories and nested maps, leap-year rules, and travel paces as a campaign setting.
+Planned: leap-year rules and travel paces as a campaign setting.
 
 ## On-disk format
 

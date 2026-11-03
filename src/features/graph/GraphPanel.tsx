@@ -18,7 +18,7 @@ import { kindById, type ElementSummary } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 
 /** How two elements are connected. */
-type EdgeKind = "link" | "arc" | "pin";
+type EdgeKind = "link" | "arc" | "pin" | "territory";
 
 interface GraphNode extends SimulationNodeDatum {
   id: string;
@@ -35,6 +35,7 @@ const EDGE_STYLE: Record<EdgeKind, { dash?: string; label: string }> = {
   link: { label: "@ link" },
   arc: { dash: "6 4", label: "session in arc" },
   pin: { dash: "2 4", label: "pinned on map" },
+  territory: { dash: "1 3", label: "territory on map" },
 };
 
 /** Builds nodes and deduplicated undirected edges from the campaign. */
@@ -63,8 +64,12 @@ function buildGraph(elements: ElementSummary[]): {
       add(e.id, e.arc, "arc");
     }
     if (e.type === "map") {
-      for (const pin of readMap(e).pins) {
+      const m = readMap(e);
+      for (const pin of m.pins) {
         if (pin.element) add(e.id, pin.element, "pin");
+      }
+      for (const t of m.territories) {
+        if (t.element) add(e.id, t.element, "territory");
       }
     }
   }
