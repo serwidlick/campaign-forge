@@ -13,6 +13,12 @@ import {
   relativeOpened,
   type RecentCampaign,
 } from "@/lib/recent";
+import {
+  DEFAULT_RULES,
+  RULESETS,
+  rulesetById,
+  type RulesId,
+} from "@/features/templates/rulesets";
 import { useCampaignStore } from "@/stores/campaign-store";
 
 const GUIDE_URL = "https://serwidlick.github.io/campaign-forge/guide/";
@@ -51,6 +57,7 @@ export function WelcomeScreen() {
   const [draftPath, setDraftPath] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [draftSystem, setDraftSystem] = useState("");
+  const [draftRules, setDraftRules] = useState<RulesId>(DEFAULT_RULES);
 
   useEffect(() => {
     void getRecentCampaigns().then(setRecent);
@@ -73,10 +80,14 @@ export function WelcomeScreen() {
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     if (!draftPath || !draftName.trim()) return;
+    const ruleset = rulesetById(draftRules);
+    const system =
+      ruleset.id === "generic" ? draftSystem.trim() : ruleset.system;
     await createCampaign(
       draftPath,
       draftName.trim(),
-      draftSystem.trim() || undefined,
+      system || undefined,
+      draftRules,
     );
   }
 
@@ -148,14 +159,33 @@ export function WelcomeScreen() {
                   />
                 </label>
                 <label className="block text-sm">
-                  <span className="text-ink-300">Game system (optional)</span>
-                  <input
-                    value={draftSystem}
-                    onChange={(e) => setDraftSystem(e.target.value)}
-                    placeholder="D&D 5e, Daggerheart, Call of Cthulhu…"
+                  <span className="text-ink-300">Rules</span>
+                  <select
+                    value={draftRules}
+                    onChange={(e) => setDraftRules(e.target.value as RulesId)}
                     className={FIELD}
-                  />
+                  >
+                    {RULESETS.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-xs text-[#7d8595]">
+                    {rulesetById(draftRules).blurb}
+                  </span>
                 </label>
+                {draftRules === "generic" && (
+                  <label className="block text-sm">
+                    <span className="text-ink-300">Game system (optional)</span>
+                    <input
+                      value={draftSystem}
+                      onChange={(e) => setDraftSystem(e.target.value)}
+                      placeholder="Daggerheart, Call of Cthulhu, Pathfinder…"
+                      className={FIELD}
+                    />
+                  </label>
+                )}
                 <div className="mt-2 flex gap-2">
                   <button
                     type="submit"

@@ -4,7 +4,10 @@ import { ArcPanel } from "@/features/sessions/ArcPanel";
 import { SessionPanel } from "@/features/sessions/SessionPanel";
 import { JournalPanel } from "@/features/journal/JournalPanel";
 import { EventPanel } from "@/features/timeline/EventPanel";
+import { CharacterSheet5e } from "@/features/templates/CharacterSheet5e";
+import { rulesOf } from "@/features/templates/rulesets";
 import type { Element } from "@/lib/types";
+import { useCampaignStore } from "@/stores/campaign-store";
 
 import { ElementEditor } from "./ElementEditor";
 
@@ -13,7 +16,20 @@ import { ElementEditor } from "./ElementEditor";
  * header, Markdown body and backlinks; sessions and arcs add structure above.
  */
 export function ElementEditorFor({ element }: { element: Element }) {
+  const campaign = useCampaignStore((s) => s.campaign);
+  const rules = rulesOf(campaign);
   switch (element.type) {
+    case "character":
+      return (
+        <ElementEditor
+          element={element}
+          panel={
+            rules === "dnd5e" ? (
+              <CharacterSheet5e element={element} />
+            ) : undefined
+          }
+        />
+      );
     case "session":
       return (
         <ElementEditor

@@ -13,7 +13,7 @@ Players install the same app. They do not need a campaign folder.
 ## Your first campaign
 
 1. Press **New campaign** on the welcome screen and choose an empty folder. A Documents subfolder, a cloud-drive folder, a USB stick: anywhere you like.
-2. Give it a name and, if you want, the game system. The system is just a label.
+2. Give it a name and choose the **rules**. Dungeons & Dragons 5e gives characters a 5e sheet and 5e-shaped templates; Another game gives plain templates and a free-text system label. Campaigns made before this choice existed count as 5e.
 3. The window opens on the world bible with nothing in it yet. Press **New** in the list column to create your first element.
 
 To work on a campaign someone else made, or one you moved, press **Open campaign folder** and pick the folder that contains `campaign.json`.

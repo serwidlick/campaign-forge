@@ -48,18 +48,19 @@ Cheap ale, good gossip, never ask about the cellar.
 
 The part between the `---` lines is YAML frontmatter. Keys the app knows:
 
-| Key                                                                         | On       | Meaning                                                                              |
-| --------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
-| `id`, `type`, `name`                                                        | all      | Identity. Never edit `id`.                                                           |
-| `tags`                                                                      | all      | List of strings.                                                                     |
-| `shared`                                                                    | all      | `true` makes the element visible to players.                                         |
-| `portrait`                                                                  | all      | Path of the picture under `assets/images/`.                                          |
-| `arc`, `number`, `date`, `status`, `beats`, `worldDate`                     | session  | See [sessions](sessions-and-journals.md).                                            |
-| `status`                                                                    | arc      | `active` or `complete`.                                                              |
-| `when`, `until`                                                             | event    | In-world dates `{ year, month, day }`.                                               |
-| `date`, `worldDate`, `scope`                                                | journal  | Real date, in-world date, and `{ type, id }` where type is campaign, arc or session. |
-| `image`, `width`, `height`, `fit`, `scale`, `pins`, `routes`, `territories` | map      | See [maps](maps.md). Pins, routes and territories each carry `shared`.               |
-| `file`, `fileName`, `fileBytes`                                             | document | The PDF under `assets/docs/`.                                                        |
+| Key                                                                         | On        | Meaning                                                                              |
+| --------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------ |
+| `id`, `type`, `name`                                                        | all       | Identity. Never edit `id`.                                                           |
+| `tags`                                                                      | all       | List of strings.                                                                     |
+| `shared`                                                                    | all       | `true` makes the element visible to players.                                         |
+| `portrait`                                                                  | all       | Path of the picture under `assets/images/`.                                          |
+| `sheet`                                                                     | character | The D&D 5e sheet: role, class, level, abilities, ac, hp, saves, skills.              |
+| `arc`, `number`, `date`, `status`, `beats`, `worldDate`                     | session   | See [sessions](sessions-and-journals.md).                                            |
+| `status`                                                                    | arc       | `active` or `complete`.                                                              |
+| `when`, `until`                                                             | event     | In-world dates `{ year, month, day }`.                                               |
+| `date`, `worldDate`, `scope`                                                | journal   | Real date, in-world date, and `{ type, id }` where type is campaign, arc or session. |
+| `image`, `width`, `height`, `fit`, `scale`, `pins`, `routes`, `territories` | map       | See [maps](maps.md). Pins, routes and territories each carry `shared`.               |
+| `file`, `fileName`, `fileBytes`                                             | document  | The PDF under `assets/docs/`.                                                        |
 
 Unknown keys are preserved, so other tools can add their own.
 
@@ -67,7 +68,7 @@ Links in bodies look like `[Name](cf://element/<id>)`. The id is the target's `i
 
 ## Campaign settings
 
-`campaign.json` holds the campaign's name, system, creation dates and settings: the `calendar` (months, weekdays, eras, today) and `travel` (hours per day and the list of paces).
+`campaign.json` holds the campaign's name, system, creation dates and settings: `rules` (`dnd5e` or `generic`), the `calendar` (months, weekdays, eras, today) and `travel` (hours per day and the list of paces).
 
 ## Backups and cloud drives
 

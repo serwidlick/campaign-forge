@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import { rulesOf, type RulesId } from "@/features/templates/rulesets";
+import { templateFor } from "@/features/templates/templates";
 import { rememberCampaign } from "@/lib/recent";
 import { errorMessage, storage } from "@/lib/tauri";
 import {
@@ -44,6 +46,7 @@ interface CampaignState {
     path: string,
     name: string,
     system?: string,
+    rules?: RulesId,
   ) => Promise<void>;
   closeCampaign: () => void;
 
@@ -214,7 +217,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
       }
     },
 
-    async createCampaign(path, name, system) {
+    async createCampaign(path, name, system, rules) {
       set({ busy: true, error: null });
       try {
         const campaign = await storage.createCampaign(path, name, system);
@@ -227,6 +230,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
           paneIds: [],
           loaded: {},
         });
+        if (rules) await get().updateCampaignSettings({ rules });
       } catch (err) {
         set({ error: errorMessage(err) });
       } finally {
@@ -336,7 +340,22 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
     async createElement(kind, name, extra) {
       set({ error: null });
       try {
-        const element = await storage.createElement(kind, name, extra);
+        // New elements start from the ruleset's template for their kind:
+        // a body skeleton and, for a 5e character, an empty sheet.
+        const template = templateFor(rulesOf(get().campaign), kind);
+        let element = await storage.createElement(kind, name, {
+          ...template.extra,
+          ...(extra ?? {}),
+        });
+        if (template.body) {
+          element = await storage.saveElement({
+            id: element.id,
+            name: element.name,
+            tags: element.tags,
+            body: template.body,
+            extra: extraOf(element),
+          });
+        }
         await get().refreshElements();
         set({ selectedId: element.id, selected: element });
         persistLayout();

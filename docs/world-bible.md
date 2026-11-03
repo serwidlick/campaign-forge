@@ -36,6 +36,16 @@ The body is a rich-text editor that reads and writes Markdown. Headings, lists, 
 
 If a body contains a heading such as `## Players know`, players receive only that section; everything else in the element stays yours. See [Playing at the table](playing-at-the-table.md#what-players-see) for the rules.
 
+## Templates
+
+A new element starts from a template for its kind: a body skeleton of headings such as Appearance, Personality and Backstory for a character, or Hook, Objectives, Complications and Rewards for a quest. Every template ends with a **Players know** heading, so a freshly shared element reveals nothing until you write something there. Delete any heading you do not want; they are only text.
+
+## Character sheets
+
+In a D&D 5e campaign every character has a sheet above its body: role (player character or NPC), class, subclass, level, species, background and alignment; the six ability scores with their modifiers; AC, hit points (current, maximum, temporary) and speed; initiative, proficiency bonus and passive Perception, which are worked out for you; saving throw and skill proficiencies as chips (click a skill once for proficiency, twice for expertise), each showing its total; senses and languages.
+
+The sheet is stored in the element's frontmatter as `sheet`, so it travels with the file, and the assistant can fill it in when you ask.
+
 ## Pictures
 
 The square tile at the left of every element header is its picture. Click it to choose an image; it is copied into the campaign folder under `assets/images/` and shown on list rows, on map pin labels and in the player view. Hover the tile for a small bin to remove it. Elements without a picture show their initial on the colour of their kind.

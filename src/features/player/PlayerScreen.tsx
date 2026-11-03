@@ -36,6 +36,7 @@ import { Portrait } from "@/features/images/Portrait";
 import { portraitOf } from "@/features/images/portrait-model";
 
 import { documentFileOf } from "@/features/documents/document-model";
+import { readSheet5e, sheetSummary } from "@/features/templates/dnd5e-model";
 import { PdfViewer } from "@/features/documents/PdfViewer";
 
 import { PlayerMap } from "./PlayerMap";
@@ -541,6 +542,23 @@ function detailsFor(
     case "arc":
       out.push({ label: "Status", value: readArc(element).status });
       break;
+    case "character": {
+      const sheet = readSheet5e(element.sheet);
+      if (!sheet) break;
+      const summary = sheetSummary(sheet);
+      if (summary) out.push({ label: "Sheet", value: summary });
+      if (sheet.ac !== null) out.push({ label: "AC", value: String(sheet.ac) });
+      if (sheet.hp.max !== null) {
+        out.push({
+          label: "HP",
+          value:
+            sheet.hp.current !== null
+              ? `${sheet.hp.current} / ${sheet.hp.max}`
+              : String(sheet.hp.max),
+        });
+      }
+      break;
+    }
     case "event": {
       const when = readWorldDate(element.when);
       const until = readWorldDate(element.until);
