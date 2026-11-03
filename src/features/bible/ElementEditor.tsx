@@ -19,6 +19,10 @@ import {
   type ElementSummary,
 } from "@/lib/types";
 import { useCampaignStore, type ElementPatch } from "@/stores/campaign-store";
+import {
+  PLAYERS_HEADING,
+  hasPlayersSection,
+} from "@/features/player/player-model";
 import { useTableStore } from "@/stores/table-store";
 
 import {
@@ -61,6 +65,7 @@ export function ElementEditor({ element, panel }: Props) {
   const hosting = useTableStore((s) => s.hosting);
   const showToPlayers = useTableStore((s) => s.showToPlayers);
   const showing = hosting?.spotlight === element.id;
+  const playersSection = hasPlayersSection(element.body);
 
   async function handleShow() {
     if (showing) {
@@ -173,6 +178,28 @@ export function ElementEditor({ element, panel }: Props) {
     queue({ tags });
   }
 
+  /** Puts a "Players know" heading at the top with a placeholder line. */
+  function insertPlayersSection() {
+    if (!editor) return;
+    editor
+      .chain()
+      .focus("start")
+      .insertContentAt(0, [
+        {
+          type: "heading",
+          attrs: { level: 2 },
+          content: [{ type: "text", text: PLAYERS_HEADING }],
+        },
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "What the party has learned so far." },
+          ],
+        },
+      ])
+      .run();
+  }
+
   async function handleDelete() {
     if (
       !window.confirm(
@@ -271,6 +298,31 @@ export function ElementEditor({ element, panel }: Props) {
           </Button>
         </div>
       </header>
+
+      {shared && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ember-500/20 bg-ember-500/5 px-6 py-1.5 text-[11px] text-ember-200/90">
+          {playersSection ? (
+            <>
+              Players see only the <strong>{PLAYERS_HEADING}</strong> section.
+              Everything else here is yours.
+            </>
+          ) : (
+            <>
+              Players see everything in this element.
+              <button
+                type="button"
+                onClick={insertPlayersSection}
+                className="rounded px-1.5 py-0.5 text-ember-100 underline decoration-ember-500/60 hover:bg-ember-500/15"
+              >
+                Add a {PLAYERS_HEADING} section
+              </button>
+              <span className="text-ember-200/60">
+                and only that part goes to them.
+              </span>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
         {panel && <div className="mx-auto mb-8 max-w-3xl">{panel}</div>}

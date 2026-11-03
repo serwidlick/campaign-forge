@@ -11,12 +11,16 @@
 //! - Sessions lose their prep `beats`; an `arc` link is dropped unless visible.
 //! - Journal entries scoped to a private arc or session fall back to the
 //!   campaign scope.
+//! - A body may contain a `## Players know` heading. When it does, players
+//!   receive only that section (up to the next heading of the same or a
+//!   higher level); the rest of the body is GM-only. Without the heading the
+//!   whole body is shared, as before.
 
 use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
 
-use crate::storage::{AppState, Element, ElementSummary, Extra, StorageError};
+use crate::storage::{AppState, Element, ElementSummary, Extra, StorageError, extract_links};
 
 const LINK_PREFIX: &str = "cf://element/";
 const UUID_LEN: usize = 36;
@@ -40,7 +44,14 @@ pub fn shared_summaries(state: &AppState) -> Result<Vec<ElementSummary>, Storage
     Ok(all
         .into_iter()
         .filter(|e| visible.contains(&e.meta.id))
-        .map(|e| sanitize_summary(e, &visible))
+        .map(|mut e| {
+            // Links are derived from what players actually get, so a mention
+            // in the GM-only part of a body never shows up as a backlink.
+            if let Ok(full) = state.read_element(&e.meta.id) {
+                e.links = extract_links(&player_body(&full.body).0);
+            }
+            sanitize_summary(e, &visible)
+        })
         .collect())
 }
 
@@ -72,10 +83,60 @@ fn sanitize_summary(mut e: ElementSummary, visible: &HashSet<String>) -> Element
 }
 
 fn sanitize_element(mut e: Element, visible: &HashSet<String>) -> Element {
-    e.links.retain(|id| visible.contains(id));
     sanitize_extra(&e.meta.kind, &mut e.meta.extra, visible);
-    e.body = strip_private_links(&e.body, visible);
+    let (body, _) = player_body(&e.body);
+    e.body = strip_private_links(&body, visible);
+    e.links = extract_links(&e.body);
+    e.links.retain(|id| visible.contains(id));
     e
+}
+
+/// The part of a body players get, and whether a "Players know" section was
+/// found. With the section, only its contents (heading excluded) are kept.
+pub fn player_body(body: &str) -> (String, bool) {
+    let mut out: Vec<&str> = Vec::new();
+    let mut level: Option<usize> = None;
+    for line in body.lines() {
+        match (level, heading_of(line)) {
+            (None, Some((l, text))) if is_players_heading(text) => level = Some(l),
+            (None, _) => {}
+            (Some(l), Some((h, _))) if h <= l => break,
+            (Some(_), _) => out.push(line),
+        }
+    }
+    match level {
+        Some(_) => (out.join("\n").trim().to_owned(), true),
+        None => (body.to_owned(), false),
+    }
+}
+
+/// Markdown ATX heading: level and text, if the line is one.
+fn heading_of(line: &str) -> Option<(usize, &str)> {
+    let trimmed = line.trim_end();
+    let level = trimmed.bytes().take_while(|b| *b == b'#').count();
+    if level == 0 || level > 6 {
+        return None;
+    }
+    let rest = &trimmed[level..];
+    if !rest.is_empty() && !rest.starts_with(' ') {
+        return None;
+    }
+    Some((level, rest.trim().trim_end_matches('#').trim()))
+}
+
+fn is_players_heading(text: &str) -> bool {
+    let t = text
+        .trim()
+        .trim_end_matches([':', '.'])
+        .to_ascii_lowercase();
+    matches!(
+        t.as_str(),
+        "players know"
+            | "what players know"
+            | "what the players know"
+            | "player-facing"
+            | "player facing"
+    )
 }
 
 fn sanitize_extra(kind: &str, extra: &mut Extra, visible: &HashSet<String>) {
@@ -198,6 +259,33 @@ mod tests {
         let body = format!("[A](cf://element/{A})](cf://element/{B})");
         let out = strip_private_links(&body, &visible(&[]));
         assert_eq!(out, format!("A](cf://element/{B})"));
+    }
+
+    #[test]
+    fn whole_body_without_a_players_section() {
+        let (body, found) = player_body("# Villain\n\nSecret plans.");
+        assert!(!found);
+        assert_eq!(body, "# Villain\n\nSecret plans.");
+    }
+
+    #[test]
+    fn only_the_players_section_is_kept() {
+        let body = "Secret plans here.\n\n## Players know\n\nA kindly merchant.\n\n### Rumours\n\nHe travels a lot.\n\n## GM notes\n\nHe is the lich.\n";
+        let (out, found) = player_body(body);
+        assert!(found);
+        assert_eq!(
+            out,
+            "A kindly merchant.\n\n### Rumours\n\nHe travels a lot."
+        );
+    }
+
+    #[test]
+    fn players_heading_variants_and_levels() {
+        let (out, found) = player_body("# What the players know:\nSeen once.\n# Truth\nNo.");
+        assert!(found);
+        assert_eq!(out, "Seen once.");
+        assert!(!player_body("## Players knowledge\nx").1);
+        assert!(!player_body("#NotAHeading players know\nx").1);
     }
 
     #[test]

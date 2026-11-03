@@ -26,6 +26,20 @@ export function isShared(e: Record<string, unknown>): boolean {
   return e.shared === true;
 }
 
+/** The heading that marks the player-facing part of a body. */
+export const PLAYERS_HEADING = "Players know";
+
+const PLAYERS_HEADING_LINE =
+  /^#{1,6}[ \t]+(players know|what players know|what the players know|player-facing|player facing)[ \t]*#*[ \t]*[:.]?[ \t]*$/im;
+
+/**
+ * Mirrors the Rust rule in `table/share.rs`: when a body has a "Players
+ * know" heading, players receive only that section.
+ */
+export function hasPlayersSection(body: string): boolean {
+  return PLAYERS_HEADING_LINE.test(body);
+}
+
 /** The GM's own campaign, seen as a player would see it. */
 export function localPreviewSource(
   sharedElements: ElementSummary[],

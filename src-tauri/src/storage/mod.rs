@@ -31,6 +31,7 @@ use tokio::sync::watch;
 
 pub use assets::{ImportedImage, MAX_IMAGE_BYTES};
 pub use error::StorageError;
+pub use links::extract_links;
 pub use model::{CampaignMeta, Element, ElementSummary, Extra, SaveElementInput};
 pub use search::SearchHit;
 
