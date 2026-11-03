@@ -3,6 +3,7 @@ import {
   BookOpen,
   CalendarDays,
   ChevronLeft,
+  Eye,
   Waypoints,
   Plus,
   Search,
@@ -17,6 +18,9 @@ import { ErrorBanner } from "@/components/ErrorBanner";
 import { AgentPane } from "@/features/agent/AgentPane";
 import { GraphPanel } from "@/features/graph/GraphPanel";
 import { JournalList } from "@/features/journal/JournalList";
+import { PlayerScreen } from "@/features/player/PlayerScreen";
+import { isShared, localPreviewSource } from "@/features/player/player-model";
+import { calendarOf } from "@/features/timeline/calendar-model";
 import { CalendarSettings } from "@/features/timeline/CalendarSettings";
 import { TimelineList } from "@/features/timeline/TimelineList";
 import { displayName, sortForList } from "@/features/sessions/session-model";
@@ -54,6 +58,13 @@ export function BibleScreen() {
     "elements" | "timeline" | "graph" | "journal"
   >("elements");
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [playerPreview, setPlayerPreview] = useState(false);
+  const previewSource = useMemo(() => localPreviewSource(elements), [elements]);
+  const calendar = useMemo(() => calendarOf(campaign), [campaign]);
+  const sharedCount = useMemo(
+    () => elements.filter(isShared).length,
+    [elements],
+  );
   const datedCount = useMemo(
     () =>
       elements.filter(
@@ -132,6 +143,23 @@ export function BibleScreen() {
 
   if (!campaign) return null;
 
+  if (playerPreview) {
+    return (
+      <div className="flex h-full flex-col">
+        <ErrorBanner />
+        <PlayerScreen
+          source={previewSource}
+          calendar={calendar}
+          title={campaign.name}
+          subtitle={campaign.system ?? undefined}
+          banner="Previewing as a player: only shared elements, and only what is shared on them."
+          exitLabel="Back to GM view"
+          onExit={() => setPlayerPreview(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <ErrorBanner />
@@ -152,20 +180,31 @@ export function BibleScreen() {
               >
                 <ChevronLeft size={14} /> Campaigns
               </button>
-              <button
-                type="button"
-                onClick={toggleAgent}
-                title={agentOpen ? "Hide assistant" : "Show assistant"}
-                aria-label={agentOpen ? "Hide assistant" : "Show assistant"}
-                aria-pressed={agentOpen}
-                className={`rounded-md p-1 transition-colors ${
-                  agentOpen
-                    ? "bg-ember-500/25 text-ember-200"
-                    : "text-ink-400 hover:bg-ink-800 hover:text-ink-200"
-                }`}
-              >
-                <Sparkles size={14} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPlayerPreview(true)}
+                  title={`Preview as a player (${sharedCount} shared)`}
+                  aria-label="Preview as a player"
+                  className="rounded-md p-1 text-ink-400 transition-colors hover:bg-ink-800 hover:text-ink-200"
+                >
+                  <Eye size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleAgent}
+                  title={agentOpen ? "Hide assistant" : "Show assistant"}
+                  aria-label={agentOpen ? "Hide assistant" : "Show assistant"}
+                  aria-pressed={agentOpen}
+                  className={`rounded-md p-1 transition-colors ${
+                    agentOpen
+                      ? "bg-ember-500/25 text-ember-200"
+                      : "text-ink-400 hover:bg-ink-800 hover:text-ink-200"
+                  }`}
+                >
+                  <Sparkles size={14} />
+                </button>
+              </div>
             </div>
             <h1 className="mt-1 truncate font-serif text-lg font-semibold">
               {campaign.name}
@@ -370,8 +409,16 @@ export function BibleScreen() {
                           : "hover:bg-ink-800"
                       }`}
                     >
-                      <div className="truncate text-sm text-ink-100">
-                        {displayName(e)}
+                      <div className="flex items-center gap-1.5 text-sm text-ink-100">
+                        <span className="truncate">{displayName(e)}</span>
+                        {isShared(e) && (
+                          <span
+                            title="Shared with players"
+                            className="shrink-0 text-ember-400/80"
+                          >
+                            <Eye size={12} />
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-ink-500">
                         {kindById(e.type).label}

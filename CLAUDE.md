@@ -28,7 +28,7 @@ A local-first desktop campaign manager for tabletop game masters (world bible, m
 
 ## Conventional Commits
 
-Commit subjects follow `type(scope): subject` and are enforced by commitlint + husky. Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. Scope is optional and kebab-case (`bible`, `storage`, `agent`, `ui`, `build`). Keep subjects imperative, lower-case, no trailing full stop. CI lints every PR's commits.
+Commit subjects follow `type: subject` and are enforced by commitlint + husky. Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. Scopes are allowed by commitlint but not used here: write `feat: subject`, not `feat(map): subject`. Keep subjects imperative, lower-case, no trailing full stop. CI lints every PR's commits.
 
 ## Git
 

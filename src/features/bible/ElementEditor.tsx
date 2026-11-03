@@ -1,7 +1,7 @@
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { ArrowRight, ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowRight, ArrowLeft, Eye, EyeOff, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/Button";
@@ -49,6 +49,7 @@ export function ElementEditor({ element, panel }: Props) {
   const [status, setStatus] = useState<"saved" | "dirty" | "saving">("saved");
   const [mention, setMention] = useState<MentionState | null>(null);
   const [linkMode, setLinkMode] = useState(false);
+  const shared = element.shared === true;
 
   // A plain mutable holder, not a React ref: it is handed to the Tiptap
   // extension at construction time, which the hooks lint forbids for refs.
@@ -189,6 +190,24 @@ export function ElementEditor({ element, panel }: Props) {
           />
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void saveElement(element.id, { shared: !shared })}
+            aria-pressed={shared}
+            title={
+              shared
+                ? "Players can see this. Click to make it private."
+                : "Private to you. Click to share it with players."
+            }
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
+              shared
+                ? "bg-ember-500/25 text-ember-200"
+                : "text-ink-400 hover:bg-ink-800 hover:text-ink-200"
+            }`}
+          >
+            {shared ? <Eye size={13} /> : <EyeOff size={13} />}
+            {shared ? "Shared" : "Private"}
+          </button>
           <span className="text-[11px] text-ink-500">
             {status === "saved"
               ? "Saved"

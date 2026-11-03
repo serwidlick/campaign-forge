@@ -4,6 +4,8 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   CornerLeftUp,
+  Eye,
+  EyeOff,
   Footprints,
   Hand,
   ImagePlus,
@@ -278,6 +280,7 @@ export function MapPanel({ element }: { element: Element }) {
             y: p.y,
             label: "",
             element: null,
+            shared: false,
           };
           persist({ pins: [...dataRef.current.pins, pin] });
           setSelectedPinId(pin.id);
@@ -697,6 +700,7 @@ export function MapPanel({ element }: { element: Element }) {
       name: name.trim() || `Route ${data.routes.length + 1}`,
       color: routeColor(data.routes.length),
       points: routeDraft,
+      shared: false,
     };
     persist({ routes: [...data.routes, route] });
     setRouteDraft([]);
@@ -725,6 +729,7 @@ export function MapPanel({ element }: { element: Element }) {
       color: territoryColor(data.territories.length),
       element: elementId,
       points: territoryDraft,
+      shared: false,
     };
     persist({ territories: [...data.territories, territory] });
     setTerritoryDraft([]);
@@ -1484,6 +1489,9 @@ function RoutesList({
                 <span className="truncate text-sm text-ink-100">
                   {route.name}
                 </span>
+                {route.shared && (
+                  <Eye size={12} className="shrink-0 text-ember-400/80" />
+                )}
                 <span className="shrink-0 text-ink-300">
                   {distance !== null && scale
                     ? formatDistance(distance, scale.unit)
@@ -1607,6 +1615,11 @@ function RouteEditor({
           </div>
         </div>
       )}
+      <SharedCheck
+        checked={route.shared}
+        onChange={(shared) => onChange({ shared })}
+        what="route"
+      />
       <span className="flex-1" />
       <Button size="sm" variant="ghost" onClick={onMeasure}>
         <Ruler size={14} /> Measure along
@@ -1668,6 +1681,11 @@ function PinEditor({
           className="mt-1 block w-56"
         />
       </label>
+      <SharedCheck
+        checked={pin.shared}
+        onChange={(shared) => onChange({ shared })}
+        what="pin"
+      />
       {linked ? (
         <Button
           size="sm"
@@ -1755,6 +1773,9 @@ function TerritoriesList({
                 <span className="truncate text-sm text-ink-100">
                   {territoryName(t, elements)}
                 </span>
+                {t.shared && (
+                  <Eye size={12} className="shrink-0 text-ember-400/80" />
+                )}
                 {linked && (
                   <span className="truncate text-ink-500">
                     {kindById(linked.type).label} · {linked.name}
@@ -1830,6 +1851,11 @@ function TerritoryEditor({
           className="mt-1 block w-56"
         />
       </label>
+      <SharedCheck
+        checked={territory.shared}
+        onChange={(shared) => onChange({ shared })}
+        what="territory"
+      />
       <div className="text-[11px] text-ink-400">
         Colour
         <div className="mt-1.5 flex gap-1">
@@ -1993,5 +2019,34 @@ function MapNesting({
         </span>
       )}
     </div>
+  );
+}
+
+/** Whether players see this item when the map is shared with them. */
+function SharedCheck({
+  checked,
+  onChange,
+  what,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  what: string;
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer items-center gap-1.5 self-center pb-1 text-[11px] ${
+        checked ? "text-ember-300" : "text-ink-400"
+      }`}
+      title={`Players see this ${what} when the map is shared with them`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="accent-ember-500"
+      />
+      {checked ? <Eye size={12} /> : <EyeOff size={12} />}
+      Shared
+    </label>
   );
 }

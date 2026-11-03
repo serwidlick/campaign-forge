@@ -15,13 +15,14 @@ Early scaffold. What works today:
 - Arcs and sessions: a session has a number, date, status and an ordered list of beats, with one beat marked as the main encounter and one as the cliffhanger; an arc lists its sessions in play order
 - Maps: import an image (file picker, or drag and drop from Explorer or a browser), pan and zoom or lock the view, choose how the image is framed, drop pins linked to elements, draw named routes, calibrate a scale once, then measure as the crow flies or along a route for distance and travel time at each of the campaign's travel paces (on foot, horseback and by wagon by default; edit, add or remove paces and the hours travelled per day from any map's Paces button); outline territories (a faction's reach, a kingdom, a forest) with area in map units; nest maps by linking a pin or territory to another map, or create a sub-map straight from a pin
 - Assistant: an opt-in chat pane that answers questions about the campaign by searching, listing and reading your elements, and links everything it mentions. Uses your own Anthropic API key, stored in the OS credential manager
+- Player view: mark any element as shared, and on maps choose which pins, routes and territories players may see; a Preview as player button shows the campaign exactly as they will get it, with links to private elements turned back into plain text
 - Split screen: Ctrl+click any element reference (list row, link, backlink, pin, session, assistant chip) to open it in a column beside the current one; columns swap, close, and are remembered per campaign
 - Timeline: a campaign calendar you define (months of any length, weekday names, eras, the in-world today), events with a date and optional end date, sessions with an in-world date, and a Timeline view listing everything in order with a today marker
 - Overview wheel and graph: the Everything view is a wheel of six spokes (Play, People, Factions, Places, Things, Story) with every element one click away, and the Graph view is a force-directed map of how elements connect through links, arcs and map pins
 - Journal: dated entries that belong to the campaign, an arc or a session, listed newest first in a Journal view and under each arc and session, with an optional in-world date that places them on the timeline
 - Recent campaigns list
 
-Planned: leap-year rules.
+Planned: play over the local network. The GM hosts a table, players join from their laptops and see what is shared, live.
 
 ## On-disk format
 

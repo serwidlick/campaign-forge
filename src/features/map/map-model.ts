@@ -7,11 +7,12 @@
  *   height: 3072
  *   fit:    contain        (how the image is framed when opened)
  *   scale:  { pixels: 512, distance: 100, unit: miles }
- *   pins:   [{ id, x, y, label, element }]      (x, y in image pixels, top-left origin)
- *   routes: [{ id, name, color, points: [{ x, y }] }]
- *   territories: [{ id, name, color, element, points: [{ x, y }] }]
+ *   pins:   [{ id, x, y, label, element, shared }]   (x, y in image pixels, top-left origin)
+ *   routes: [{ id, name, color, points: [{ x, y }], shared }]
+ *   territories: [{ id, name, color, element, points: [{ x, y }], shared }]
  *
  * A pin or territory linked to another map nests that map inside this one.
+ * `shared` means players may see that item when the map itself is shared.
  */
 import type { ElementSummary } from "@/lib/types";
 
@@ -25,6 +26,8 @@ export interface MapPin extends Point {
   label: string;
   /** Linked element id, if any. */
   element: string | null;
+  /** Visible to players when the map is shared. */
+  shared: boolean;
 }
 
 export interface MapRoute {
@@ -32,6 +35,8 @@ export interface MapRoute {
   name: string;
   color: string;
   points: Point[];
+  /** Visible to players when the map is shared. */
+  shared: boolean;
 }
 
 /** A named area: a faction's reach, a kingdom, a forest. Closed polygon. */
@@ -42,6 +47,8 @@ export interface MapTerritory {
   /** Linked element id (usually a faction or location), if any. */
   element: string | null;
   points: Point[];
+  /** Visible to players when the map is shared. */
+  shared: boolean;
 }
 
 export interface MapScale {
@@ -168,6 +175,7 @@ export function readMap(e: Record<string, unknown>): MapData {
             id: str(o.id) ?? newId(),
             label: typeof o.label === "string" ? o.label : "",
             element: str(o.element),
+            shared: o.shared === true,
           },
         ];
       })
@@ -186,6 +194,7 @@ export function readMap(e: Record<string, unknown>): MapData {
             name: str(o.name) ?? `Route ${i + 1}`,
             color: str(o.color) ?? routeColor(i),
             points,
+            shared: o.shared === true,
           },
         ];
       })
@@ -205,6 +214,7 @@ export function readMap(e: Record<string, unknown>): MapData {
             color: str(o.color) ?? territoryColor(i),
             element: str(o.element),
             points,
+            shared: o.shared === true,
           },
         ];
       })
