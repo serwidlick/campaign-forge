@@ -29,6 +29,8 @@ import { useCampaignStore } from "@/stores/campaign-store";
 import {
   FIT_MODES,
   PIN_LINK_KIND_ORDER,
+  DEFAULT_PIN_COLOR,
+  PIN_COLORS,
   ROUTE_COLORS,
   TERRITORY_COLORS,
   TERRITORY_LINK_KIND_ORDER,
@@ -68,6 +70,7 @@ import {
   usePortraitUrls,
 } from "@/features/images/portrait-model";
 
+import { PIN_ICONS, pinMarker } from "./pin-icons";
 import { TravelSettingsPanel } from "./TravelSettings";
 import {
   formatTravelTime,
@@ -304,6 +307,8 @@ export function MapPanel({ element }: { element: Element }) {
             label: "",
             element: null,
             shared: false,
+            icon: "dot",
+            color: DEFAULT_PIN_COLOR,
           };
           persist({ pins: [...dataRef.current.pins, pin] });
           setSelectedPinId(pin.id);
@@ -463,16 +468,15 @@ export function MapPanel({ element }: { element: Element }) {
       const linksMap = elements.some(
         (e) => e.id === pin.element && e.type === "map",
       );
-      const classes = [
-        "cf-pin",
-        pin.id === selectedPinId ? "is-selected" : "",
-        linksMap ? "is-map" : "",
-      ].join(" ");
+      const marker_ = pinMarker(pin, {
+        selected: pin.id === selectedPinId,
+        linksMap,
+      });
       const icon = L.divIcon({
         className: "",
-        html: `<div class="${classes}"></div>`,
-        iconSize: [14, 14],
-        iconAnchor: [7, 7],
+        html: marker_.html,
+        iconSize: [marker_.size, marker_.size],
+        iconAnchor: [marker_.size / 2, marker_.size / 2],
       });
       const marker = L.marker(toLatLng(pin), { icon, draggable: true });
       const linkedPortrait = pin.element
@@ -486,7 +490,7 @@ export function MapPanel({ element }: { element: Element }) {
         {
           permanent: true,
           direction: "top",
-          offset: [0, -8],
+          offset: [0, -(marker_.size / 2 + 2)],
           className: "cf-pin-label",
         },
       );
@@ -1714,6 +1718,53 @@ function PinEditor({
           className="mt-1 block w-56"
         />
       </label>
+      <div className="text-[11px] text-ink-400">
+        Colour
+        <div className="mt-1.5 flex gap-1">
+          {PIN_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => onChange({ color: c })}
+              aria-label={`Use colour ${c}`}
+              className={`h-5 w-5 rounded-full border-2 ${
+                c === pin.color ? "border-ink-100" : "border-transparent"
+              }`}
+              style={{ background: c }}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="text-[11px] text-ink-400">
+        Icon
+        <div className="mt-1.5 flex max-w-72 flex-wrap gap-1">
+          {PIN_ICONS.map((i) => (
+            <button
+              key={i.id}
+              type="button"
+              onClick={() => onChange({ icon: i.id })}
+              title={i.label}
+              aria-label={i.label}
+              aria-pressed={pin.icon === i.id}
+              className={`flex h-6 w-6 items-center justify-center rounded-md border ${
+                pin.icon === i.id
+                  ? "border-ink-100 bg-ink-700"
+                  : "border-ink-700 bg-ink-900 hover:bg-ink-800"
+              }`}
+              style={{ color: pin.color }}
+            >
+              {i.Icon ? (
+                <i.Icon size={13} />
+              ) : (
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ background: pin.color }}
+                />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
       <SharedCheck
         checked={pin.shared}
         onChange={(shared) => onChange({ shared })}

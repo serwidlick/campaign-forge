@@ -7,7 +7,7 @@
  *   height: 3072
  *   fit:    contain        (how the image is framed when opened)
  *   scale:  { pixels: 512, distance: 100, unit: miles }
- *   pins:   [{ id, x, y, label, element, shared }]   (x, y in image pixels, top-left origin)
+ *   pins:   [{ id, x, y, label, element, shared, icon, color }]   (x, y in image pixels, top-left origin)
  *   routes: [{ id, name, color, points: [{ x, y }], shared }]
  *   territories: [{ id, name, color, element, points: [{ x, y }], shared }]
  *
@@ -28,6 +28,10 @@ export interface MapPin extends Point {
   element: string | null;
   /** Visible to players when the map is shared. */
   shared: boolean;
+  /** One of the ids in `pin-icons.tsx`; "dot" is the plain marker. */
+  icon: string;
+  /** CSS colour of the marker. */
+  color: string;
 }
 
 export interface MapRoute {
@@ -80,6 +84,21 @@ export interface MapData {
   routes: MapRoute[];
   territories: MapTerritory[];
 }
+
+export const DEFAULT_PIN_COLOR = "#e69a57";
+
+/** Marker colours offered in the pin editor. */
+export const PIN_COLORS = [
+  "#e69a57",
+  "#ef6b6b",
+  "#5aa9e6",
+  "#6fcf8a",
+  "#c084fc",
+  "#f2c14e",
+  "#2dd4bf",
+  "#f472b6",
+  "#cfd4df",
+];
 
 export const ROUTE_COLORS = [
   "#e69a57",
@@ -176,6 +195,8 @@ export function readMap(e: Record<string, unknown>): MapData {
             label: typeof o.label === "string" ? o.label : "",
             element: str(o.element),
             shared: o.shared === true,
+            icon: str(o.icon) ?? "dot",
+            color: str(o.color) ?? DEFAULT_PIN_COLOR,
           },
         ];
       })

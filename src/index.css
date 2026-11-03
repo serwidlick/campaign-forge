@@ -174,25 +174,38 @@ body {
 }
 
 .cf-pin {
+  --pin: var(--color-ember-500);
+  box-sizing: border-box;
   width: 14px;
   height: 14px;
   border-radius: 9999px;
-  background: var(--color-ember-500);
+  background: var(--pin);
   border: 2px solid var(--color-ink-950);
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--color-ember-500) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pin) 45%, transparent);
+}
+
+/* A pin with an icon: a larger disc with the glyph cut in dark. */
+.cf-pin.cf-pin-icon {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+}
+
+.cf-pin.cf-pin-icon svg {
+  width: 14px;
+  height: 14px;
+  color: var(--color-ink-950);
 }
 
 /* A pin that opens another map. */
 .cf-pin.is-map {
-  border-radius: 3px;
-  background: #7dd3fc;
-  box-shadow: 0 0 0 2px color-mix(in srgb, #7dd3fc 45%, transparent);
+  border-radius: 5px;
 }
 
 .cf-pin.is-selected {
-  background: var(--color-ink-100);
-  box-shadow: 0 0 0 3px var(--color-ember-500);
+  box-shadow: 0 0 0 3px var(--color-ink-100);
 }
 
 .cf-pin-label.leaflet-tooltip {

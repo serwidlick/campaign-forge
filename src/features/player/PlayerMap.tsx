@@ -13,6 +13,7 @@ import {
   portraitOf,
   usePortraitUrls,
 } from "@/features/images/portrait-model";
+import { pinMarker } from "@/features/map/pin-icons";
 import type { ElementSummary } from "@/lib/types";
 
 const MAP_HEIGHT = 480;
@@ -149,11 +150,15 @@ export function PlayerMap({
         .addTo(layer);
     }
     for (const pin of data.pins) {
+      const linksMap = elements.some(
+        (e) => e.id === pin.element && e.type === "map",
+      );
+      const marker_ = pinMarker(pin, { linksMap });
       const icon = L.divIcon({
         className: "",
-        html: `<div class="cf-pin"></div>`,
-        iconSize: [14, 14],
-        iconAnchor: [7, 7],
+        html: marker_.html,
+        iconSize: [marker_.size, marker_.size],
+        iconAnchor: [marker_.size / 2, marker_.size / 2],
       });
       const marker = L.marker(toLatLng(pin), { icon, interactive: true });
       const linkedPortrait = pin.element
@@ -167,7 +172,7 @@ export function PlayerMap({
         {
           permanent: true,
           direction: "top",
-          offset: [0, -8],
+          offset: [0, -(marker_.size / 2 + 2)],
           className: "cf-pin-label",
         },
       );
