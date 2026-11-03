@@ -66,8 +66,8 @@ pub fn shared_element(state: &AppState, id: &str) -> Result<Option<Element>, Sto
     Ok(Some(sanitize_element(element, &visible)))
 }
 
-/// Relative asset paths players may fetch: the images of shared maps and
-/// the portraits of shared elements.
+/// Relative asset paths players may fetch: the images of shared maps, the
+/// portraits of shared elements and the PDFs of shared documents.
 pub fn shared_asset_paths(state: &AppState) -> Result<HashSet<String>, StorageError> {
     let mut out = HashSet::new();
     for e in shared_summaries(state)? {
@@ -78,6 +78,11 @@ pub fn shared_asset_paths(state: &AppState) -> Result<HashSet<String>, StorageEr
         }
         if let Some(portrait) = e.meta.extra.get("portrait").and_then(Value::as_str) {
             out.insert(portrait.to_owned());
+        }
+        if e.meta.kind == "document"
+            && let Some(file) = e.meta.extra.get("file").and_then(Value::as_str)
+        {
+            out.insert(file.to_owned());
         }
     }
     Ok(out)

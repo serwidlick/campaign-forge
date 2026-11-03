@@ -8,10 +8,13 @@ const urls = new Map<string, Promise<string>>();
 export function cachedAssetUrl(
   key: string,
   load: () => Promise<ArrayBuffer>,
+  type?: string,
 ): Promise<string> {
   let pending = urls.get(key);
   if (!pending) {
-    pending = load().then((buf) => URL.createObjectURL(new Blob([buf])));
+    pending = load().then((buf) =>
+      URL.createObjectURL(new Blob([buf], type ? { type } : undefined)),
+    );
     pending.catch(() => urls.delete(key));
     urls.set(key, pending);
   }

@@ -1,4 +1,5 @@
-//! Binary assets that belong to a campaign (map images for now).
+//! Binary assets that belong to a campaign: map images, element portraits
+//! and PDF documents.
 //!
 //! Assets live under `<campaign root>/assets/<group>/<slug>.<ext>` and are
 //! referenced from element frontmatter by that relative path. They are served
@@ -18,6 +19,57 @@ pub const ASSETS_DIR: &str = "assets";
 
 /// Generous ceiling for a single map image.
 pub const MAX_IMAGE_BYTES: usize = 100 * 1024 * 1024;
+
+/// Ceiling for a document such as a scanned rulebook.
+pub const MAX_DOCUMENT_BYTES: u64 = 300 * 1024 * 1024;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedDocument {
+    /// Path relative to the campaign root, forward slashes.
+    pub path: String,
+    pub bytes: u64,
+    /// The source file's name without extension, for display.
+    pub name: String,
+}
+
+/// Copies a PDF from anywhere on disk into `assets/<group>/`, keeping a slug
+/// of its file name. Only real PDFs are accepted; nothing is overwritten.
+pub fn import_document(
+    root: &Path,
+    group: &str,
+    source: &Path,
+) -> Result<ImportedDocument, StorageError> {
+    let meta = fs::metadata(source).map_err(|e| StorageError::io(source, e))?;
+    if meta.len() > MAX_DOCUMENT_BYTES {
+        return Err(StorageError::InvalidInput(format!(
+            "document is too large ({} MB; limit is {} MB)",
+            meta.len() / (1024 * 1024),
+            MAX_DOCUMENT_BYTES / (1024 * 1024)
+        )));
+    }
+    let bytes = fs::read(source).map_err(|e| StorageError::io(source, e))?;
+    if !bytes.starts_with(b"%PDF-") {
+        return Err(StorageError::InvalidInput(
+            "that does not look like a PDF file".into(),
+        ));
+    }
+    let name = source
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("document")
+        .to_owned();
+    let dir = root.join(ASSETS_DIR).join(slugify(group));
+    fs::create_dir_all(&dir).map_err(|e| StorageError::io(&dir, e))?;
+    let target = unique_path(&dir, &slugify(&name), "pdf");
+    fs::write(&target, &bytes).map_err(|e| StorageError::io(&target, e))?;
+    Ok(ImportedDocument {
+        path: relative(root, &target),
+        bytes: bytes.len() as u64,
+        name,
+    })
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -29,7 +29,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use tokio::sync::watch;
 
-pub use assets::{ImportedImage, MAX_IMAGE_BYTES};
+pub use assets::{ImportedDocument, ImportedImage, MAX_IMAGE_BYTES};
 pub use error::StorageError;
 pub use links::extract_links;
 pub use model::{CampaignMeta, Element, ElementSummary, Extra, SaveElementInput};
@@ -243,6 +243,17 @@ impl AppState {
         let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
         let stem = map_stem(&open.index, element_id);
         let imported = assets::import_image_bytes(&open.root, "images", stem, bytes)?;
+        drop(guard);
+        self.bump();
+        Ok(imported)
+    }
+
+    /// Copies a PDF into `assets/docs/`. The caller stores the returned path
+    /// in a Document element's `file` field.
+    pub fn import_document(&self, source: &str) -> Result<ImportedDocument, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        let imported = assets::import_document(&open.root, "docs", std::path::Path::new(source))?;
         drop(guard);
         self.bump();
         Ok(imported)

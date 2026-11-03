@@ -35,6 +35,9 @@ import {
 import { Portrait } from "@/features/images/Portrait";
 import { portraitOf } from "@/features/images/portrait-model";
 
+import { documentFileOf } from "@/features/documents/document-model";
+import { PdfViewer } from "@/features/documents/PdfViewer";
+
 import { PlayerMap } from "./PlayerMap";
 import type { PlayerSource } from "./player-model";
 
@@ -336,6 +339,7 @@ function PlayerElementView({
   );
   const details = detailsFor(element, byId, calendar);
   const map = element.type === "map" ? readMap(element) : null;
+  const pdf = element.type === "document" ? documentFileOf(element) : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -387,6 +391,15 @@ function PlayerElementView({
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto max-w-3xl space-y-6">
+          {pdf && (
+            <PdfViewer
+              path={pdf}
+              scope="player"
+              load={source.readAsset}
+              title={element.name}
+            />
+          )}
+
           {map && (
             <>
               <PlayerMap

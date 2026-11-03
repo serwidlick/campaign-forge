@@ -55,7 +55,7 @@ export const WHEEL: WheelNode[] = [
   {
     id: "things",
     label: "Things",
-    kinds: ["item"],
+    kinds: ["item", "document"],
     icon: Gem,
     color: "#c4b5fd",
   },

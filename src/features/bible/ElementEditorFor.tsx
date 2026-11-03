@@ -1,3 +1,4 @@
+import { DocumentPanel } from "@/features/documents/DocumentPanel";
 import { MapPanel } from "@/features/map/MapPanel";
 import { ArcPanel } from "@/features/sessions/ArcPanel";
 import { SessionPanel } from "@/features/sessions/SessionPanel";
@@ -39,6 +40,13 @@ export function ElementEditorFor({ element }: { element: Element }) {
         <ElementEditor
           element={element}
           panel={<EventPanel element={element} />}
+        />
+      );
+    case "document":
+      return (
+        <ElementEditor
+          element={element}
+          panel={<DocumentPanel element={element} />}
         />
       );
     case "map":

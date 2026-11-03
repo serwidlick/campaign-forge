@@ -5,8 +5,8 @@ use base64::prelude::*;
 use tauri::State;
 
 use crate::storage::{
-    AppState, CampaignMeta, Element, ElementSummary, Extra, ImportedImage, MAX_IMAGE_BYTES,
-    SaveElementInput, SearchHit, StorageError,
+    AppState, CampaignMeta, Element, ElementSummary, Extra, ImportedDocument, ImportedImage,
+    MAX_IMAGE_BYTES, SaveElementInput, SearchHit, StorageError,
 };
 use crate::table::share;
 
@@ -124,6 +124,14 @@ pub fn import_element_image_bytes(
     state
         .import_element_image_bytes(&element_id, &bytes)
         .map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn import_document(
+    state: State<'_, AppState>,
+    source: String,
+) -> CommandResult<ImportedDocument> {
+    state.import_document(&source).map_err(to_command_error)
 }
 
 #[tauri::command]

@@ -34,6 +34,7 @@ pub fn run() {
             commands::read_asset,
             commands::import_element_image,
             commands::import_element_image_bytes,
+            commands::import_document,
             commands::search_elements,
             commands::list_shared_elements,
             commands::read_shared_element,

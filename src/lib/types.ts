@@ -92,6 +92,14 @@ export interface SaveElementInput {
   extra?: Record<string, unknown>;
 }
 
+export interface ImportedDocument {
+  /** Campaign-relative path under assets/docs. */
+  path: string;
+  bytes: number;
+  /** Source file name without extension. */
+  name: string;
+}
+
 export interface ImportedImage {
   /** Path relative to the campaign root. */
   path: string;
@@ -167,6 +175,7 @@ export const ELEMENT_KINDS: ElementKind[] = [
   { id: "location", label: "Location", plural: "Locations", family: "places" },
   { id: "map", label: "Map", plural: "Maps", family: "places" },
   { id: "item", label: "Item", plural: "Items", family: "things" },
+  { id: "document", label: "Document", plural: "Documents", family: "things" },
   { id: "quest", label: "Quest", plural: "Quests", family: "story" },
   { id: "event", label: "Event", plural: "Events", family: "story" },
   { id: "lore", label: "Lore", plural: "Lore", family: "story" },

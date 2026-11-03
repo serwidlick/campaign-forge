@@ -10,6 +10,7 @@ import type {
   ElementSummary,
   FoundTable,
   HostStatus,
+  ImportedDocument,
   ImportedImage,
   SaveElementInput,
   SearchHit,
@@ -90,6 +91,11 @@ export const storage = {
       elementId,
       dataBase64,
     });
+  },
+
+  /** Copies a PDF into assets/docs/. */
+  importDocument(source: string) {
+    return invoke<ImportedDocument>("import_document", { source });
   },
 
   /** Imports image bytes (base64) for a map element. */
