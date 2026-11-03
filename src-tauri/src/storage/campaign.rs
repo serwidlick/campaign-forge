@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use super::error::StorageError;
-use super::model::{CampaignMeta, new_id, now_rfc3339};
+use super::model::{CampaignMeta, Extra, new_id, now_rfc3339};
 
 pub const CAMPAIGN_FILE: &str = "campaign.json";
 pub const ELEMENTS_DIR: &str = "elements";
@@ -27,7 +27,45 @@ pub fn create(root: &Path, name: &str, system: Option<&str>) -> Result<CampaignM
         created_at: now.clone(),
         updated_at: now,
         path: root.to_string_lossy().into_owned(),
+        extra: Extra::new(),
     };
+    write_meta(root, &meta)?;
+    Ok(meta)
+}
+
+/// Keys owned by `CampaignMeta` itself; stripped from `extra` so a caller can
+/// never produce duplicate JSON keys.
+const RESERVED_KEYS: [&str; 6] = ["id", "name", "system", "createdAt", "updatedAt", "path"];
+
+/// Applies a change to the campaign's name, system and/or settings and
+/// persists it. `extra`, when given, replaces the settings wholesale.
+pub fn update(
+    root: &Path,
+    current: &CampaignMeta,
+    name: Option<&str>,
+    system: Option<Option<&str>>,
+    extra: Option<Extra>,
+) -> Result<CampaignMeta, StorageError> {
+    let mut meta = current.clone();
+    if let Some(name) = name {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(StorageError::InvalidInput("campaign name is empty".into()));
+        }
+        meta.name = name.to_owned();
+    }
+    if let Some(system) = system {
+        meta.system = system
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty());
+    }
+    if let Some(mut extra) = extra {
+        for key in RESERVED_KEYS {
+            extra.remove(key);
+        }
+        meta.extra = extra;
+    }
+    meta.updated_at = now_rfc3339();
     write_meta(root, &meta)?;
     Ok(meta)
 }

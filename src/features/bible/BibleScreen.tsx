@@ -1,5 +1,6 @@
 import {
   ArrowLeftToLine,
+  CalendarDays,
   ChevronLeft,
   Plus,
   Search,
@@ -12,6 +13,8 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { Button } from "@/components/Button";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { AgentPane } from "@/features/agent/AgentPane";
+import { CalendarSettings } from "@/features/timeline/CalendarSettings";
+import { TimelineList } from "@/features/timeline/TimelineList";
 import { displayName, sortForList } from "@/features/sessions/session-model";
 import { ELEMENT_FAMILIES, ELEMENT_KINDS, kindById } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
@@ -41,6 +44,25 @@ export function BibleScreen() {
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState<string | null>(null);
   const [newKind, setNewKind] = useState<string>("character");
+  const [view, setView] = useState<"elements" | "timeline">("elements");
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const datedCount = useMemo(
+    () =>
+      elements.filter(
+        (e) =>
+          (e.type === "event" && e.when !== undefined && e.when !== null) ||
+          (e.type === "session" &&
+            e.worldDate !== undefined &&
+            e.worldDate !== null),
+      ).length,
+    [elements],
+  );
+
+  function showKind(kind: string | null) {
+    setView("elements");
+    setKindFilter(kind);
+  }
+
   const [agentOpen, setAgentOpen] = useState<boolean>(() => {
     try {
       return localStorage.getItem("cf.agentOpen") === "1";
@@ -136,11 +158,26 @@ export function BibleScreen() {
             )}
           </header>
           <nav className="flex-1 overflow-y-auto px-2 py-2">
+            <button
+              type="button"
+              onClick={() => setView("timeline")}
+              className={`mb-2 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
+                view === "timeline"
+                  ? "bg-ink-700/60 text-ink-100"
+                  : "text-ink-300 hover:bg-ink-800"
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <CalendarDays size={14} className="text-ember-400" />
+                Timeline
+              </span>
+              <span className="text-xs text-ink-500">{datedCount}</span>
+            </button>
             <KindRow
               label="Everything"
               count={elements.length}
-              active={kindFilter === null}
-              onClick={() => setKindFilter(null)}
+              active={view === "elements" && kindFilter === null}
+              onClick={() => showKind(null)}
             />
             {ELEMENT_FAMILIES.map((family) => (
               <div key={family.id} className="mt-3">
@@ -153,8 +190,8 @@ export function BibleScreen() {
                       key={k.id}
                       label={k.plural}
                       count={counts.get(k.id) ?? 0}
-                      active={kindFilter === k.id}
-                      onClick={() => setKindFilter(k.id)}
+                      active={view === "elements" && kindFilter === k.id}
+                      onClick={() => showKind(k.id)}
                     />
                   ),
                 )}
@@ -172,112 +209,130 @@ export function BibleScreen() {
           maxSize={520}
           className="flex flex-col bg-ink-850"
         >
-          <div className="flex items-center gap-2 border-b border-ink-800 px-3 py-2">
-            <div className="flex flex-1 items-center gap-2 rounded-md bg-ink-900 px-2 py-1.5">
-              <Search size={14} className="text-ink-500" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={
-                  kindFilter
-                    ? `Search ${kindById(kindFilter).plural.toLowerCase()}…`
-                    : "Search…"
-                }
-                className="w-full bg-transparent text-sm text-ink-100 outline-none placeholder:text-ink-600"
-              />
-            </div>
-            <Button size="sm" onClick={openNewForm} aria-label="New element">
-              <Plus size={14} /> New
-            </Button>
-          </div>
-
-          {newName !== null && (
-            <form
-              onSubmit={handleCreate}
-              className="border-b border-ink-800 px-3 py-2"
-            >
-              {kindFilter ? (
-                <p className="mb-1 text-[11px] text-ink-400">
-                  New {kindById(kindFilter).label.toLowerCase()}
-                </p>
-              ) : (
-                <label className="mb-2 block text-[11px] text-ink-400">
-                  What are you creating?
-                  <select
-                    autoFocus
-                    value={newKind}
-                    onChange={(e) => setNewKind(e.target.value)}
-                    onKeyDown={(e) => e.key === "Escape" && setNewName(null)}
-                    className="mt-1 w-full rounded-md border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm text-ink-100 outline-none focus:border-ember-500"
-                  >
-                    {ELEMENT_FAMILIES.map((family) => (
-                      <optgroup key={family.id} label={family.label}>
-                        {ELEMENT_KINDS.filter(
-                          (k) => k.family === family.id,
-                        ).map((k) => (
-                          <option key={k.id} value={k.id}>
-                            {k.label}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <input
-                autoFocus={kindFilter !== null}
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => e.key === "Escape" && setNewName(null)}
-                placeholder="Name"
-                className="w-full rounded-md border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm outline-none focus:border-ember-500"
-              />
-              <div className="mt-2 flex gap-2">
-                <Button size="sm" type="submit" disabled={!newName.trim()}>
-                  Create
-                </Button>
+          {view === "timeline" ? (
+            <TimelineList
+              selectedId={selectedId}
+              calendarOpen={calendarOpen}
+              onOpenCalendar={() => setCalendarOpen((v) => !v)}
+            />
+          ) : (
+            <>
+              <div className="flex items-center gap-2 border-b border-ink-800 px-3 py-2">
+                <div className="flex flex-1 items-center gap-2 rounded-md bg-ink-900 px-2 py-1.5">
+                  <Search size={14} className="text-ink-500" />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={
+                      kindFilter
+                        ? `Search ${kindById(kindFilter).plural.toLowerCase()}…`
+                        : "Search…"
+                    }
+                    className="w-full bg-transparent text-sm text-ink-100 outline-none placeholder:text-ink-600"
+                  />
+                </div>
                 <Button
                   size="sm"
-                  variant="ghost"
-                  onClick={() => setNewName(null)}
+                  onClick={openNewForm}
+                  aria-label="New element"
                 >
-                  Cancel
+                  <Plus size={14} /> New
                 </Button>
               </div>
-            </form>
-          )}
 
-          <ul className="flex-1 overflow-y-auto py-1">
-            {visible.length === 0 && (
-              <li className="px-4 py-6 text-center text-sm text-ink-500">
-                {elements.length === 0
-                  ? "Nothing here yet. Create your first element."
-                  : "No matches."}
-              </li>
-            )}
-            {visible.map((e) => (
-              <li key={e.id}>
-                <button
-                  type="button"
-                  onClick={(ev) =>
-                    void navigate(e.id, { pane: ev.ctrlKey || ev.metaKey })
-                  }
-                  title="Click to open · Ctrl+click to open beside the current element"
-                  className={`w-full px-4 py-2 text-left transition-colors ${
-                    e.id === selectedId ? "bg-ink-700/60" : "hover:bg-ink-800"
-                  }`}
+              {newName !== null && (
+                <form
+                  onSubmit={handleCreate}
+                  className="border-b border-ink-800 px-3 py-2"
                 >
-                  <div className="truncate text-sm text-ink-100">
-                    {displayName(e)}
+                  {kindFilter ? (
+                    <p className="mb-1 text-[11px] text-ink-400">
+                      New {kindById(kindFilter).label.toLowerCase()}
+                    </p>
+                  ) : (
+                    <label className="mb-2 block text-[11px] text-ink-400">
+                      What are you creating?
+                      <select
+                        autoFocus
+                        value={newKind}
+                        onChange={(e) => setNewKind(e.target.value)}
+                        onKeyDown={(e) =>
+                          e.key === "Escape" && setNewName(null)
+                        }
+                        className="mt-1 w-full rounded-md border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm text-ink-100 outline-none focus:border-ember-500"
+                      >
+                        {ELEMENT_FAMILIES.map((family) => (
+                          <optgroup key={family.id} label={family.label}>
+                            {ELEMENT_KINDS.filter(
+                              (k) => k.family === family.id,
+                            ).map((k) => (
+                              <option key={k.id} value={k.id}>
+                                {k.label}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <input
+                    autoFocus={kindFilter !== null}
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Escape" && setNewName(null)}
+                    placeholder="Name"
+                    className="w-full rounded-md border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm outline-none focus:border-ember-500"
+                  />
+                  <div className="mt-2 flex gap-2">
+                    <Button size="sm" type="submit" disabled={!newName.trim()}>
+                      Create
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setNewName(null)}
+                    >
+                      Cancel
+                    </Button>
                   </div>
-                  <div className="text-[11px] text-ink-500">
-                    {kindById(e.type).label}
-                    {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
+                </form>
+              )}
+
+              <ul className="flex-1 overflow-y-auto py-1">
+                {visible.length === 0 && (
+                  <li className="px-4 py-6 text-center text-sm text-ink-500">
+                    {elements.length === 0
+                      ? "Nothing here yet. Create your first element."
+                      : "No matches."}
+                  </li>
+                )}
+                {visible.map((e) => (
+                  <li key={e.id}>
+                    <button
+                      type="button"
+                      onClick={(ev) =>
+                        void navigate(e.id, { pane: ev.ctrlKey || ev.metaKey })
+                      }
+                      title="Click to open · Ctrl+click to open beside the current element"
+                      className={`w-full px-4 py-2 text-left transition-colors ${
+                        e.id === selectedId
+                          ? "bg-ink-700/60"
+                          : "hover:bg-ink-800"
+                      }`}
+                    >
+                      <div className="truncate text-sm text-ink-100">
+                        {displayName(e)}
+                      </div>
+                      <div className="text-[11px] text-ink-500">
+                        {kindById(e.type).label}
+                        {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </Panel>
 
         <Separator className={SEPARATOR_CLASS} />
@@ -286,7 +341,9 @@ export function BibleScreen() {
         <Panel minSize={420} className="flex flex-col bg-ink-950">
           <Group orientation="horizontal" className="h-full">
             <Panel minSize={360} className="flex flex-col">
-              {selected ? (
+              {calendarOpen && view === "timeline" ? (
+                <CalendarSettings onClose={() => setCalendarOpen(false)} />
+              ) : selected ? (
                 <ElementEditorFor
                   key={`${selected.id}:${revisions[selected.id] ?? 0}`}
                   element={selected}

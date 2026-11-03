@@ -20,6 +20,10 @@ pub struct CampaignMeta {
     /// never written to disk.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub path: String,
+    /// Campaign-level settings (the calendar, travel paces...). Loose JSON so
+    /// the storage layer stays agnostic and unknown keys survive a round trip.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 /// Frontmatter of an element file, plus its path relative to the campaign root.

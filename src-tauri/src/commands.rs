@@ -37,6 +37,26 @@ pub fn get_campaign(state: State<'_, AppState>) -> CommandResult<Option<Campaign
     Ok(state.current_campaign())
 }
 
+/// `system` keeps the current value when omitted; `clear_system: true`
+/// removes it (JSON cannot express a nested option).
+#[tauri::command]
+pub fn update_campaign(
+    state: State<'_, AppState>,
+    name: Option<String>,
+    system: Option<String>,
+    clear_system: Option<bool>,
+    extra: Option<Extra>,
+) -> CommandResult<CampaignMeta> {
+    let system = if clear_system == Some(true) {
+        Some(None)
+    } else {
+        system.map(Some)
+    };
+    state
+        .update_campaign(name, system, extra)
+        .map_err(to_command_error)
+}
+
 #[tauri::command]
 pub fn list_elements(state: State<'_, AppState>) -> CommandResult<Vec<ElementSummary>> {
     state.list_elements().map_err(to_command_error)

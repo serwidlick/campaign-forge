@@ -23,6 +23,8 @@ import {
   type BeatRole,
   type SessionData,
 } from "./session-model";
+import { WorldDatePicker } from "@/features/timeline/WorldDatePicker";
+import { calendarOf, readWorldDate } from "@/features/timeline/calendar-model";
 
 const BEATS_AUTOSAVE_MS = 400;
 
@@ -37,6 +39,8 @@ const FIELD =
 export function SessionPanel({ element }: { element: Element }) {
   const elements = useCampaignStore((s) => s.elements);
   const saveElement = useCampaignStore((s) => s.saveElement);
+  const campaign = useCampaignStore((s) => s.campaign);
+  const calendar = useMemo(() => calendarOf(campaign), [campaign]);
   const navigate = useCampaignStore((s) => s.navigate);
 
   const session = useMemo(() => readSession(element), [element]);
@@ -154,6 +158,17 @@ export function SessionPanel({ element }: { element: Element }) {
         >
           {session.status === "played" ? "Played" : "Planned"}
         </button>
+      </div>
+
+      <div className="mt-3">
+        <WorldDatePicker
+          label="In-world date (shown on the timeline)"
+          calendar={calendar}
+          value={readWorldDate(element.worldDate)}
+          onChange={(d) =>
+            void saveElement(element.id, { worldDate: d ?? undefined })
+          }
+        />
       </div>
 
       {session.arc && (

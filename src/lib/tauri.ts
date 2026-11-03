@@ -30,6 +30,20 @@ export const storage = {
     return invoke<CampaignMeta | null>("get_campaign");
   },
 
+  /** Change name, system and/or settings. `system: null` clears it. */
+  updateCampaign(patch: {
+    name?: string;
+    system?: string | null;
+    extra?: Record<string, unknown>;
+  }) {
+    return invoke<CampaignMeta>("update_campaign", {
+      name: patch.name ?? null,
+      system: patch.system ?? null,
+      clearSystem: patch.system === null,
+      extra: patch.extra ?? null,
+    });
+  },
+
   listElements() {
     return invoke<ElementSummary[]>("list_elements");
   },

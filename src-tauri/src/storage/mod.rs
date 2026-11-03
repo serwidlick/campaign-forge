@@ -73,6 +73,27 @@ impl AppState {
         Ok(meta)
     }
 
+    /// Changes the campaign's name, system and/or settings. Each argument is
+    /// optional; `system: Some(None)` clears the system.
+    pub fn update_campaign(
+        &self,
+        name: Option<String>,
+        system: Option<Option<String>>,
+        extra: Option<Extra>,
+    ) -> Result<CampaignMeta, StorageError> {
+        let mut guard = self.lock()?;
+        let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
+        let meta = campaign::update(
+            &open.root,
+            &open.meta,
+            name.as_deref(),
+            system.as_ref().map(|s| s.as_deref()),
+            extra,
+        )?;
+        open.meta = meta.clone();
+        Ok(meta)
+    }
+
     pub fn list_elements(&self) -> Result<Vec<ElementSummary>, StorageError> {
         let mut guard = self.lock()?;
         let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
@@ -373,6 +394,37 @@ mod tests {
         assert_eq!(read.meta.extra["number"], 3);
         let listed = fresh.list_elements().unwrap();
         assert_eq!(listed[0].meta.extra["arc"], "arc-1");
+    }
+
+    #[test]
+    fn campaign_settings_round_trip() {
+        let root = TempRoot::new("settings");
+        let state = AppState::default();
+        state
+            .create_campaign(root.path(), "Settings".into(), None)
+            .unwrap();
+
+        let extra: Extra = serde_json::from_str(
+            r#"{"calendar":{"name":"Harptos","months":[{"name":"Hammer","days":30}]},"name":"EVIL"}"#,
+        )
+        .unwrap();
+        let updated = state
+            .update_campaign(None, Some(Some("Daggerheart".into())), Some(extra))
+            .unwrap();
+        assert_eq!(updated.name, "Settings");
+        assert_eq!(updated.system.as_deref(), Some("Daggerheart"));
+        assert_eq!(updated.extra["calendar"]["name"], "Harptos");
+        assert!(!updated.extra.contains_key("name"));
+
+        let fresh = AppState::default();
+        let reopened = fresh.open_campaign(root.path()).unwrap();
+        assert_eq!(reopened.extra["calendar"]["months"][0]["days"], 30);
+        assert_eq!(reopened.system.as_deref(), Some("Daggerheart"));
+
+        // Clearing the system.
+        let cleared = fresh.update_campaign(None, Some(None), None).unwrap();
+        assert!(cleared.system.is_none());
+        assert_eq!(cleared.extra["calendar"]["name"], "Harptos");
     }
 
     #[test]

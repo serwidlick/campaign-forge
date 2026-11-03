@@ -11,6 +11,31 @@ export interface CampaignMeta {
   updatedAt: string;
   /** Absolute path of the campaign folder. */
   path: string;
+  /** Campaign-level settings, flattened by the Rust side (`calendar`, ...). */
+  [key: string]: unknown;
+}
+
+/** Keys owned by the campaign record itself; never part of its settings. */
+export const RESERVED_CAMPAIGN_KEYS = new Set([
+  "id",
+  "name",
+  "system",
+  "createdAt",
+  "updatedAt",
+  "path",
+]);
+
+/** The settings of a campaign, minus nulls and undefineds. */
+export function campaignSettingsOf(
+  c: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(c)) {
+    if (!RESERVED_CAMPAIGN_KEYS.has(k) && v !== undefined && v !== null) {
+      out[k] = v;
+    }
+  }
+  return out;
 }
 
 export interface ElementMeta {

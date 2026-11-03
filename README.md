@@ -16,15 +16,16 @@ Early scaffold. What works today:
 - Maps: import an image (file picker, or drag and drop from Explorer or a browser), pan and zoom or lock the view, choose how the image is framed, drop pins linked to elements, draw named routes, calibrate a scale once, then measure as the crow flies or along a route for distance and travel time on foot, horseback or by wagon
 - Assistant: an opt-in chat pane that answers questions about the campaign by searching, listing and reading your elements, and links everything it mentions. Uses your own Anthropic API key, stored in the OS credential manager
 - Split screen: Ctrl+click any element reference (list row, link, backlink, pin, session, assistant chip) to open it in a column beside the current one; columns swap, close, and are remembered per campaign
+- Timeline: a campaign calendar you define (months of any length, weekday names, eras, the in-world today), events with a date and optional end date, sessions with an in-world date, and a Timeline view listing everything in order with a today marker
 - Recent campaigns list
 
-Planned: timeline with a custom calendar, journals, map territories and nested maps, and travel paces as a campaign setting.
+Planned: journals, map territories and nested maps, leap-year rules, and travel paces as a campaign setting.
 
 ## On-disk format
 
 ```
 <campaign folder>/
-  campaign.json
+  campaign.json            name, system, and settings such as the calendar
   elements/
     character/
       the-rusty-tankard-keeper.md

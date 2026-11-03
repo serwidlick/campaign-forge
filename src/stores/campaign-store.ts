@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { rememberCampaign } from "@/lib/recent";
 import { errorMessage, storage } from "@/lib/tauri";
 import {
+  campaignSettingsOf,
   extraOf,
   type CampaignMeta,
   type Element,
@@ -68,6 +69,9 @@ interface CampaignState {
   deleteElement: (id: string) => Promise<void>;
   /** Re-read an element from disk after an external change. */
   reloadElement: (id: string) => Promise<void>;
+
+  /** Merge a patch into the campaign's settings (e.g. `{ calendar }`). */
+  updateCampaignSettings: (patch: Record<string, unknown>) => Promise<void>;
 
   clearError: () => void;
   setError: (message: string) => void;
@@ -409,6 +413,26 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
             revisions: { ...s.revisions, [id]: (s.revisions[id] ?? 0) + 1 },
           };
         });
+      } catch (err) {
+        set({ error: errorMessage(err) });
+      }
+    },
+
+    async updateCampaignSettings(patch) {
+      const current = get().campaign;
+      if (!current) return;
+      const extra: Record<string, unknown> = {
+        ...campaignSettingsOf(current),
+      };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null || v === undefined) delete extra[k];
+        else extra[k] = v;
+      }
+      // Optimistic, so the UI follows immediately.
+      set({ campaign: { ...current, ...patch } });
+      try {
+        const campaign = await storage.updateCampaign({ extra });
+        set({ campaign });
       } catch (err) {
         set({ error: errorMessage(err) });
       }

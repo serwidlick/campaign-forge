@@ -16,6 +16,7 @@ pub fn run() {
             commands::create_campaign,
             commands::open_campaign,
             commands::get_campaign,
+            commands::update_campaign,
             commands::list_elements,
             commands::read_element,
             commands::create_element,
