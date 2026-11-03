@@ -27,3 +27,6 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+
+# graphify knowledge graph (rebuild locally with `graphify update .`)
+graphify-out/

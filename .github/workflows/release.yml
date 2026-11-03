@@ -48,6 +48,24 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Sign and notarise the macOS build when the Apple secrets are set.
+      # Without them the build still succeeds, just unsigned (Gatekeeper then
+      # calls the app "damaged" until the quarantine flag is removed).
+      - name: macOS signing secrets
+        if: startsWith(matrix.platform, 'macos') && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          {
+            echo "APPLE_CERTIFICATE=${{ secrets.APPLE_CERTIFICATE }}"
+            echo "APPLE_CERTIFICATE_PASSWORD=${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"
+            echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}"
+            echo "APPLE_ID=${{ secrets.APPLE_ID }}"
+            echo "APPLE_PASSWORD=${{ secrets.APPLE_PASSWORD }}"
+            echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}"
+            echo "KEYCHAIN_PASSWORD=${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"
+          } >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -58,7 +76,7 @@ jobs:
             Installers for Windows, macOS and Linux.
 
             - **Windows:** run the `.exe` installer. It installs for the current user, no admin rights needed. Windows SmartScreen may warn because the build is not code-signed; choose *More info → Run anyway*.
-            - **macOS:** open the `.dmg` and drag Campaign Forge to Applications. The first launch needs a right-click → *Open* because the app is not notarised.
+            - **macOS (Apple Silicon):** open the `.dmg` and drag Campaign Forge to Applications. If macOS calls the app damaged, it is an unsigned build: run `xattr -cr "/Applications/Campaign Forge.app"` once and open it again.
             - **Linux:** the `.AppImage` runs anywhere (make it executable first); the `.deb` is for Debian and Ubuntu.
           releaseDraft: false
           prerelease: false

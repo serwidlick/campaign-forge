@@ -71,7 +71,7 @@ Kind-specific fields live in the same frontmatter. A session, for example, carri
 Send people to the download page: **https://serwidlick.github.io/campaign-forge/**. It offers the right installer for their system from the latest release. Every version is also on the [Releases](https://github.com/serwidlick/campaign-forge/releases) page.
 
 - **Windows:** run `Campaign Forge_<version>_x64-setup.exe`. It installs for the current user only, so no admin rights are needed. Windows SmartScreen may warn that the publisher is unknown because the build is not code-signed; choose _More info → Run anyway_.
-- **macOS:** open the `.dmg` and drag Campaign Forge to Applications. The first launch needs a right-click → _Open_, because the app is not notarised.
+- **macOS (Apple Silicon):** open the `.dmg` and drag Campaign Forge to Applications. Releases are signed and notarised when the Apple secrets below are set; an unsigned build makes macOS call the app "damaged", which `xattr -cr "/Applications/Campaign Forge.app"` clears.
 - **Linux:** the `.AppImage` runs on any distribution (`chmod +x` it first); the `.deb` is for Debian and Ubuntu.
 
 Players only need the same installer. They do not need a campaign folder; they join a table from the welcome screen.
@@ -83,6 +83,17 @@ Installers are built by the [Release workflow](.github/workflows/release.yml) on
 ```bash
 git tag v0.2.0 && git push origin v0.2.0
 ```
+
+**macOS signing.** The macOS build is signed and notarised when these repository secrets exist (Settings → Secrets and variables → Actions); without them it is built unsigned.
+
+| Secret                       | Value                                                                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `APPLE_CERTIFICATE`          | Your _Developer ID Application_ certificate exported from Keychain Access as a `.p12`, base64-encoded: `base64 -i cert.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | The password you gave the `.p12` on export                                                                                            |
+| `APPLE_SIGNING_IDENTITY`     | The certificate's name, e.g. `Developer ID Application: David Levey (TEAMID)`                                                         |
+| `APPLE_ID`                   | The Apple ID of the developer account                                                                                                 |
+| `APPLE_PASSWORD`             | An app-specific password for that Apple ID, made at appleid.apple.com                                                                 |
+| `APPLE_TEAM_ID`              | The ten-character team ID from developer.apple.com → Membership                                                                       |
 
 The workflow publishes the release with all installers attached, and the download page picks it up by itself. The page lives in `site/` and is deployed to GitHub Pages by the [Pages workflow](.github/workflows/pages.yml) whenever it changes. Both need the repository to be public. To build an installer for the current machine only, run `pnpm tauri:build`; it lands in `src-tauri/target/release/bundle/`.
 

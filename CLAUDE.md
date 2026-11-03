@@ -42,3 +42,29 @@ pnpm typecheck && pnpm lint && pnpm format:check
 pnpm rust:check        # needs a Rust toolchain
 pnpm tauri:dev         # run the app
 ```
+
+## Code graph
+
+[graphify](https://github.com/Graphify-Labs/graphify) turns the repo into a queryable knowledge graph. It is installed as a uv tool and registered project-wide: the `/graphify` skill lives in `.claude/skills/graphify/`, and `.claude/settings.json` has `PreToolUse` hooks that point Claude Code at the graph before raw searches and reads. `graphify-out/` is gitignored; rebuild it locally.
+
+```bash
+uv tool install graphifyy    # once per machine, from your own terminal (winget install astral-sh.uv first on Windows)
+graphify update .            # (re)build graphify-out/ from the AST, no API key, a few seconds
+graphify query "<question>"  # scoped subgraph; also: path "A" "B", explain "X", god-nodes
+```
+
+Installing from inside a Claude Code desktop session needs `UV_TOOL_DIR` set to a path outside `AppData` first (the app container virtualises `AppData` writes, so a default install is invisible to your own shell). This machine has it as a user env var pointing at `~/.local/share/uv/tools`.
+
+In a Claude Code session, `/graphify .` runs the full pipeline (adds a semantic pass over docs) and `/graphify query "..."` asks the graph. `graphify label . --backend claude-cli` names the communities; without it they carry hub-derived names.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+
+- When graphify-out/graph.json exists, run `graphify query "<question>"` before your first grep, search or source-file read for a codebase question, and put this rule in every subagent prompt that explores code. Read raw files only for lines the graph or an earlier read already located. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.

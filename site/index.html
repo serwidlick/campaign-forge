@@ -395,6 +395,14 @@
         font-size: 12px;
         color: var(--ink-300);
       }
+      .note code {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--ink-100);
+        background: var(--ink-800);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
       .note {
         margin-top: 16px;
         padding: 12px 14px;
@@ -808,9 +816,10 @@
               </svg>
               <div>
                 <strong>macOS:</strong> Apple Silicon only. Open the disk image
-                and drag Campaign Forge to Applications. The first time,
-                right-click the app and choose <strong>Open</strong>, because it
-                is not notarised yet.
+                and drag Campaign Forge to Applications. If macOS says the app
+                is damaged, open Terminal and run
+                <code>xattr -cr "/Applications/Campaign Forge.app"</code> once,
+                then open it again.
               </div>
             </div>
             <div class="note hidden" id="note-linux">
