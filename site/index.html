@@ -221,9 +221,9 @@
           <strong>More info</strong>, then <strong>Run anyway</strong>.
         </div>
         <div class="note hidden" id="note-mac">
-          <strong>macOS:</strong> open the disk image and drag Campaign Forge to
-          Applications. The first time, right-click the app and choose
-          <strong>Open</strong>, because it is not notarised yet.
+          <strong>macOS:</strong> Apple Silicon only. Open the disk image and
+          drag Campaign Forge to Applications. The first time, right-click the
+          app and choose <strong>Open</strong>, because it is not notarised yet.
         </div>
         <div class="note hidden" id="note-linux">
           <strong>Linux:</strong> the AppImage runs on any distribution; mark it
@@ -318,11 +318,10 @@
         var KINDS = [
           { id: "windows", label: "Windows", test: /-setup\.exe$/i },
           {
-            id: "mac-arm",
-            label: "macOS (Apple Silicon)",
+            id: "mac",
+            label: "macOS",
             test: /aarch64\.dmg$/i,
           },
-          { id: "mac-intel", label: "macOS (Intel)", test: /x64\.dmg$/i },
           {
             id: "linux-appimage",
             label: "Linux AppImage",
@@ -339,24 +338,8 @@
             "";
           if (/Windows/i.test(ua) || /Win/i.test(plat))
             return Promise.resolve("windows");
-          if (/Mac/i.test(plat) || /Macintosh/i.test(ua)) {
-            // Chromium can tell us the CPU; Safari cannot, so we guess Apple Silicon,
-            // which every Mac sold since 2020 has.
-            if (
-              navigator.userAgentData &&
-              navigator.userAgentData.getHighEntropyValues
-            ) {
-              return navigator.userAgentData
-                .getHighEntropyValues(["architecture"])
-                .then(function (v) {
-                  return v.architecture === "x86" ? "mac-intel" : "mac-arm";
-                })
-                .catch(function () {
-                  return "mac-arm";
-                });
-            }
-            return Promise.resolve("mac-arm");
-          }
+          if (/Mac/i.test(plat) || /Macintosh/i.test(ua))
+            return Promise.resolve("mac");
           if (/Linux/i.test(plat) || /Linux/i.test(ua))
             return Promise.resolve("linux-appimage");
           return Promise.resolve(null);
@@ -370,7 +353,7 @@
           var id =
             kind === "windows"
               ? "note-windows"
-              : kind && kind.indexOf("mac") === 0
+              : kind === "mac"
                 ? "note-mac"
                 : kind
                   ? "note-linux"

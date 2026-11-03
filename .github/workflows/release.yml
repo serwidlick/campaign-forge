@@ -20,10 +20,8 @@ jobs:
         include:
           - platform: windows-latest
             args: ""
-          - platform: macos-latest # Apple Silicon
-            args: "--target aarch64-apple-darwin"
-          - platform: macos-13 # Intel
-            args: "--target x86_64-apple-darwin"
+          - platform: macos-latest # Apple Silicon only; Intel Macs are not supported
+            args: ""
           - platform: ubuntu-22.04
             args: ""
     runs-on: ${{ matrix.platform }}
@@ -37,8 +35,6 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ contains(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - uses: swatinem/rust-cache@v2
         with:

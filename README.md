@@ -78,7 +78,7 @@ Players only need the same installer. They do not need a campaign folder; they j
 
 ### Making a release
 
-Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub Actions for Windows, macOS (Apple Silicon and Intel) and Linux. Bump the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit, then tag and push:
+Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub Actions for Windows, macOS (Apple Silicon) and Linux. Bump the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit, then tag and push:
 
 ```bash
 git tag v0.2.0 && git push origin v0.2.0
