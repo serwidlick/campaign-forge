@@ -1,6 +1,7 @@
 import { MapPanel } from "@/features/map/MapPanel";
 import { ArcPanel } from "@/features/sessions/ArcPanel";
 import { SessionPanel } from "@/features/sessions/SessionPanel";
+import { JournalPanel } from "@/features/journal/JournalPanel";
 import { EventPanel } from "@/features/timeline/EventPanel";
 import type { Element } from "@/lib/types";
 
@@ -24,6 +25,13 @@ export function ElementEditorFor({ element }: { element: Element }) {
         <ElementEditor
           element={element}
           panel={<ArcPanel element={element} />}
+        />
+      );
+    case "journal":
+      return (
+        <ElementEditor
+          element={element}
+          panel={<JournalPanel element={element} />}
         />
       );
     case "event":

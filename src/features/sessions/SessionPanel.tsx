@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/Button";
 import type { Element } from "@/lib/types";
+import { JournalSection } from "@/features/journal/JournalSection";
 import { useCampaignStore } from "@/stores/campaign-store";
 
 import {
@@ -237,6 +238,7 @@ export function SessionPanel({ element }: { element: Element }) {
           ))}
         </ol>
       )}
+      <JournalSection scope={{ type: "session", id: element.id }} />
     </section>
   );
 }

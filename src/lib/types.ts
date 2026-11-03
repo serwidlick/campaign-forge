@@ -155,6 +155,7 @@ export const ELEMENT_FAMILIES: { id: ElementFamily; label: string }[] = [
 export const ELEMENT_KINDS: ElementKind[] = [
   { id: "arc", label: "Arc", plural: "Arcs", family: "play" },
   { id: "session", label: "Session", plural: "Sessions", family: "play" },
+  { id: "journal", label: "Journal entry", plural: "Journal", family: "play" },
   {
     id: "character",
     label: "Character",

@@ -27,7 +27,9 @@ interface TimelineItem {
 /** Which frontmatter field holds an element's in-world date, by kind. */
 function dateOf(e: ElementSummary): WorldDate | null {
   if (e.type === "event") return readWorldDate(e.when);
-  if (e.type === "session") return readWorldDate(e.worldDate);
+  if (e.type === "session" || e.type === "journal") {
+    return readWorldDate(e.worldDate);
+  }
   return null;
 }
 

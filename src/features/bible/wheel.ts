@@ -27,7 +27,7 @@ export const WHEEL: WheelNode[] = [
   {
     id: "play",
     label: "Play",
-    kinds: ["arc", "session"],
+    kinds: ["arc", "session", "journal"],
     icon: Dices,
     color: "#e69a57",
   },

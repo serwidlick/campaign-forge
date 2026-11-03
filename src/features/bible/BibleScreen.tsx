@@ -1,5 +1,6 @@
 import {
   ArrowLeftToLine,
+  BookOpen,
   CalendarDays,
   ChevronLeft,
   Waypoints,
@@ -15,6 +16,7 @@ import { Button } from "@/components/Button";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { AgentPane } from "@/features/agent/AgentPane";
 import { GraphPanel } from "@/features/graph/GraphPanel";
+import { JournalList } from "@/features/journal/JournalList";
 import { CalendarSettings } from "@/features/timeline/CalendarSettings";
 import { TimelineList } from "@/features/timeline/TimelineList";
 import { displayName, sortForList } from "@/features/sessions/session-model";
@@ -48,9 +50,9 @@ export function BibleScreen() {
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState<string | null>(null);
   const [newKind, setNewKind] = useState<string>("character");
-  const [view, setView] = useState<"elements" | "timeline" | "graph">(
-    "elements",
-  );
+  const [view, setView] = useState<
+    "elements" | "timeline" | "graph" | "journal"
+  >("elements");
   const [calendarOpen, setCalendarOpen] = useState(false);
   const datedCount = useMemo(
     () =>
@@ -202,6 +204,23 @@ export function BibleScreen() {
                 Graph
               </span>
             </button>
+            <button
+              type="button"
+              onClick={() => setView("journal")}
+              className={`mb-2 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
+                view === "journal"
+                  ? "bg-ink-700/60 text-ink-100"
+                  : "text-ink-300 hover:bg-ink-800"
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <BookOpen size={14} className="text-ember-400" />
+                Journal
+              </span>
+              <span className="text-xs text-ink-500">
+                {elements.filter((e) => e.type === "journal").length}
+              </span>
+            </button>
             <KindRow
               label="Everything"
               count={elements.length}
@@ -238,7 +257,9 @@ export function BibleScreen() {
           maxSize={520}
           className="flex flex-col bg-ink-850"
         >
-          {view === "timeline" ? (
+          {view === "journal" ? (
+            <JournalList selectedId={selectedId} />
+          ) : view === "timeline" ? (
             <TimelineList
               selectedId={selectedId}
               calendarOpen={calendarOpen}

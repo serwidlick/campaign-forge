@@ -3,6 +3,7 @@ import { useMemo } from "react";
 
 import { Button } from "@/components/Button";
 import type { Element } from "@/lib/types";
+import { JournalSection } from "@/features/journal/JournalSection";
 import { useCampaignStore } from "@/stores/campaign-store";
 
 import {
@@ -127,6 +128,7 @@ export function ArcPanel({ element }: { element: Element }) {
           })}
         </ol>
       )}
+      <JournalSection scope={{ type: "arc", id: element.id }} />
     </section>
   );
 }
