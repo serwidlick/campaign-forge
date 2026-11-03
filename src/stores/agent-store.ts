@@ -5,9 +5,12 @@ import {
   DEFAULT_SETTINGS,
   loadAgentSettings,
   saveAgentSettings,
+  EMPTY_USAGE,
+  addUsage,
   type AgentSettings,
   type Effort,
   type Permission,
+  type TurnUsage,
 } from "@/features/agent/agent-settings";
 import { runTurn, type AgentEvent } from "@/features/agent/agent";
 import { errorMessage, secrets } from "@/lib/tauri";
@@ -34,6 +37,10 @@ export interface UiMessage {
   role: "user" | "assistant";
   parts: UiPart[];
   error?: string;
+  /** Model that produced an assistant message; used to price its usage. */
+  model?: string;
+  /** Tokens across every model call that made up this assistant message. */
+  usage?: TurnUsage;
 }
 
 interface AgentState {
@@ -144,7 +151,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       messages: [
         ...s.messages,
         userMessage,
-        { id: assistantId, role: "assistant", parts: [] },
+        {
+          id: assistantId,
+          role: "assistant",
+          parts: [],
+          model: s.settings.model,
+        },
       ],
       streaming: true,
       error: null,
@@ -224,6 +236,8 @@ function applyEvent(assistantId: string, event: AgentEvent): void {
           }
           return { ...m, parts };
         }
+        case "usage":
+          return { ...m, usage: addUsage(m.usage ?? EMPTY_USAGE, event.usage) };
         case "error":
           return { ...m, error: event.message };
         case "done":

@@ -143,3 +143,91 @@ export async function saveAgentSettings(
 export function enabledPermissions(p: Permissions): Permission[] {
   return PERMISSIONS.map((x) => x.id).filter((id) => p[id]);
 }
+
+// ---- Usage and cost ---------------------------------------------------------
+
+/** Tokens consumed by one or more model calls. */
+export interface TurnUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** Number of model calls (one per tool-loop iteration). */
+  calls: number;
+}
+
+export const EMPTY_USAGE: TurnUsage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  calls: 0,
+};
+
+export function addUsage(a: TurnUsage, b: TurnUsage): TurnUsage {
+  return {
+    input: a.input + b.input,
+    output: a.output + b.output,
+    cacheRead: a.cacheRead + b.cacheRead,
+    cacheWrite: a.cacheWrite + b.cacheWrite,
+    calls: a.calls + b.calls,
+  };
+}
+
+/** USD per million tokens. Anthropic list prices; update when they change. */
+export interface Pricing {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+export const PRICING: Record<string, Pricing> = {
+  "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+  "claude-sonnet-5-5": {
+    input: 2,
+    output: 10,
+    cacheRead: 0.2,
+    cacheWrite: 2.5,
+  },
+  "claude-haiku-5-5": {
+    input: 0.1,
+    output: 0.5,
+    cacheRead: 0.01,
+    cacheWrite: 0.125,
+  },
+};
+
+/** Approximate cost in USD, or null when the model's prices are unknown. */
+export function estimateCostUsd(
+  usage: TurnUsage,
+  model: string | undefined,
+): number | null {
+  const p = model ? PRICING[model] : undefined;
+  if (!p) return null;
+  return (
+    (usage.input * p.input +
+      usage.output * p.output +
+      usage.cacheRead * p.cacheRead +
+      usage.cacheWrite * p.cacheWrite) /
+    1_000_000
+  );
+}
+
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1_000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+export function formatUsd(x: number): string {
+  if (x < 0.005) return "<$0.01";
+  return `$${x.toFixed(2)}`;
+}
+
+/** Share of prompt tokens that were served from the cache, 0-1. */
+export function cacheShare(usage: TurnUsage): number {
+  const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+  return prompt === 0 ? 0 : usage.cacheRead / prompt;
+}

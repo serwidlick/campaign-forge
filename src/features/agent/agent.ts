@@ -16,6 +16,7 @@ import {
   enabledPermissions,
   type Effort,
   type Permissions,
+  type TurnUsage,
 } from "./agent-settings";
 import { findTool, toolsFor } from "./agent-tools";
 
@@ -23,8 +24,20 @@ export type AgentEvent =
   | { type: "text"; delta: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "tool_result"; id: string; isError: boolean; preview: string }
+  | { type: "usage"; usage: TurnUsage }
   | { type: "done"; stopReason: string }
   | { type: "error"; message: string };
+
+function usageOf(message: Anthropic.Beta.BetaMessage): TurnUsage {
+  const u = message.usage;
+  return {
+    input: u.input_tokens ?? 0,
+    output: u.output_tokens ?? 0,
+    cacheRead: u.cache_read_input_tokens ?? 0,
+    cacheWrite: u.cache_creation_input_tokens ?? 0,
+    calls: 1,
+  };
+}
 
 const MAX_TOOL_ITERATIONS = 10;
 const MAX_TOKENS = 16000;
@@ -120,6 +133,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     }
 
     history.push({ role: "assistant", content: message.content });
+    onEvent({ type: "usage", usage: usageOf(message) });
 
     if (message.stop_reason === "refusal") {
       onEvent({

@@ -33,8 +33,13 @@ import {
   EFFORTS,
   MODELS,
   PERMISSIONS,
+  cacheShare,
   enabledPermissions,
+  estimateCostUsd,
+  formatTokens,
+  formatUsd,
   type Effort,
+  type TurnUsage,
 } from "./agent-settings";
 
 const FIELD =
@@ -159,10 +164,11 @@ export function AgentPane({ onClose }: { onClose: () => void }) {
                 </span>
               ))
             )}
+            <SessionUsage messages={messages} />
             <button
               type="button"
               onClick={() => setView("settings")}
-              className="ml-auto text-ink-500 hover:text-ink-300"
+              className="text-ink-500 hover:text-ink-300"
             >
               change
             </button>
@@ -523,8 +529,83 @@ function MessageView({ message }: { message: UiMessage }) {
             {message.error}
           </div>
         )}
+        {message.usage && (
+          <UsageLine usage={message.usage} model={message.model} />
+        )}
       </div>
     </div>
+  );
+}
+
+// ---- Usage -----------------------------------------------------------------
+
+function UsageLine({
+  usage,
+  model,
+}: {
+  usage: TurnUsage;
+  model: string | undefined;
+}) {
+  const cost = estimateCostUsd(usage, model);
+  const cached = cacheShare(usage);
+  const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+  const title = [
+    `Prompt ${usage.input.toLocaleString()} fresh + ${usage.cacheRead.toLocaleString()} cache read + ${usage.cacheWrite.toLocaleString()} cache write`,
+    `Output ${usage.output.toLocaleString()}`,
+    `${usage.calls} model call${usage.calls === 1 ? "" : "s"}`,
+    model ? `Priced as ${model}` : "Unknown model price",
+  ].join("\n");
+  return (
+    <div
+      className="flex flex-wrap gap-x-2 text-[11px] text-ink-600"
+      title={title}
+    >
+      <span>{formatTokens(prompt)} in</span>
+      <span>·</span>
+      <span>{formatTokens(usage.output)} out</span>
+      {prompt > 0 && (
+        <>
+          <span>·</span>
+          <span>{Math.round(cached * 100)}% cached</span>
+        </>
+      )}
+      {usage.calls > 1 && (
+        <>
+          <span>·</span>
+          <span>{usage.calls} calls</span>
+        </>
+      )}
+      {cost !== null && (
+        <>
+          <span>·</span>
+          <span>≈ {formatUsd(cost)}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SessionUsage({ messages }: { messages: UiMessage[] }) {
+  let tokens = 0;
+  let cost = 0;
+  let priced = true;
+  for (const m of messages) {
+    if (!m.usage) continue;
+    tokens +=
+      m.usage.input + m.usage.cacheRead + m.usage.cacheWrite + m.usage.output;
+    const c = estimateCostUsd(m.usage, m.model);
+    if (c === null) priced = false;
+    else cost += c;
+  }
+  if (tokens === 0) return <span className="ml-auto" />;
+  return (
+    <span
+      className="ml-auto text-ink-600"
+      title="This conversation: all tokens in and out, and the approximate cost at list prices"
+    >
+      Session {formatTokens(tokens)} tokens
+      {priced && <> · ≈ {formatUsd(cost)}</>}
+    </span>
   );
 }
 
