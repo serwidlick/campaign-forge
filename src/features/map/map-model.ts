@@ -74,23 +74,6 @@ export interface MapData {
   territories: MapTerritory[];
 }
 
-export interface TravelMode {
-  id: string;
-  label: string;
-  /** Distance covered in one travelling day, in the map's unit. */
-  perDay: number;
-}
-
-/**
- * Typical overland paces for a full travelling day (about eight hours). Based
- * on common fantasy-RPG conventions; good enough for planning, not simulation.
- */
-export const TRAVEL_MODES: TravelMode[] = [
-  { id: "foot", label: "On foot", perDay: 24 },
-  { id: "horse", label: "On horseback", perDay: 40 },
-  { id: "wagon", label: "By wagon", perDay: 16 },
-];
-
 export const ROUTE_COLORS = [
   "#e69a57",
   "#7dd3fc",
@@ -374,17 +357,6 @@ export function formatDistance(value: number, unit: string): string {
   const rounded =
     value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
   return `${rounded.toLocaleString()} ${unit}`;
-}
-
-/** "3 h", "1.5 days", "12 days" */
-export function formatTravelTime(distance: number, perDay: number): string {
-  const days = distance / perDay;
-  if (days < 1) {
-    const hours = Math.max(1, Math.round(days * 8));
-    return `${hours} h`;
-  }
-  const rounded = days >= 10 ? Math.round(days) : Math.round(days * 2) / 2;
-  return `${rounded} ${rounded === 1 ? "day" : "days"}`;
 }
 
 /** Leaflet zoom (CRS.Simple, zoom 0 = 1 image px per screen px) for a fit mode. */

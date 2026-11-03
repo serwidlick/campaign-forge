@@ -4,6 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   CornerLeftUp,
+  Footprints,
   Hand,
   ImagePlus,
   LandPlot,
@@ -29,11 +30,9 @@ import {
   ROUTE_COLORS,
   TERRITORY_COLORS,
   TERRITORY_LINK_KIND_ORDER,
-  TRAVEL_MODES,
   fitZoom,
   formatArea,
   formatDistance,
-  formatTravelTime,
   imageUrlFromDrag,
   isImagePath,
   newId,
@@ -61,6 +60,13 @@ import {
   type RouteSnap,
   type SubMapRef,
 } from "./map-model";
+import { TravelSettingsPanel } from "./TravelSettings";
+import {
+  formatTravelTime,
+  shortPaceLabel,
+  travelOf,
+  type TravelSettings,
+} from "./travel-model";
 
 type Tool = "pan" | "pin" | "route" | "territory" | "measure" | "scale";
 type MeasureMode = "crow" | "route";
@@ -74,6 +80,7 @@ const MAP_HEIGHT = 520;
  * stored points use a top-left origin like any image editor would.
  */
 export function MapPanel({ element }: { element: Element }) {
+  const campaign = useCampaignStore((s) => s.campaign);
   const elements = useCampaignStore((s) => s.elements);
   const saveElement = useCampaignStore((s) => s.saveElement);
   const navigate = useCampaignStore((s) => s.navigate);
@@ -81,6 +88,7 @@ export function MapPanel({ element }: { element: Element }) {
   const setError = useCampaignStore((s) => s.setError);
 
   const data = useMemo(() => readMap(element), [element]);
+  const travel = useMemo(() => travelOf(campaign), [campaign]);
   const parents = useMemo(
     () => parentMapsOf(element.id, elements),
     [element.id, elements],
@@ -110,6 +118,7 @@ export function MapPanel({ element }: { element: Element }) {
     unit: string;
   } | null>(null);
   const [dropHint, setDropHint] = useState(false);
+  const [pacesOpen, setPacesOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   // Blob URL for the current image, keyed by its path so a stale URL is never
   // shown for a replaced image.
@@ -917,6 +926,15 @@ export function MapPanel({ element }: { element: Element }) {
         <Button
           size="sm"
           variant="ghost"
+          onClick={() => setPacesOpen((v) => !v)}
+          aria-pressed={pacesOpen}
+          title="Travel paces for the whole campaign"
+        >
+          <Footprints size={14} /> Paces
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
           onClick={() => void handleImport()}
           disabled={importing}
         >
@@ -955,6 +973,14 @@ export function MapPanel({ element }: { element: Element }) {
           </div>
         )}
       </div>
+
+      {/* Travel paces (campaign setting) */}
+      {pacesOpen && (
+        <TravelSettingsPanel
+          unit={data.scale?.unit ?? "miles"}
+          onClose={() => setPacesOpen(false)}
+        />
+      )}
 
       {/* Route drawing */}
       {tool === "route" && (
@@ -1204,11 +1230,15 @@ export function MapPanel({ element }: { element: Element }) {
             <>
               <span className="text-ink-200">{measureLabel}</span>
               {measureDistance !== null ? (
-                TRAVEL_MODES.map((m) => (
+                travel.paces.map((m) => (
                   <span key={m.id} className="text-ink-400">
-                    {m.label}:{" "}
+                    {m.label || "Pace"}:{" "}
                     <span className="text-ink-200">
-                      {formatTravelTime(measureDistance, m.perDay)}
+                      {formatTravelTime(
+                        measureDistance,
+                        m.perDay,
+                        travel.hoursPerDay,
+                      )}
                     </span>
                   </span>
                 ))
@@ -1233,6 +1263,7 @@ export function MapPanel({ element }: { element: Element }) {
         <RoutesList
           routes={data.routes}
           scale={data.scale}
+          travel={travel}
           selectedId={selectedRouteId}
           onSelect={(route) => {
             setTool("pan");
@@ -1289,6 +1320,7 @@ export function MapPanel({ element }: { element: Element }) {
           key={selectedRoute.id}
           route={selectedRoute}
           scale={data.scale}
+          travel={travel}
           onChange={(patch) => updateRoute(selectedRoute.id, patch)}
           onDelete={() => deleteRoute(selectedRoute.id)}
           onMeasure={() => {
@@ -1405,6 +1437,7 @@ function SegmentButton({
 function RoutesList({
   routes,
   scale,
+  travel,
   selectedId,
   onSelect,
   onMeasure,
@@ -1412,6 +1445,7 @@ function RoutesList({
 }: {
   routes: MapRoute[];
   scale: MapScale | null;
+  travel: TravelSettings;
   selectedId: string | null;
   onSelect: (route: MapRoute) => void;
   onMeasure: (route: MapRoute) => void;
@@ -1455,13 +1489,17 @@ function RoutesList({
                     ? formatDistance(distance, scale.unit)
                     : `${Math.round(px)} px`}
                 </span>
-                {distance !== null && (
+                {distance !== null && travel.paces.length > 0 && (
                   <span className="hidden shrink-0 gap-3 text-ink-500 md:flex">
-                    {TRAVEL_MODES.map((m) => (
+                    {travel.paces.map((m) => (
                       <span key={m.id}>
-                        {m.label.replace("On ", "").replace("By ", "")}{" "}
+                        {shortPaceLabel(m.label)}{" "}
                         <span className="text-ink-300">
-                          {formatTravelTime(distance, m.perDay)}
+                          {formatTravelTime(
+                            distance,
+                            m.perDay,
+                            travel.hoursPerDay,
+                          )}
                         </span>
                       </span>
                     ))}
@@ -1497,12 +1535,14 @@ function RoutesList({
 function RouteEditor({
   route,
   scale,
+  travel,
   onChange,
   onDelete,
   onMeasure,
 }: {
   route: MapRoute;
   scale: MapScale | null;
+  travel: TravelSettings;
   onChange: (patch: Partial<MapRoute>) => void;
   onDelete: () => void;
   onMeasure: () => void;
@@ -1552,15 +1592,15 @@ function RouteEditor({
           </span>
         </div>
       </div>
-      {distance !== null && (
+      {distance !== null && travel.paces.length > 0 && (
         <div className="text-xs text-ink-400">
           <div className="text-[11px]">Travel</div>
           <div className="mt-1 flex gap-3">
-            {TRAVEL_MODES.map((m) => (
+            {travel.paces.map((m) => (
               <span key={m.id}>
-                {m.label.replace("On ", "").replace("By ", "")}:{" "}
+                {shortPaceLabel(m.label)}:{" "}
                 <span className="text-ink-200">
-                  {formatTravelTime(distance, m.perDay)}
+                  {formatTravelTime(distance, m.perDay, travel.hoursPerDay)}
                 </span>
               </span>
             ))}
