@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 import { useUpdateStore } from "./updater";
 
-/** "Campaign Forge 0.1.0 · Check for updates", for the welcome screen. */
+/** "Campaign Forge 0.1.0 · Check for updates", for the welcome footer. */
 export function VersionLine() {
   const [version, setVersion] = useState<string | null>(null);
   const phase = useUpdateStore((s) => s.phase);
@@ -30,18 +30,18 @@ export function VersionLine() {
             : null;
 
   return (
-    <p className="mt-10 text-xs text-ink-600">
+    <span>
       Campaign Forge {version ?? ""}
       {" · "}
       <button
         type="button"
         onClick={() => void check({ manual: true })}
         disabled={phase === "checking"}
-        className="text-ink-500 hover:text-ink-300 disabled:opacity-60"
+        className="text-[#a3abba] hover:text-ember-300 disabled:opacity-60"
       >
         Check for updates
       </button>
-      {status && <span className="ml-2 text-ink-500">{status}</span>}
-    </p>
+      {status && <span className="ml-2">{status}</span>}
+    </span>
   );
 }

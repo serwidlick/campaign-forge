@@ -1,7 +1,6 @@
 import { Radio, Search, Wifi, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { Button } from "@/components/Button";
 import type { FoundTable } from "@/lib/types";
 import { useTableStore } from "@/stores/table-store";
 
@@ -9,6 +8,13 @@ import { useTableStore } from "@/stores/table-store";
 const SEARCH_MS = 8000;
 const POLL_MS = 1000;
 const NAME_KEY = "cf.playerName";
+
+const FIELD =
+  "mt-1 w-full rounded-md border border-ink-700 bg-ink-850 px-3 py-2 text-ink-100 outline-none placeholder:text-ink-600 focus:border-ember-500";
+const ACTION =
+  "inline-flex h-10 items-center gap-2 rounded-lg border border-ink-700 bg-ink-850 px-4 text-sm font-medium text-ink-100 transition hover:border-ink-500 hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50";
+const PRIMARY =
+  "inline-flex h-10 items-center gap-2 rounded-lg bg-ember-500 px-4 text-sm font-semibold text-ink-950 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50";
 
 function rememberedName(): string {
   try {
@@ -18,8 +24,18 @@ function rememberedName(): string {
   }
 }
 
-/** The player's way in: tables found on the network, or a typed address. */
-export function JoinTable() {
+/**
+ * The player's way in, as a card on the welcome screen: find a GM's table
+ * on the network, or type their address, then sit down with a name and the
+ * code the GM reads out.
+ */
+export function JoinTable({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
   const found = useTableStore((s) => s.found);
   const joining = useTableStore((s) => s.joining);
   const error = useTableStore((s) => s.error);
@@ -56,6 +72,7 @@ export function JoinTable() {
     stopSearch();
     clearFound();
     setPicked(null);
+    setManual(false);
     setSearching(true);
     setSearched(true);
     void discover();
@@ -95,14 +112,52 @@ export function JoinTable() {
   }
 
   const formOpen = manual || picked !== null;
+  const status = searching
+    ? "Listening for a GM hosting on this network…"
+    : found.length > 0
+      ? `${found.length} ${found.length === 1 ? "table" : "tables"} on this network`
+      : searched
+        ? "No table found. Is the GM hosting, and are you on the same Wi-Fi?"
+        : null;
 
   return (
-    <section className="mt-10">
-      <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-400">
-        <Radio size={12} /> Join a table
-      </h2>
+    <div className="flex flex-col gap-3.5 rounded-xl border border-ink-800 bg-ink-900 p-5">
+      <div className="flex flex-wrap items-center gap-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ink-800 text-ink-200">
+          <Radio size={18} />
+        </span>
+        <div className="flex min-w-0 flex-[1_1_240px] flex-col gap-0.5">
+          <h2 className="text-[15px] font-semibold text-ink-100">{title}</h2>
+          <p className="text-[13px] text-[#7d8595]">{description}</p>
+        </div>
+        <div className="flex items-center gap-3.5">
+          <button
+            type="button"
+            onClick={() => {
+              setManual((v) => !v);
+              setPicked(null);
+            }}
+            className="text-[13px] text-[#a3abba] hover:text-ember-300"
+          >
+            {manual ? "Hide address" : "Enter address"}
+          </button>
+          <button
+            type="button"
+            onClick={searching ? stopSearch : startSearch}
+            className={ACTION}
+          >
+            {searching ? (
+              <Wifi size={16} className="animate-pulse" />
+            ) : (
+              <Search size={16} />
+            )}
+            {searching ? "Stop" : searched ? "Search again" : "Find tables"}
+          </button>
+        </div>
+      </div>
+
       {notice && (
-        <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
           <span className="flex-1">{notice}</span>
           <button
             type="button"
@@ -114,146 +169,116 @@ export function JoinTable() {
           </button>
         </div>
       )}
-      <div className="rounded-lg border border-ink-800 bg-ink-900">
-        <div className="flex items-center gap-3 px-4 py-2.5">
-          <span className="flex flex-1 items-center gap-2 text-sm text-ink-500">
-            {searching ? (
-              <>
-                <Wifi size={14} className="animate-pulse" />
-                Listening for a GM hosting on this network…
-              </>
-            ) : found.length > 0 ? (
-              `${found.length} ${found.length === 1 ? "table" : "tables"} on this network`
-            ) : searched ? (
-              "No table found. Is the GM hosting, and are you on the same Wi-Fi?"
-            ) : (
-              "Nothing is scanned until you ask."
-            )}
-          </span>
-          <Button
-            size="sm"
-            variant={found.length > 0 || searching ? "ghost" : "primary"}
-            onClick={searching ? stopSearch : startSearch}
-          >
-            <Search size={14} />{" "}
-            {searching ? "Stop" : searched ? "Search again" : "Find tables"}
-          </Button>
-        </div>
-        {found.length > 0 && (
-          <ul className="divide-y divide-ink-800">
-            {found.map((t) => (
-              <li key={t.id} className="flex items-center gap-3 px-4 py-2.5">
-                <div className="flex-1">
-                  <div className="text-sm text-ink-100">{t.name}</div>
-                  <div className="text-xs text-ink-500">
-                    {t.system ? `${t.system} · ` : ""}
-                    {t.addresses[0] ?? "no address yet"}
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant={picked?.id === t.id ? "primary" : "ghost"}
-                  onClick={() => {
-                    setPicked(t);
-                    setManual(false);
-                  }}
-                  disabled={t.addresses.length === 0}
-                >
-                  Join
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="border-t border-ink-800 px-4 py-2">
-          <button
-            type="button"
-            onClick={() => {
-              setManual((v) => !v);
-              setPicked(null);
-            }}
-            className="text-xs text-ink-400 hover:text-ink-200"
-          >
-            {manual ? "Hide" : "Join by address instead"}
-          </button>
-        </div>
 
-        {formOpen && (
-          <form
-            onSubmit={(e) => void handleJoin(e)}
-            className="space-y-3 border-t border-ink-800 px-4 py-4"
-          >
-            {picked && !manual && (
-              <p className="text-sm text-ink-300">
-                Joining <span className="text-ink-100">{picked.name}</span>
-              </p>
-            )}
-            {manual && (
-              <label className="block text-sm">
-                <span className="text-ink-300">GM's address</span>
-                <input
-                  autoFocus
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="192.168.1.20:51234"
-                  className="mt-1 w-full rounded-md border border-ink-700 bg-ink-850 px-3 py-2 font-mono text-ink-100 outline-none placeholder:text-ink-600 focus:border-ember-500"
-                />
-              </label>
-            )}
-            <div className="flex flex-wrap gap-3">
-              <label className="block flex-1 text-sm">
-                <span className="text-ink-300">Your name</span>
-                <input
-                  autoFocus={!manual}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="As the GM knows you"
-                  className="mt-1 w-full rounded-md border border-ink-700 bg-ink-850 px-3 py-2 text-ink-100 outline-none placeholder:text-ink-600 focus:border-ember-500"
-                />
-              </label>
-              <label className="block w-40 text-sm">
-                <span className="text-ink-300">Join code</span>
-                <input
-                  value={code}
-                  onChange={(e) =>
-                    setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                  }
-                  inputMode="numeric"
-                  placeholder="6 digits"
-                  className="mt-1 w-full rounded-md border border-ink-700 bg-ink-850 px-3 py-2 font-mono tracking-[0.2em] text-ink-100 outline-none placeholder:tracking-normal placeholder:text-ink-600 focus:border-ember-500"
-                />
-              </label>
-            </div>
-            {error && (
-              <div className="flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-                <span className="flex-1">{error}</span>
-                <button
-                  type="button"
-                  onClick={clearError}
-                  aria-label="Dismiss"
-                  className="text-red-300 hover:text-red-100"
-                >
-                  <X size={14} />
-                </button>
+      {status && <p className="text-xs text-[#7d8595]">{status}</p>}
+
+      {found.length > 0 && (
+        <ul className="divide-y divide-ink-800 overflow-hidden rounded-lg border border-ink-800">
+          {found.map((t) => (
+            <li key={t.id} className="flex items-center gap-3 px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-ink-100">{t.name}</div>
+                <div className="truncate text-xs text-[#7d8595]">
+                  {t.system ? `${t.system} · ` : ""}
+                  {t.addresses[0] ?? "no address yet"}
+                </div>
               </div>
-            )}
-            <div className="flex gap-2">
-              <Button type="submit" disabled={!canJoin || joining}>
-                {joining ? "Joining…" : "Sit down"}
-              </Button>
-              <Button
-                variant="ghost"
+              <button
+                type="button"
                 onClick={() => {
-                  setPicked(null);
+                  setPicked(t);
                   setManual(false);
                 }}
+                disabled={t.addresses.length === 0}
+                className={picked?.id === t.id ? PRIMARY : ACTION}
               >
-                Cancel
-              </Button>
+                Join
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {formOpen && (
+        <form
+          onSubmit={(e) => void handleJoin(e)}
+          className="flex flex-col gap-3 border-t border-ink-800 pt-4"
+        >
+          {picked && !manual && (
+            <p className="text-sm text-ink-300">
+              Joining <span className="text-ink-100">{picked.name}</span>
+            </p>
+          )}
+          {manual && (
+            <label className="block text-sm">
+              <span className="text-ink-300">GM's address</span>
+              <input
+                autoFocus
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="192.168.1.20:51234"
+                className={`${FIELD} font-mono`}
+              />
+            </label>
+          )}
+          <div className="flex flex-wrap gap-3">
+            <label className="block flex-1 text-sm">
+              <span className="text-ink-300">Your name</span>
+              <input
+                autoFocus={!manual}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="As the GM knows you"
+                className={FIELD}
+              />
+            </label>
+            <label className="block w-40 text-sm">
+              <span className="text-ink-300">Join code</span>
+              <input
+                value={code}
+                onChange={(e) =>
+                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                }
+                inputMode="numeric"
+                placeholder="6 digits"
+                className={`${FIELD} font-mono tracking-[0.2em] placeholder:tracking-normal`}
+              />
+            </label>
+          </div>
+          {error && (
+            <div className="flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              <span className="flex-1">{error}</span>
+              <button
+                type="button"
+                onClick={clearError}
+                aria-label="Dismiss"
+                className="text-red-300 hover:text-red-100"
+              >
+                <X size={14} />
+              </button>
             </div>
-          </form>
-        )}
-      </div>
-    </section>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={!canJoin || joining}
+              className={PRIMARY}
+            >
+              {joining ? "Joining…" : "Sit down"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPicked(null);
+                setManual(false);
+              }}
+              className={ACTION}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

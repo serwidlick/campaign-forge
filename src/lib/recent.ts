@@ -55,3 +55,23 @@ export async function forgetCampaign(path: string): Promise<void> {
     existing.filter((r) => r.path !== path),
   );
 }
+
+/** "today", "yesterday", "6 days ago", "3 weeks ago", for recent rows. */
+export function relativeOpened(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const days = Math.floor((Date.now() - then) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) {
+    const w = Math.round(days / 7);
+    return `${w} ${w === 1 ? "week" : "weeks"} ago`;
+  }
+  if (days < 365) {
+    const m = Math.round(days / 30);
+    return `${m} ${m === 1 ? "month" : "months"} ago`;
+  }
+  const y = Math.round(days / 365);
+  return `${y} ${y === 1 ? "year" : "years"} ago`;
+}

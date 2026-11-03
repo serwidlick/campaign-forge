@@ -78,6 +78,8 @@ Send people to the download page: **https://serwidlick.github.io/campaign-forge/
 
 Players only need the same installer. They do not need a campaign folder; they join a table from the welcome screen.
 
+**Guide.** How everything works, task by task, is in [docs/](docs/README.md), also published at https://serwidlick.github.io/campaign-forge/guide/ (the site renders the same Markdown files, so edits to `docs/` go live on push).
+
 **Updates.** The app checks GitHub Releases a few seconds after launch and every few hours after that. When a newer version exists, a strip across the top offers _Install and restart_; the welcome screen also has a _Check for updates_ link. Update packages are signed, and the app only installs a package whose signature matches the public key built into it. Nothing else is contacted. On Windows and with the Linux AppImage the update installs itself; the `.deb` is reinstalled by hand.
 
 ### Making a release

@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Campaign Forge guide</title>
+    <meta
+      name="description"
+      content="How to use Campaign Forge: the world bible, maps, sessions, the timeline, playing at the table over your network, the assistant, your files."
+    />
+    <link rel="icon" href="../icon.png" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+    <style>
+      :root {
+        --ink-950: #0e0f13;
+        --ink-900: #15171d;
+        --ink-850: #1a1d24;
+        --ink-800: #232732;
+        --ink-700: #323846;
+        --ink-500: #6b7385;
+        --ink-400: #8a92a6;
+        --ink-300: #aab1c2;
+        --ink-200: #cfd4df;
+        --ink-100: #eceef3;
+        --ember-300: #f6b98a;
+        --ember-400: #eea066;
+        --ember-500: #e07f3f;
+        --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--ink-950);
+        color: var(--ink-200);
+        font:
+          16px/1.6 system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      a {
+        color: var(--ember-300);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .shell {
+        display: grid;
+        grid-template-columns: 240px minmax(0, 1fr);
+        max-width: 1100px;
+        margin: 0 auto;
+        min-height: 100vh;
+      }
+      nav {
+        padding: 32px 20px 40px;
+        border-right: 1px solid var(--ink-800);
+        position: sticky;
+        top: 0;
+        align-self: start;
+        max-height: 100vh;
+        overflow-y: auto;
+      }
+      nav .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 22px;
+        color: var(--ink-100);
+        font-weight: 600;
+      }
+      nav .brand img {
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+      }
+      nav h2 {
+        margin: 18px 0 6px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ink-500);
+      }
+      nav ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      nav li a {
+        display: block;
+        padding: 6px 10px;
+        border-radius: 8px;
+        color: var(--ink-300);
+        font-size: 14px;
+      }
+      nav li a:hover {
+        background: var(--ink-900);
+        text-decoration: none;
+        color: var(--ink-100);
+      }
+      nav li a.active {
+        background: var(--ink-850);
+        color: var(--ink-100);
+      }
+      main {
+        padding: 40px 48px 80px;
+        min-width: 0;
+      }
+      .status {
+        color: var(--ink-500);
+        font-size: 14px;
+      }
+      article h1 {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 38px;
+        line-height: 1.1;
+        margin: 0 0 18px;
+        color: var(--ink-100);
+      }
+      article h2 {
+        font-size: 22px;
+        margin: 36px 0 10px;
+        color: var(--ink-100);
+      }
+      article h3 {
+        font-size: 17px;
+        margin: 26px 0 8px;
+        color: var(--ink-100);
+      }
+      article p,
+      article li {
+        color: var(--ink-300);
+      }
+      article li + li {
+        margin-top: 4px;
+      }
+      article code {
+        font-family: var(--mono);
+        font-size: 0.9em;
+        background: var(--ink-850);
+        padding: 1px 5px;
+        border-radius: 4px;
+        color: var(--ink-100);
+      }
+      article pre {
+        background: var(--ink-900);
+        border: 1px solid var(--ink-800);
+        border-radius: 10px;
+        padding: 14px 16px;
+        overflow-x: auto;
+      }
+      article pre code {
+        background: transparent;
+        padding: 0;
+        font-size: 13px;
+        color: var(--ink-200);
+      }
+      article table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 12px 0;
+        font-size: 14px;
+      }
+      article th,
+      article td {
+        text-align: left;
+        vertical-align: top;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--ink-800);
+      }
+      article th {
+        color: var(--ink-100);
+        font-weight: 600;
+      }
+      article blockquote {
+        margin: 12px 0;
+        padding: 6px 14px;
+        border-left: 3px solid var(--ember-500);
+        color: var(--ink-300);
+      }
+      article strong {
+        color: var(--ink-100);
+      }
+      .pager {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 48px;
+        padding-top: 18px;
+        border-top: 1px solid var(--ink-800);
+        font-size: 14px;
+      }
+      .edit {
+        margin-top: 28px;
+        font-size: 13px;
+        color: var(--ink-500);
+      }
+      @media (max-width: 760px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+        nav {
+          position: static;
+          max-height: none;
+          border-right: 0;
+          border-bottom: 1px solid var(--ink-800);
+          padding-bottom: 16px;
+        }
+        main {
+          padding: 24px 20px 60px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <nav>
+        <a class="brand" href="../"
+          ><img src="../icon.png" alt="" />Campaign Forge</a
+        >
+        <h2>Guide</h2>
+        <ol id="toc"></ol>
+        <h2>Elsewhere</h2>
+        <ol>
+          <li><a href="../">Download</a></li>
+          <li>
+            <a href="https://github.com/serwidlick/campaign-forge"
+              >Source on GitHub</a
+            >
+          </li>
+        </ol>
+      </nav>
+      <main>
+        <article id="article"><p class="status">Loading…</p></article>
+        <div class="pager" id="pager"></div>
+        <p class="edit" id="edit"></p>
+      </main>
+    </div>
+
+    <script>
+      (function () {
+        var REPO = "serwidlick/campaign-forge";
+        var RAW = "https://raw.githubusercontent.com/" + REPO + "/master/docs/";
+        var PAGES = [
+          ["README", "Overview"],
+          ["getting-started", "Getting started"],
+          ["world-bible", "The world bible"],
+          ["maps", "Maps"],
+          ["sessions-and-journals", "Arcs, sessions and journals"],
+          ["timeline-and-calendar", "Timeline and calendar"],
+          ["playing-at-the-table", "Playing at the table"],
+          ["assistant", "The assistant"],
+          ["your-files", "Your files"],
+          ["updates", "Updates and releases"],
+          ["troubleshooting", "Troubleshooting"],
+        ];
+        var toc = document.getElementById("toc");
+        var article = document.getElementById("article");
+        var pager = document.getElementById("pager");
+        var edit = document.getElementById("edit");
+
+        function pageFromUrl() {
+          var p = new URLSearchParams(location.search).get("page") || "README";
+          return PAGES.some(function (x) {
+            return x[0] === p;
+          })
+            ? p
+            : "README";
+        }
+
+        function slug(text) {
+          return text
+            .toLowerCase()
+            .replace(/[^\w\s-]/g, "")
+            .trim()
+            .replace(/\s+/g, "-");
+        }
+
+        function renderToc(current) {
+          toc.innerHTML = "";
+          PAGES.forEach(function (p) {
+            var li = document.createElement("li");
+            var a = document.createElement("a");
+            a.href = "?page=" + p[0];
+            a.textContent = p[1];
+            if (p[0] === current) a.className = "active";
+            li.appendChild(a);
+            toc.appendChild(li);
+          });
+        }
+
+        function rewriteLinks(root) {
+          root.querySelectorAll("a[href]").forEach(function (a) {
+            var href = a.getAttribute("href");
+            var m = /^([\w-]+)\.md(#.*)?$/.exec(href);
+            if (m) {
+              a.setAttribute("href", "?page=" + m[1] + (m[2] || ""));
+            } else if (/^https?:/.test(href)) {
+              a.target = "_blank";
+              a.rel = "noopener";
+            }
+          });
+          root.querySelectorAll("h1, h2, h3, h4").forEach(function (h) {
+            if (!h.id) h.id = slug(h.textContent || "");
+          });
+        }
+
+        function renderPager(current) {
+          var i = PAGES.findIndex(function (p) {
+            return p[0] === current;
+          });
+          var prev = PAGES[i - 1];
+          var next = PAGES[i + 1];
+          pager.innerHTML = "";
+          var left = document.createElement("span");
+          var right = document.createElement("span");
+          if (prev)
+            left.innerHTML =
+              '← <a href="?page=' + prev[0] + '">' + prev[1] + "</a>";
+          if (next)
+            right.innerHTML =
+              '<a href="?page=' + next[0] + '">' + next[1] + "</a> →";
+          pager.appendChild(left);
+          pager.appendChild(right);
+        }
+
+        function load() {
+          var page = pageFromUrl();
+          renderToc(page);
+          article.innerHTML = '<p class="status">Loading…</p>';
+          fetch(RAW + page + ".md", { cache: "no-cache" })
+            .then(function (r) {
+              if (!r.ok) throw new Error(String(r.status));
+              return r.text();
+            })
+            .then(function (md) {
+              article.innerHTML = marked.parse(md);
+              rewriteLinks(article);
+              renderPager(page);
+              edit.innerHTML =
+                'This page is <a href="https://github.com/' +
+                REPO +
+                "/blob/master/docs/" +
+                page +
+                '.md">docs/' +
+                page +
+                ".md</a> in the repository.";
+              var title = article.querySelector("h1");
+              document.title =
+                (title ? title.textContent + " · " : "") +
+                "Campaign Forge guide";
+              if (location.hash) {
+                var target = document.getElementById(location.hash.slice(1));
+                if (target) target.scrollIntoView();
+              } else {
+                window.scrollTo(0, 0);
+              }
+            })
+            .catch(function () {
+              article.innerHTML =
+                '<p class="status">Could not load this page from GitHub. <a href="https://github.com/' +
+                REPO +
+                '/tree/master/docs">Read the guide on GitHub instead.</a></p>';
+            });
+        }
+
+        document.addEventListener("click", function (e) {
+          var a = e.target.closest && e.target.closest("a");
+          if (!a || a.target === "_blank") return;
+          var href = a.getAttribute("href") || "";
+          if (href.indexOf("?page=") === 0) {
+            e.preventDefault();
+            history.pushState(null, "", href);
+            load();
+          }
+        });
+        window.addEventListener("popstate", load);
+        load();
+      })();
+    </script>
+  </body>
+</html>
