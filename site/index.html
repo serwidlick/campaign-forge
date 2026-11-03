@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Campaign Forge</title>
+    <meta
+      name="description"
+      content="A local-first desktop campaign manager for tabletop game masters. World bible, maps, sessions, timeline and journals as plain files on your own disk. Play at a table over your local network."
+    />
+    <link rel="icon" href="icon.png" />
+    <style>
+      :root {
+        --ink-950: #0e0f13;
+        --ink-900: #15171d;
+        --ink-850: #1a1d24;
+        --ink-800: #232732;
+        --ink-700: #323846;
+        --ink-500: #6b7385;
+        --ink-400: #8a92a6;
+        --ink-300: #aab1c2;
+        --ink-200: #cfd4df;
+        --ink-100: #eceef3;
+        --ember-200: #fbd5b5;
+        --ember-300: #f6b98a;
+        --ember-400: #eea066;
+        --ember-500: #e07f3f;
+        --ember-600: #c4672c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--ink-950);
+        color: var(--ink-200);
+        font:
+          16px/1.55 system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      a {
+        color: var(--ember-300);
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 56px 20px 80px;
+      }
+      header h1 {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 44px;
+        line-height: 1.1;
+        margin: 0 0 12px;
+        color: var(--ink-100);
+        letter-spacing: -0.01em;
+      }
+      header p {
+        font-size: 18px;
+        color: var(--ink-400);
+        margin: 0;
+        max-width: 560px;
+      }
+      .download {
+        margin-top: 36px;
+        padding: 24px;
+        border: 1px solid var(--ink-800);
+        border-radius: 14px;
+        background: var(--ink-900);
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 22px;
+        border-radius: 10px;
+        background: var(--ember-500);
+        color: var(--ink-950);
+        font-weight: 600;
+        font-size: 18px;
+        text-decoration: none;
+        transition: background 0.15s;
+      }
+      .btn:hover {
+        background: var(--ember-400);
+      }
+      .btn svg {
+        width: 20px;
+        height: 20px;
+      }
+      .meta {
+        margin-top: 10px;
+        font-size: 13px;
+        color: var(--ink-500);
+      }
+      .others {
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid var(--ink-800);
+        font-size: 14px;
+        color: var(--ink-400);
+      }
+      .others ul {
+        list-style: none;
+        padding: 0;
+        margin: 8px 0 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+      }
+      .note {
+        margin-top: 14px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: var(--ink-850);
+        border: 1px solid var(--ink-800);
+        font-size: 14px;
+        color: var(--ink-300);
+      }
+      .note strong {
+        color: var(--ink-100);
+      }
+      .muted {
+        color: var(--ink-500);
+      }
+      section {
+        margin-top: 44px;
+      }
+      h2 {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--ink-500);
+        margin: 0 0 12px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 14px;
+      }
+      .card {
+        padding: 16px;
+        border: 1px solid var(--ink-800);
+        border-radius: 12px;
+        background: var(--ink-900);
+      }
+      .card h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+        color: var(--ink-100);
+      }
+      .card p {
+        margin: 0;
+        font-size: 14px;
+        color: var(--ink-400);
+      }
+      ol {
+        padding-left: 20px;
+        margin: 0;
+        color: var(--ink-300);
+      }
+      ol li + li {
+        margin-top: 6px;
+      }
+      footer {
+        margin-top: 56px;
+        font-size: 13px;
+        color: var(--ink-500);
+      }
+      .hidden {
+        display: none !important;
+      }
+      @media (max-width: 520px) {
+        header h1 {
+          font-size: 34px;
+        }
+        .btn {
+          width: 100%;
+          justify-content: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Campaign Forge</h1>
+        <p>
+          A desktop campaign manager for tabletop game masters. Your world,
+          maps, sessions and journals live as plain files on your own disk. No
+          account, no server. Play at the table over your own Wi-Fi.
+        </p>
+      </header>
+
+      <div class="download" id="download">
+        <a class="btn" id="primary" href="#">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+          <span id="primary-label">Download</span>
+        </a>
+        <div class="meta" id="meta">Finding the latest version…</div>
+
+        <div class="note hidden" id="note-windows">
+          <strong>Windows:</strong> run the installer. It installs just for you,
+          no admin rights needed. Windows SmartScreen may say the publisher is
+          unknown because the app is not code-signed. Click
+          <strong>More info</strong>, then <strong>Run anyway</strong>.
+        </div>
+        <div class="note hidden" id="note-mac">
+          <strong>macOS:</strong> open the disk image and drag Campaign Forge to
+          Applications. The first time, right-click the app and choose
+          <strong>Open</strong>, because it is not notarised yet.
+        </div>
+        <div class="note hidden" id="note-linux">
+          <strong>Linux:</strong> the AppImage runs on any distribution; mark it
+          executable first. The .deb is for Debian and Ubuntu.
+        </div>
+
+        <div class="others">
+          Other downloads
+          <ul id="others"></ul>
+        </div>
+      </div>
+
+      <section>
+        <h2>Playing with friends</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>Game master</h3>
+            <p>
+              Open your campaign, mark what players may see as Shared, press
+              Host a table and read out the six-digit code.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Players</h3>
+            <p>
+              Install the same app, join the same Wi-Fi, pick the table from the
+              list on the welcome screen and type the code. No campaign folder
+              needed.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>What is inside</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>World bible</h3>
+            <p>
+              Characters, factions, places, items, lore. Link anything with @,
+              see what links back.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Maps</h3>
+            <p>
+              Drop in an image, pin places, draw routes and territories, set a
+              scale and measure travel time.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Sessions and arcs</h3>
+            <p>
+              Plan beats, mark the encounter and the cliffhanger, keep a
+              journal.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Your files</h3>
+            <p>
+              Everything is Markdown in a folder you choose. Back it up, sync
+              it, read it in any editor.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        Open source on
+        <a id="repo-link" href="https://github.com/serwidlick/campaign-forge"
+          >GitHub</a
+        >. All versions are on the
+        <a
+          id="releases-link"
+          href="https://github.com/serwidlick/campaign-forge/releases"
+          >releases page</a
+        >.
+      </footer>
+    </main>
+
+    <script>
+      (function () {
+        var REPO = "serwidlick/campaign-forge";
+        var releasesUrl = "https://github.com/" + REPO + "/releases";
+        var primary = document.getElementById("primary");
+        var primaryLabel = document.getElementById("primary-label");
+        var meta = document.getElementById("meta");
+        var others = document.getElementById("others");
+
+        // Which asset suits which machine. Names come from the release
+        // workflow; GitHub swaps spaces for dots.
+        var KINDS = [
+          { id: "windows", label: "Windows", test: /-setup\.exe$/i },
+          {
+            id: "mac-arm",
+            label: "macOS (Apple Silicon)",
+            test: /aarch64\.dmg$/i,
+          },
+          { id: "mac-intel", label: "macOS (Intel)", test: /x64\.dmg$/i },
+          {
+            id: "linux-appimage",
+            label: "Linux AppImage",
+            test: /\.AppImage$/i,
+          },
+          { id: "linux-deb", label: "Linux .deb", test: /\.deb$/i },
+        ];
+
+        function detect() {
+          var ua = navigator.userAgent;
+          var plat =
+            (navigator.userAgentData && navigator.userAgentData.platform) ||
+            navigator.platform ||
+            "";
+          if (/Windows/i.test(ua) || /Win/i.test(plat))
+            return Promise.resolve("windows");
+          if (/Mac/i.test(plat) || /Macintosh/i.test(ua)) {
+            // Chromium can tell us the CPU; Safari cannot, so we guess Apple Silicon,
+            // which every Mac sold since 2020 has.
+            if (
+              navigator.userAgentData &&
+              navigator.userAgentData.getHighEntropyValues
+            ) {
+              return navigator.userAgentData
+                .getHighEntropyValues(["architecture"])
+                .then(function (v) {
+                  return v.architecture === "x86" ? "mac-intel" : "mac-arm";
+                })
+                .catch(function () {
+                  return "mac-arm";
+                });
+            }
+            return Promise.resolve("mac-arm");
+          }
+          if (/Linux/i.test(plat) || /Linux/i.test(ua))
+            return Promise.resolve("linux-appimage");
+          return Promise.resolve(null);
+        }
+
+        function sizeOf(bytes) {
+          return (bytes / 1048576).toFixed(1) + " MB";
+        }
+
+        function showNote(kind) {
+          var id =
+            kind === "windows"
+              ? "note-windows"
+              : kind && kind.indexOf("mac") === 0
+                ? "note-mac"
+                : kind
+                  ? "note-linux"
+                  : null;
+          ["note-windows", "note-mac", "note-linux"].forEach(function (n) {
+            document.getElementById(n).classList.toggle("hidden", n !== id);
+          });
+        }
+
+        function fallback(message) {
+          primary.href = releasesUrl;
+          primaryLabel.textContent = "See all downloads";
+          others.parentElement.classList.add("hidden");
+          meta.textContent = message;
+          others.innerHTML = "";
+        }
+
+        function render(release, kind) {
+          var assets = release.assets || [];
+          var byKind = {};
+          KINDS.forEach(function (k) {
+            var a = assets.filter(function (x) {
+              return k.test.test(x.name);
+            })[0];
+            if (a) byKind[k.id] = a;
+          });
+          var version = release.tag_name || release.name || "";
+          var chosen = kind && byKind[kind];
+          if (chosen) {
+            var label = KINDS.filter(function (k) {
+              return k.id === kind;
+            })[0].label;
+            primary.href = chosen.browser_download_url;
+            primaryLabel.textContent = "Download for " + label;
+            meta.textContent =
+              version + " · " + sizeOf(chosen.size) + " · " + chosen.name;
+            showNote(kind);
+          } else {
+            primary.href = release.html_url || releasesUrl;
+            primaryLabel.textContent = "Download " + version;
+            meta.textContent = kind
+              ? "No build for your system in this release yet. Pick one below."
+              : "Pick the download for your system below.";
+            showNote(null);
+          }
+          others.innerHTML = "";
+          KINDS.forEach(function (k) {
+            var a = byKind[k.id];
+            if (!a || k.id === kind) return;
+            var li = document.createElement("li");
+            var link = document.createElement("a");
+            link.href = a.browser_download_url;
+            link.textContent = k.label;
+            li.appendChild(link);
+            var s = document.createElement("span");
+            s.className = "muted";
+            s.textContent = " " + sizeOf(a.size);
+            li.appendChild(s);
+            others.appendChild(li);
+          });
+          if (!others.children.length) {
+            others.parentElement.classList.add("hidden");
+          }
+        }
+
+        Promise.all([
+          fetch("https://api.github.com/repos/" + REPO + "/releases/latest", {
+            headers: { Accept: "application/vnd.github+json" },
+          }).then(function (r) {
+            if (!r.ok) throw new Error(String(r.status));
+            return r.json();
+          }),
+          detect(),
+        ])
+          .then(function (res) {
+            render(res[0], res[1]);
+          })
+          .catch(function (err) {
+            fallback(
+              err && err.message === "404"
+                ? "No release has been published yet. Check back soon."
+                : "Could not reach GitHub to find the latest version.",
+            );
+          });
+      })();
+    </script>
+  </body>
+</html>

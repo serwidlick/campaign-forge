@@ -66,6 +66,26 @@ Links between elements are ordinary Markdown links with the `cf://element/<id>` 
 
 Kind-specific fields live in the same frontmatter. A session, for example, carries `arc`, `number`, `date`, `status` and a `beats` list; unknown keys written by other tools are preserved on save.
 
+## Installing
+
+Send people to the download page: **https://serwidlick.github.io/campaign-forge/**. It offers the right installer for their system from the latest release. Every version is also on the [Releases](https://github.com/serwidlick/campaign-forge/releases) page.
+
+- **Windows:** run `Campaign Forge_<version>_x64-setup.exe`. It installs for the current user only, so no admin rights are needed. Windows SmartScreen may warn that the publisher is unknown because the build is not code-signed; choose _More info → Run anyway_.
+- **macOS:** open the `.dmg` and drag Campaign Forge to Applications. The first launch needs a right-click → _Open_, because the app is not notarised.
+- **Linux:** the `.AppImage` runs on any distribution (`chmod +x` it first); the `.deb` is for Debian and Ubuntu.
+
+Players only need the same installer. They do not need a campaign folder; they join a table from the welcome screen.
+
+### Making a release
+
+Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub Actions for Windows, macOS (Apple Silicon and Intel) and Linux. Bump the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit, then tag and push:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The workflow publishes the release with all installers attached, and the download page picks it up by itself. The page lives in `site/` and is deployed to GitHub Pages by the [Pages workflow](.github/workflows/pages.yml) whenever it changes. Both need the repository to be public. To build an installer for the current machine only, run `pnpm tauri:build`; it lands in `src-tauri/target/release/bundle/`.
+
 ## Development
 
 Prerequisites: Node 22, pnpm, a Rust toolchain, and on Windows the Visual Studio C++ build tools. See the [Tauri prerequisites](https://tauri.app/start/prerequisites/).
@@ -90,7 +110,7 @@ Husky runs lint-staged, typecheck and (when cargo is available) `cargo check` be
 
 ## Commits
 
-This repo uses [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): subject`. Allowed types are feat, fix, docs, style, refactor, perf, test, build, ci, chore and revert. The scope is optional and kebab-case, for example `bible`, `storage`, `agent`, `ui`. CI lints every commit on a pull request.
+This repo uses [Conventional Commits](https://www.conventionalcommits.org/): `type: subject`. Allowed types are feat, fix, docs, style, refactor, perf, test, build, ci, chore and revert. Scopes are allowed by commitlint but not used here. CI lints every commit on a pull request.
 
 ## Project layout
 

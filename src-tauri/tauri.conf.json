@@ -27,7 +27,20 @@
   "plugins": {},
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "dmg", "appimage", "deb"],
+    "publisher": "David Levey",
+    "shortDescription": "Local-first campaign manager for tabletop game masters",
+    "longDescription": "World bible, maps, sessions, timeline and journals for tabletop RPG campaigns, stored as plain Markdown files on your own disk. Play at a table over the local network.",
+    "copyright": "Copyright © 2026 David Levey",
+    "category": "Game",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      },
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
