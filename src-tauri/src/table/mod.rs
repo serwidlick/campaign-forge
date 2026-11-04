@@ -259,6 +259,15 @@ pub async fn table_fetch_element(
 }
 
 #[tauri::command]
+pub async fn table_update_sheet(
+    table: State<'_, TableState>,
+    id: String,
+    sheet: serde_json::Value,
+) -> CommandResult<Element> {
+    session(&table)?.update_sheet(&id, sheet).await
+}
+
+#[tauri::command]
 pub async fn table_fetch_asset(
     table: State<'_, TableState>,
     path: String,

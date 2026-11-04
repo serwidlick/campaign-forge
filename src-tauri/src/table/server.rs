@@ -10,7 +10,10 @@
 //! GET  /api/version?after=N             long-poll: returns once version > N
 //! ```
 //!
-//! Everything but `/api/table` needs `Authorization: Bearer <token>`. The
+//! The same server also serves a small web page at `/` so a phone or
+//! tablet can sit at the table from its browser, with the same API.
+//!
+//! Everything but `/api/table` and the page needs `Authorization: Bearer <token>`. The
 //! token comes from `/api/join`, which checks the six-digit code the GM reads
 //! out at the table. That is the whole security model: same Wi-Fi plus the
 //! code. Fine for a living room, and we say so in the UI.
@@ -22,7 +25,7 @@ use std::time::Duration;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -142,10 +145,14 @@ pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
         spotlight: spotlight_rx,
     };
     let router = Router::new()
+        .route("/", get(player_page))
+        .route("/marked.umd.js", get(player_script))
+        .route("/icon.png", get(player_icon))
         .route("/api/table", get(table_info))
         .route("/api/join", post(join))
         .route("/api/elements", get(elements))
         .route("/api/elements/{id}", get(element))
+        .route("/api/elements/{id}/sheet", put(update_sheet))
         .route("/api/assets/{*path}", get(asset))
         .route("/api/version", get(version))
         .with_state(served);
@@ -173,6 +180,35 @@ pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
         stop,
         spotlight,
     })
+}
+
+// ---- The phone page ------------------------------------------------------
+
+const PLAYER_PAGE: &str = include_str!("../../web/player.html");
+const PLAYER_SCRIPT: &str = include_str!("../../web/marked.umd.js");
+const PLAYER_ICON: &[u8] = include_bytes!("../../icons/128x128.png");
+
+async fn player_page() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        PLAYER_PAGE,
+    )
+        .into_response()
+}
+
+async fn player_script() -> Response {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )],
+        PLAYER_SCRIPT,
+    )
+        .into_response()
+}
+
+async fn player_icon() -> Response {
+    ([(header::CONTENT_TYPE, "image/png")], PLAYER_ICON).into_response()
 }
 
 // ---- Handlers -------------------------------------------------------------
@@ -210,7 +246,9 @@ fn now() -> String {
 }
 
 /// Checks the bearer token and records that the player is still around.
-fn authed(s: &Served, headers: &HeaderMap) -> Result<(), ApiError> {
+/// Checks the bearer token, records the player as seen, and returns their
+/// table name.
+fn authed(s: &Served, headers: &HeaderMap) -> Result<String, ApiError> {
     if *s.closing.borrow() {
         return Err(ApiError(StatusCode::GONE, CLOSED_MESSAGE.to_owned()));
     }
@@ -229,7 +267,7 @@ fn authed(s: &Served, headers: &HeaderMap) -> Result<(), ApiError> {
     match players.get_mut(token) {
         Some(p) => {
             p.last_seen = now();
-            Ok(())
+            Ok(p.name.clone())
         }
         None => Err(ApiError(
             StatusCode::UNAUTHORIZED,
@@ -325,6 +363,24 @@ async fn asset(
         _ => "application/octet-stream",
     };
     Ok(([(header::CONTENT_TYPE, content_type)], bytes).into_response())
+}
+
+/// A player updating the sheet of the character the GM assigned to them.
+async fn update_sheet(
+    State(s): State<Served>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(sheet): Json<Value>,
+) -> Result<Json<Element>, ApiError> {
+    let player = authed(&s, &headers)?;
+    let state = s.app.state::<AppState>();
+    match share::update_sheet(&state, &id, &player, sheet).map_err(storage_error)? {
+        Some(e) => Ok(Json(e)),
+        None => Err(ApiError(
+            StatusCode::FORBIDDEN,
+            "this character is not yours to edit".to_owned(),
+        )),
+    }
 }
 
 /// Answers as soon as the campaign changes past `after`, or after a while

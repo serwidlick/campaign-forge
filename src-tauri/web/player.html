@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Campaign Forge table</title>
+    <link rel="icon" href="/icon.png" />
+    <script src="/marked.umd.js"></script>
+    <style>
+      :root {
+        --ink-950: #0e0f13;
+        --ink-900: #15171d;
+        --ink-850: #1b1e26;
+        --ink-800: #22262f;
+        --ink-700: #2e333e;
+        --ink-500: #7d8595;
+        --ink-400: #a3abba;
+        --ink-200: #cfd4de;
+        --ink-100: #eceef2;
+        --ember-300: #f0b47d;
+        --ember-500: #d9833b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--ink-950);
+        color: var(--ink-200);
+        font:
+          16px/1.5 system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      a {
+        color: var(--ember-300);
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      .screen {
+        display: none;
+        min-height: 100vh;
+      }
+      .screen.active {
+        display: block;
+      }
+      /* Join */
+      #join {
+        padding: 48px 20px;
+        max-width: 420px;
+        margin: 0 auto;
+      }
+      #join h1 {
+        font-family: Georgia, serif;
+        font-size: 30px;
+        margin: 0 0 6px;
+        color: var(--ink-100);
+      }
+      #join p {
+        color: var(--ink-400);
+        margin: 0 0 20px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        color: var(--ink-400);
+        margin-top: 14px;
+      }
+      input {
+        display: block;
+        width: 100%;
+        margin-top: 4px;
+        padding: 10px 12px;
+        border: 1px solid var(--ink-700);
+        border-radius: 8px;
+        background: var(--ink-850);
+        color: var(--ink-100);
+        outline: none;
+      }
+      input:focus {
+        border-color: var(--ember-500);
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 18px;
+        padding: 12px 18px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--ember-500);
+        color: var(--ink-950);
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .btn[disabled] {
+        opacity: 0.5;
+      }
+      .error {
+        margin-top: 14px;
+        padding: 10px 12px;
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        background: rgba(239, 68, 68, 0.1);
+        border-radius: 8px;
+        color: #fecaca;
+        font-size: 14px;
+      }
+      /* Table */
+      header.bar {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        background: var(--ink-900);
+        border-bottom: 1px solid var(--ink-800);
+      }
+      header.bar .title {
+        flex: 1;
+        min-width: 0;
+        font-weight: 600;
+        color: var(--ink-100);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      header.bar .sub {
+        font-size: 12px;
+        color: var(--ink-500);
+        font-weight: 400;
+      }
+      header.bar button {
+        border: 1px solid var(--ink-700);
+        background: transparent;
+        color: var(--ink-200);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .notice {
+        padding: 8px 14px;
+        background: rgba(217, 131, 59, 0.12);
+        border-bottom: 1px solid rgba(217, 131, 59, 0.4);
+        color: #fbd5b5;
+        font-size: 13px;
+      }
+      .filters {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        padding: 10px 14px 4px;
+        scrollbar-width: none;
+      }
+      .filters button {
+        flex: 0 0 auto;
+        border: 1px solid var(--ink-700);
+        background: var(--ink-900);
+        color: var(--ink-400);
+        border-radius: 999px;
+        padding: 5px 12px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .filters button.active {
+        border-color: var(--ember-500);
+        color: var(--ember-300);
+        background: rgba(217, 131, 59, 0.12);
+      }
+      #search {
+        margin: 8px 14px 6px;
+        width: calc(100% - 28px);
+      }
+      ul.list {
+        list-style: none;
+        margin: 0;
+        padding: 0 0 40px;
+      }
+      ul.list li button {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 10px 14px;
+        border: 0;
+        border-bottom: 1px solid var(--ink-800);
+        background: transparent;
+        color: var(--ink-100);
+        text-align: left;
+        cursor: pointer;
+      }
+      .tile {
+        flex: 0 0 auto;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        background: var(--ink-800);
+        color: var(--ink-200);
+        object-fit: cover;
+      }
+      .row-text {
+        min-width: 0;
+      }
+      .row-text .name {
+        font-size: 15px;
+      }
+      .row-text .kind {
+        font-size: 12px;
+        color: var(--ink-500);
+      }
+      /* Reader */
+      article {
+        padding: 18px 16px 60px;
+        max-width: 760px;
+        margin: 0 auto;
+      }
+      article .kind {
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-500);
+      }
+      article h1 {
+        font-family: Georgia, serif;
+        font-size: 28px;
+        margin: 4px 0 6px;
+        color: var(--ink-100);
+      }
+      article .tags {
+        font-size: 13px;
+        color: var(--ink-400);
+      }
+      article .facts {
+        margin: 10px 0 0;
+        font-size: 13px;
+        color: var(--ink-400);
+      }
+      article .facts b {
+        color: var(--ink-200);
+        font-weight: 600;
+      }
+      article .portrait {
+        width: 96px;
+        height: 96px;
+        border-radius: 12px;
+        object-fit: cover;
+        float: right;
+        margin: 0 0 10px 14px;
+      }
+      .body {
+        margin-top: 16px;
+        line-height: 1.6;
+        color: var(--ink-200);
+      }
+      .body h1,
+      .body h2,
+      .body h3 {
+        color: var(--ink-100);
+        margin: 18px 0 6px;
+      }
+      .body a.element {
+        color: var(--ember-300);
+        text-decoration: none;
+        border-bottom: 1px dotted var(--ember-300);
+      }
+      .body code {
+        background: var(--ink-850);
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      .body table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      .body td,
+      .body th {
+        border-bottom: 1px solid var(--ink-800);
+        padding: 4px 6px;
+        text-align: left;
+      }
+      .map {
+        position: relative;
+        margin-top: 14px;
+        border: 1px solid var(--ink-800);
+        border-radius: 10px;
+        overflow: auto;
+        background: var(--ink-900);
+        max-height: 70vh;
+      }
+      .map img {
+        display: block;
+        max-width: none;
+      }
+      .map .pin {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        margin: -7px 0 0 -7px;
+        border-radius: 999px;
+        border: 2px solid var(--ink-950);
+        box-shadow: 0 0 0 2px rgba(217, 131, 59, 0.45);
+        cursor: pointer;
+      }
+      .map .pin-label {
+        position: absolute;
+        transform: translate(-50%, -140%);
+        padding: 1px 6px;
+        border-radius: 5px;
+        background: rgba(14, 15, 19, 0.85);
+        border: 1px solid var(--ink-700);
+        font-size: 11px;
+        white-space: nowrap;
+        color: var(--ink-100);
+        pointer-events: none;
+      }
+      .map .zoom {
+        position: sticky;
+        top: 8px;
+        left: 8px;
+        display: inline-flex;
+        gap: 4px;
+        z-index: 1;
+        margin: 8px;
+      }
+      .map .zoom button {
+        border: 1px solid var(--ink-700);
+        background: var(--ink-900);
+        color: var(--ink-100);
+        border-radius: 6px;
+        width: 30px;
+        height: 30px;
+        cursor: pointer;
+      }
+      .mentions {
+        margin-top: 22px;
+        font-size: 13px;
+        color: var(--ink-500);
+      }
+      .mentions a {
+        margin-right: 10px;
+      }
+      .status {
+        padding: 40px 20px;
+        text-align: center;
+        color: var(--ink-500);
+      }
+      .back {
+        margin: 10px 14px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <section id="join" class="screen active">
+      <h1>Join the table</h1>
+      <p id="join-sub">Give your name and the code the GM reads out.</p>
+      <label
+        >Your name
+        <input
+          id="name"
+          autocomplete="name"
+          placeholder="As the GM knows you"
+        />
+      </label>
+      <label
+        >Join code
+        <input
+          id="code"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="6"
+          placeholder="6 digits"
+        />
+      </label>
+      <div id="join-error" class="error" hidden></div>
+      <button id="join-btn" class="btn" type="button">Sit down</button>
+    </section>
+
+    <section id="table" class="screen">
+      <header class="bar">
+        <button id="back" type="button" hidden>‹ Back</button>
+        <div class="title">
+          <span id="campaign-name"></span>
+          <span class="sub" id="player-name"></span>
+        </div>
+        <button id="leave" type="button">Leave</button>
+      </header>
+      <div id="notice" class="notice" hidden></div>
+      <div id="list-view">
+        <div class="filters" id="filters"></div>
+        <input id="search" type="search" placeholder="Search" />
+        <ul class="list" id="list"></ul>
+      </div>
+      <article id="reader" hidden></article>
+    </section>
+
+    <script>
+      (function () {
+        var KINDS = [
+          ["character", "Character", "Characters"],
+          ["creature", "Creature", "Creatures"],
+          ["faction", "Faction", "Factions"],
+          ["location", "Location", "Locations"],
+          ["map", "Map", "Maps"],
+          ["item", "Item", "Items"],
+          ["document", "Document", "Documents"],
+          ["quest", "Quest", "Quests"],
+          ["event", "Event", "Events"],
+          ["lore", "Lore", "Lore"],
+          ["arc", "Arc", "Arcs"],
+          ["session", "Session", "Sessions"],
+          ["journal", "Journal entry", "Journal"],
+        ];
+        var kindLabel = {};
+        var kindPlural = {};
+        KINDS.forEach(function (k) {
+          kindLabel[k[0]] = k[1];
+          kindPlural[k[0]] = k[2];
+        });
+
+        var state = {
+          token: null,
+          name: "",
+          info: null,
+          elements: [],
+          filter: null,
+          query: "",
+          openId: null,
+          version: 0,
+          event: 0,
+          urls: {},
+          stopped: false,
+        };
+
+        var $ = function (id) {
+          return document.getElementById(id);
+        };
+
+        function show(screen) {
+          document.querySelectorAll(".screen").forEach(function (s) {
+            s.classList.toggle("active", s.id === screen);
+          });
+        }
+
+        function api(path, opts) {
+          opts = opts || {};
+          var headers = opts.headers || {};
+          if (state.token) headers["Authorization"] = "Bearer " + state.token;
+          return fetch(path, {
+            method: opts.method || "GET",
+            headers: headers,
+            body: opts.body,
+          });
+        }
+
+        function json(path, opts) {
+          return api(path, opts).then(function (r) {
+            if (r.status === 410) throw new Error("CLOSED");
+            if (r.status === 401) throw new Error("UNAUTHORIZED");
+            if (!r.ok) {
+              return r.json().then(
+                function (b) {
+                  throw new Error(
+                    (b && b.error) || "The table answered " + r.status,
+                  );
+                },
+                function () {
+                  throw new Error("The table answered " + r.status);
+                },
+              );
+            }
+            return r.json();
+          });
+        }
+
+        // ---- Join --------------------------------------------------------
+        try {
+          $("name").value = localStorage.getItem("cf.playerName") || "";
+        } catch (e) {}
+
+        fetch("/api/table")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (info) {
+            $("join-sub").textContent =
+              "This is " +
+              info.name +
+              (info.system ? " (" + info.system + ")" : "") +
+              ". Give your name and the code the GM reads out.";
+          })
+          .catch(function () {});
+
+        $("join-btn").addEventListener("click", function () {
+          var name = $("name").value.trim();
+          var code = $("code").value.trim();
+          var err = $("join-error");
+          err.hidden = true;
+          if (!name || !code) {
+            err.textContent = "Both your name and the code are needed.";
+            err.hidden = false;
+            return;
+          }
+          $("join-btn").disabled = true;
+          fetch("/api/join", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name, code: code }),
+          })
+            .then(function (r) {
+              return r.json().then(function (b) {
+                if (!r.ok) throw new Error(b.error || "Could not join");
+                return b;
+              });
+            })
+            .then(function (joined) {
+              state.token = joined.token;
+              state.name = name;
+              state.info = joined.info;
+              state.version = joined.info.version;
+              try {
+                localStorage.setItem("cf.playerName", name);
+                sessionStorage.setItem("cf.token", joined.token);
+                sessionStorage.setItem("cf.name", name);
+              } catch (e) {}
+              enter();
+            })
+            .catch(function (e) {
+              err.textContent = e.message;
+              err.hidden = false;
+            })
+            .finally(function () {
+              $("join-btn").disabled = false;
+            });
+        });
+
+        // Re-attach after a reload within the same browser session.
+        try {
+          var t = sessionStorage.getItem("cf.token");
+          var n = sessionStorage.getItem("cf.name");
+          if (t && n) {
+            state.token = t;
+            state.name = n;
+            json("/api/table")
+              .then(function (info) {
+                state.info = info;
+                enter();
+              })
+              .catch(function () {
+                state.token = null;
+              });
+          }
+        } catch (e) {}
+
+        // ---- Table -------------------------------------------------------
+        function enter() {
+          show("table");
+          $("campaign-name").textContent = state.info.name;
+          $("player-name").textContent = " · " + state.name;
+          state.stopped = false;
+          refresh().then(loop);
+        }
+
+        function leave(message) {
+          state.stopped = true;
+          state.token = null;
+          try {
+            sessionStorage.removeItem("cf.token");
+            sessionStorage.removeItem("cf.name");
+          } catch (e) {}
+          show("join");
+          var err = $("join-error");
+          if (message) {
+            err.textContent = message;
+            err.hidden = false;
+          }
+        }
+        $("leave").addEventListener("click", function () {
+          leave();
+        });
+
+        function refresh() {
+          return json("/api/elements").then(function (els) {
+            state.elements = els;
+            renderFilters();
+            renderList();
+            if (state.openId) openElement(state.openId, true);
+          });
+        }
+
+        function loop() {
+          if (state.stopped) return;
+          json("/api/version?after=" + state.version + "&event=" + state.event)
+            .then(function (v) {
+              if (state.stopped) return;
+              setNotice("");
+              if (v.closed) {
+                leave("The GM ended the table.");
+                return;
+              }
+              if (v.spotlightSeq > state.event) {
+                state.event = v.spotlightSeq;
+                if (v.spotlight) openElement(v.spotlight);
+              }
+              var changed = v.version > state.version;
+              state.version = v.version;
+              (changed ? refresh() : Promise.resolve()).then(loop);
+            })
+            .catch(function (e) {
+              if (state.stopped) return;
+              if (e.message === "CLOSED") {
+                leave("The GM ended the table.");
+                return;
+              }
+              setNotice("Lost the GM. Trying again…");
+              setTimeout(loop, 3000);
+            });
+        }
+
+        function setNotice(text) {
+          var el = $("notice");
+          el.textContent = text;
+          el.hidden = !text;
+        }
+
+        // ---- List ----------------------------------------------------------
+        function renderFilters() {
+          var counts = {};
+          state.elements.forEach(function (e) {
+            counts[e.type] = (counts[e.type] || 0) + 1;
+          });
+          var f = $("filters");
+          f.innerHTML = "";
+          var all = document.createElement("button");
+          all.textContent = "All " + state.elements.length;
+          all.className = state.filter === null ? "active" : "";
+          all.onclick = function () {
+            state.filter = null;
+            renderFilters();
+            renderList();
+          };
+          f.appendChild(all);
+          KINDS.forEach(function (k) {
+            if (!counts[k[0]]) return;
+            var b = document.createElement("button");
+            b.textContent = k[2] + " " + counts[k[0]];
+            b.className = state.filter === k[0] ? "active" : "";
+            b.onclick = function () {
+              state.filter = k[0];
+              renderFilters();
+              renderList();
+            };
+            f.appendChild(b);
+          });
+        }
+
+        $("search").addEventListener("input", function (e) {
+          state.query = e.target.value.toLowerCase();
+          renderList();
+        });
+
+        function initialOf(name) {
+          return (name.trim()[0] || "?").toUpperCase();
+        }
+
+        function tile(e, size) {
+          if (e.portrait) {
+            var img = document.createElement("img");
+            img.className = "tile";
+            img.alt = "";
+            assetUrl(e.portrait).then(function (u) {
+              img.src = u;
+            });
+            return img;
+          }
+          var s = document.createElement("span");
+          s.className = "tile";
+          s.textContent = initialOf(e.name);
+          return s;
+        }
+
+        function renderList() {
+          var ul = $("list");
+          ul.innerHTML = "";
+          var items = state.elements.filter(function (e) {
+            if (state.filter && e.type !== state.filter) return false;
+            if (!state.query) return true;
+            return (
+              e.name.toLowerCase().indexOf(state.query) >= 0 ||
+              (e.tags || []).some(function (t) {
+                return t.toLowerCase().indexOf(state.query) >= 0;
+              })
+            );
+          });
+          items.sort(function (a, b) {
+            return a.name.localeCompare(b.name);
+          });
+          if (items.length === 0) {
+            var li0 = document.createElement("li");
+            li0.className = "status";
+            li0.textContent = state.elements.length
+              ? "No matches."
+              : "The GM has not shared anything yet.";
+            ul.appendChild(li0);
+            return;
+          }
+          items.forEach(function (e) {
+            var li = document.createElement("li");
+            var b = document.createElement("button");
+            b.appendChild(tile(e));
+            var t = document.createElement("div");
+            t.className = "row-text";
+            var nm = document.createElement("div");
+            nm.className = "name";
+            nm.textContent = e.name;
+            var kd = document.createElement("div");
+            kd.className = "kind";
+            kd.textContent = kindLabel[e.type] || e.type;
+            t.appendChild(nm);
+            t.appendChild(kd);
+            b.appendChild(t);
+            b.onclick = function () {
+              openElement(e.id);
+            };
+            li.appendChild(b);
+            ul.appendChild(li);
+          });
+        }
+
+        // ---- Assets -----------------------------------------------------------
+        function assetUrl(path) {
+          if (state.urls[path]) return state.urls[path];
+          state.urls[path] = api("/api/assets/" + path)
+            .then(function (r) {
+              if (!r.ok) throw new Error("no asset");
+              return r.blob();
+            })
+            .then(function (b) {
+              return URL.createObjectURL(b);
+            });
+          state.urls[path].catch(function () {
+            delete state.urls[path];
+          });
+          return state.urls[path];
+        }
+
+        // ---- Reader -----------------------------------------------------------
+        var byId = function (id) {
+          return state.elements.find(function (e) {
+            return e.id === id;
+          });
+        };
+
+        $("back").addEventListener("click", function () {
+          state.openId = null;
+          $("reader").hidden = true;
+          $("list-view").hidden = false;
+          $("back").hidden = true;
+          window.scrollTo(0, 0);
+        });
+
+        function openElement(id, silent) {
+          state.openId = id;
+          json("/api/elements/" + id)
+            .then(function (el) {
+              renderElement(el);
+              $("reader").hidden = false;
+              $("list-view").hidden = true;
+              $("back").hidden = false;
+              if (!silent) window.scrollTo(0, 0);
+            })
+            .catch(function () {
+              if (!silent) setNotice("That is not shared any more.");
+            });
+        }
+
+        function escapeHtml(s) {
+          return String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+        }
+
+        function facts(el) {
+          var out = [];
+          var sh = el.sheet;
+          if (el.type === "character" && sh && typeof sh === "object") {
+            var parts = [
+              "Level " + (sh.level || 1),
+              sh.species,
+              sh.class,
+            ].filter(Boolean);
+            if (parts.length) out.push(["Sheet", parts.join(" ")]);
+            if (sh.ac != null) out.push(["AC", String(sh.ac)]);
+            if (sh.hp && sh.hp.max != null)
+              out.push([
+                "HP",
+                (sh.hp.current != null ? sh.hp.current + " / " : "") +
+                  sh.hp.max,
+              ]);
+            if (sh.owner) out.push(["Played by", sh.owner]);
+          }
+          if (el.type === "session") {
+            if (el.number != null) out.push(["Session", String(el.number)]);
+            if (el.date) out.push(["Played", el.date]);
+            if (el.status) out.push(["Status", el.status]);
+          }
+          if (el.type === "journal" && el.date) out.push(["Written", el.date]);
+          var sb = el.statblock;
+          if (el.type === "creature" && sb && typeof sb === "object") {
+            var head = [sb.size, sb.type, sb.alignment]
+              .filter(Boolean)
+              .join(" ");
+            if (head) out.push(["Creature", head]);
+            if (sb.ac != null)
+              out.push([
+                "AC",
+                sb.ac + (sb.acNote ? " (" + sb.acNote + ")" : ""),
+              ]);
+            if (sb.hp != null)
+              out.push([
+                "HP",
+                sb.hp + (sb.hpFormula ? " (" + sb.hpFormula + ")" : ""),
+              ]);
+            if (sb.cr) out.push(["Challenge", sb.cr]);
+          }
+          return out;
+        }
+
+        function renderElement(el) {
+          var r = $("reader");
+          r.innerHTML = "";
+          var kind = document.createElement("div");
+          kind.className = "kind";
+          kind.textContent = kindLabel[el.type] || el.type;
+          r.appendChild(kind);
+          if (el.portrait) {
+            var img = document.createElement("img");
+            img.className = "portrait";
+            img.alt = "";
+            assetUrl(el.portrait).then(function (u) {
+              img.src = u;
+            });
+            r.appendChild(img);
+          }
+          var h = document.createElement("h1");
+          h.textContent = el.name;
+          r.appendChild(h);
+          if (el.tags && el.tags.length) {
+            var tg = document.createElement("div");
+            tg.className = "tags";
+            tg.textContent = el.tags.join(", ");
+            r.appendChild(tg);
+          }
+          var fx = facts(el);
+          if (fx.length) {
+            var p = document.createElement("p");
+            p.className = "facts";
+            p.innerHTML = fx
+              .map(function (f) {
+                return "<b>" + escapeHtml(f[0]) + "</b> " + escapeHtml(f[1]);
+              })
+              .join(" · ");
+            r.appendChild(p);
+          }
+          if (el.type === "document" && el.file) {
+            var a = document.createElement("a");
+            a.href = "#";
+            a.textContent = "Open the PDF";
+            a.className = "btn";
+            a.onclick = function (ev) {
+              ev.preventDefault();
+              assetUrl(el.file).then(function (u) {
+                window.open(u, "_blank");
+              });
+            };
+            r.appendChild(a);
+          }
+          if (el.type === "map" && el.image && el.width && el.height) {
+            r.appendChild(renderMap(el));
+          }
+          if (el.body && el.body.trim()) {
+            var body = document.createElement("div");
+            body.className = "body";
+            body.innerHTML = marked.parse(el.body);
+            body.querySelectorAll("a[href]").forEach(function (link) {
+              var href = link.getAttribute("href") || "";
+              var m = /^cf:\/\/element\/([0-9a-fA-F-]{36})$/.exec(href);
+              if (m) {
+                var target = byId(m[1].toLowerCase());
+                if (target) {
+                  link.className = "element";
+                  link.setAttribute("href", "#");
+                  link.onclick = function (ev) {
+                    ev.preventDefault();
+                    openElement(target.id);
+                  };
+                } else {
+                  var span = document.createElement("span");
+                  span.textContent = link.textContent;
+                  link.replaceWith(span);
+                }
+              } else {
+                link.target = "_blank";
+                link.rel = "noopener";
+              }
+            });
+            r.appendChild(body);
+          }
+          var mentions = state.elements.filter(function (e) {
+            return (e.links || []).indexOf(el.id) >= 0;
+          });
+          if (mentions.length) {
+            var m = document.createElement("div");
+            m.className = "mentions";
+            m.appendChild(document.createTextNode("Mentioned in: "));
+            mentions.forEach(function (e) {
+              var a = document.createElement("a");
+              a.href = "#";
+              a.textContent = e.name;
+              a.onclick = function (ev) {
+                ev.preventDefault();
+                openElement(e.id);
+              };
+              m.appendChild(a);
+            });
+            r.appendChild(m);
+          }
+        }
+
+        function renderMap(el) {
+          var wrap = document.createElement("div");
+          wrap.className = "map";
+          var scale = Math.min(1, (window.innerWidth - 34) / el.width);
+          var inner = document.createElement("div");
+          inner.style.position = "relative";
+          var img = document.createElement("img");
+          img.alt = "";
+          assetUrl(el.image).then(function (u) {
+            img.src = u;
+          });
+          inner.appendChild(img);
+          var zoom = document.createElement("div");
+          zoom.className = "zoom";
+          var minus = document.createElement("button");
+          minus.textContent = "−";
+          var plus = document.createElement("button");
+          plus.textContent = "+";
+          zoom.appendChild(minus);
+          zoom.appendChild(plus);
+          wrap.appendChild(zoom);
+          wrap.appendChild(inner);
+
+          function layout() {
+            img.style.width = el.width * scale + "px";
+            img.style.height = el.height * scale + "px";
+            inner.querySelectorAll(".pin, .pin-label").forEach(function (n) {
+              n.remove();
+            });
+            (el.pins || []).forEach(function (pin) {
+              var dot = document.createElement("span");
+              dot.className = "pin";
+              dot.style.left = pin.x * scale + "px";
+              dot.style.top = pin.y * scale + "px";
+              dot.style.background = pin.color || "#e69a57";
+              var target = pin.element ? byId(pin.element) : null;
+              var label = pin.label || (target && target.name) || "";
+              if (target) {
+                dot.onclick = function () {
+                  openElement(target.id);
+                };
+              }
+              inner.appendChild(dot);
+              if (label) {
+                var lb = document.createElement("span");
+                lb.className = "pin-label";
+                lb.style.left = pin.x * scale + "px";
+                lb.style.top = pin.y * scale + "px";
+                lb.textContent = label;
+                inner.appendChild(lb);
+              }
+            });
+          }
+          minus.onclick = function () {
+            scale = Math.max(0.1, scale / 1.4);
+            layout();
+          };
+          plus.onclick = function () {
+            scale = Math.min(4, scale * 1.4);
+            layout();
+          };
+          layout();
+          return wrap;
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -14,7 +14,10 @@ export function TableScreen() {
   const spotlight = useTableStore((s) => s.spotlight);
   const leave = useTableStore((s) => s.leave);
 
-  const source = useMemo(() => remoteSource(elements), [elements]);
+  const source = useMemo(
+    () => remoteSource(elements, session?.playerName ?? ""),
+    [elements, session?.playerName],
+  );
   const calendar = useMemo(
     () => readCalendar({ calendar: session?.info.calendar ?? undefined }),
     [session?.info.calendar],

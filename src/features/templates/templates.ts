@@ -5,6 +5,7 @@
  * something is written there on purpose.
  */
 import { EMPTY_SHEET } from "./dnd5e-model";
+import { EMPTY_STATBLOCK } from "./dnd5e-statblock";
 import type { RulesId } from "./rulesets";
 
 export interface ElementTemplate {
@@ -74,10 +75,8 @@ const DND5E: Record<string, ElementTemplate> = {
     extra: { sheet: EMPTY_SHEET },
   },
   creature: {
-    body:
-      "## Stat block\n\n| | |\n| --- | --- |\n| Armour Class | |\n| Hit Points | |\n| Speed | 30 ft. |\n| Challenge | |\n\n" +
-      body("Traits", "Actions", "Lore", PLAYERS),
-    extra: {},
+    body: body("Lore", "Tactics", PLAYERS),
+    extra: { statblock: EMPTY_STATBLOCK },
   },
   item: {
     body:

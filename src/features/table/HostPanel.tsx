@@ -1,5 +1,6 @@
 import { Eye, Presentation, Radio, Square, Users, X } from "lucide-react";
-import { useEffect } from "react";
+import QRCode from "qrcode";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/Button";
 import { isShared } from "@/features/player/player-model";
@@ -31,6 +32,32 @@ export function HostPanel({
   const clearError = useTableStore((s) => s.clearError);
 
   const sharedCount = elements.filter(isShared).length;
+
+  // A QR for phones: the most likely address, or the one the GM picks.
+  const [qrAddress, setQrAddress] = useState<string | null>(null);
+  const addresses = hosting?.addresses ?? [];
+  const chosenAddress =
+    qrAddress && addresses.includes(qrAddress) ? qrAddress : addresses[0];
+  const browserUrl = chosenAddress ? `http://${chosenAddress}/` : null;
+  const [qr, setQr] = useState<{ url: string; data: string } | null>(null);
+  useEffect(() => {
+    if (!browserUrl) return;
+    let cancelled = false;
+    QRCode.toDataURL(browserUrl, {
+      margin: 1,
+      width: 168,
+      color: { dark: "#eceef2", light: "#15171d" },
+    })
+      .then((data) => {
+        if (!cancelled) setQr({ url: browserUrl, data });
+      })
+      .catch(() => {
+        /* no QR; the address is still shown */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [browserUrl]);
   const showing = hosting?.spotlight
     ? elements.find((e) => e.id === hosting.spotlight)
     : undefined;
@@ -141,6 +168,55 @@ export function HostPanel({
                 </p>
               )}
             </section>
+
+            {browserUrl && (
+              <section>
+                <SectionTitle>Phones and tablets</SectionTitle>
+                <div className="flex flex-wrap items-center gap-5 rounded-lg border border-ink-800 bg-ink-900 px-5 py-4">
+                  {qr?.url === browserUrl && (
+                    <img
+                      src={qr.data}
+                      alt="QR code for the table's web page"
+                      width={168}
+                      height={168}
+                      className="rounded-md"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1 text-sm text-ink-300">
+                    <p>
+                      Anyone on this Wi-Fi can open the table in a browser, no
+                      install needed. Scan the code or type the address, then
+                      the name and join code as usual.
+                    </p>
+                    <p className="mt-2 font-mono text-lg text-ink-100">
+                      {browserUrl}
+                    </p>
+                    {addresses.length > 1 && (
+                      <label className="mt-2 block text-xs text-ink-400">
+                        This machine has several addresses. If the code does not
+                        open, try another:
+                        <select
+                          value={chosenAddress}
+                          onChange={(e) => setQrAddress(e.target.value)}
+                          className="mt-1 block rounded-md border border-ink-700 bg-ink-900 px-2 py-1 font-mono text-sm text-ink-100 outline-none"
+                        >
+                          {addresses.map((a) => (
+                            <option key={a} value={a}>
+                              {a}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <p className="mt-2 text-xs text-ink-500">
+                      The page reads what is shared, opens maps, pictures and
+                      PDFs, and follows Show to players. Editing a character
+                      needs the app.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
 
             <section>
               <SectionTitle>

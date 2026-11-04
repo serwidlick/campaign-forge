@@ -148,6 +148,26 @@ impl Session {
             .map_err(|e| e.to_string())
     }
 
+    /// Saves the sheet of the character the GM assigned to this player.
+    pub async fn update_sheet(
+        &self,
+        id: &str,
+        sheet: serde_json::Value,
+    ) -> Result<Element, String> {
+        let resp = self
+            .http
+            .put(format!("{}/api/elements/{id}/sheet", self.base))
+            .bearer_auth(&self.token)
+            .json(&sheet)
+            .send()
+            .await
+            .map_err(connection_error)?;
+        if !resp.status().is_success() {
+            return Err(describe(resp).await);
+        }
+        resp.json().await.map_err(|e| e.to_string())
+    }
+
     /// Returns once the GM's campaign has changed past `after`, or after the
     /// server's long-poll window with the current version.
     pub async fn wait_for_change(&self, after: u64) -> Result<VersionResponse, String> {

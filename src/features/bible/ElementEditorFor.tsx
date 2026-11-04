@@ -6,6 +6,7 @@ import { JournalPanel } from "@/features/journal/JournalPanel";
 import { EventPanel } from "@/features/timeline/EventPanel";
 import { CharacterSheet5e } from "@/features/templates/CharacterSheet5e";
 import { rulesOf } from "@/features/templates/rulesets";
+import { StatBlock5e } from "@/features/templates/StatBlock5e";
 import type { Element } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 
@@ -19,6 +20,15 @@ export function ElementEditorFor({ element }: { element: Element }) {
   const campaign = useCampaignStore((s) => s.campaign);
   const rules = rulesOf(campaign);
   switch (element.type) {
+    case "creature":
+      return (
+        <ElementEditor
+          element={element}
+          panel={
+            rules === "dnd5e" ? <StatBlock5e element={element} /> : undefined
+          }
+        />
+      );
     case "character":
       return (
         <ElementEditor

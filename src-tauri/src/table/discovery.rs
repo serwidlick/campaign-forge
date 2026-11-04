@@ -183,19 +183,67 @@ fn host_label() -> String {
     }
 }
 
-/// This machine's LAN IPv4 addresses, for the GM to read out.
+/// This machine's LAN IPv4 addresses, most useful first: home-network
+/// ranges on physical adapters before VPN tunnels and virtual switches, so
+/// the address players are told (and the QR code) points at the Wi-Fi
+/// rather than at a VPN.
 pub fn lan_ipv4_addresses() -> Vec<Ipv4Addr> {
-    let mut out: Vec<Ipv4Addr> = local_ip_address::list_afinet_netifas()
+    let mut found: Vec<(u8, Ipv4Addr)> = local_ip_address::list_afinet_netifas()
         .map(|ifs| {
             ifs.into_iter()
-                .filter_map(|(_, ip)| match ip {
-                    IpAddr::V4(v4) if !v4.is_loopback() && !v4.is_link_local() => Some(v4),
+                .filter_map(|(name, ip)| match ip {
+                    IpAddr::V4(v4) if !v4.is_loopback() && !v4.is_link_local() => {
+                        Some((address_rank(&name, v4), v4))
+                    }
                     _ => None,
                 })
                 .collect()
         })
         .unwrap_or_default();
-    out.sort();
-    out.dedup();
+    found.sort();
+    let mut out: Vec<Ipv4Addr> = Vec::new();
+    for (_, ip) in found {
+        if !out.contains(&ip) {
+            out.push(ip);
+        }
+    }
     out
+}
+
+/// Lower is better. Adapter names that smell of VPNs or virtual machines go
+/// after everything else; within a group, 192.168.x.x beats 172.16-31.x.x
+/// beats 10.x.x.x beats anything public.
+fn address_rank(adapter: &str, ip: Ipv4Addr) -> u8 {
+    const VIRTUAL: [&str; 17] = [
+        "vpn",
+        "proton",
+        "wireguard",
+        "wintun",
+        "tap-",
+        "tun",
+        "tailscale",
+        "zerotier",
+        "hamachi",
+        "vethernet",
+        "virtualbox",
+        "vmware",
+        "hyper-v",
+        "docker",
+        "wsl",
+        "npcap",
+        "loopback",
+    ];
+    let name = adapter.to_ascii_lowercase();
+    let is_virtual = VIRTUAL.iter().any(|k| name.contains(k));
+    let o = ip.octets();
+    let range = if o[0] == 192 && o[1] == 168 {
+        0
+    } else if o[0] == 172 && (16..=31).contains(&o[1]) {
+        1
+    } else if o[0] == 10 {
+        2
+    } else {
+        3
+    };
+    if is_virtual { 10 + range } else { range }
 }

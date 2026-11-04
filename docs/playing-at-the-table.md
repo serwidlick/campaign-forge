@@ -45,6 +45,16 @@ The player view then fills the window: kinds down the side with counts, a search
 
 If the GM's machine goes quiet, the banner says the connection was lost and the app keeps trying until you leave or the GM is back.
 
+## Your own character
+
+The GM can hand a character to a player: on the character's sheet, the **Player** field takes the name the player joins the table with (the names of everyone currently sitting at the table are offered). From then on, when that player opens the character at the table they get the full sheet, editable, instead of the read-only summary. Hit points, slots, inventory, death saves, all of it saves straight into the GM's file and shows up for the GM within a second. The character still has to be **Shared**, and the player sees only the Players know part of its body like anyone else.
+
+A player cannot change who owns a sheet, and nobody but the owner can edit it over the table. If GM and player edit the same sheet at the same moment, the last save wins.
+
+## Phones and tablets
+
+The hosting panel also shows a QR code and a web address. Anyone on the same Wi-Fi can scan it or type it into a browser and join with their name and the code, with nothing installed. The page shows the shared elements with their pictures, opens maps with their shared pins, opens PDFs, follows Show to players, and leaves when the GM ends the table. It is read-only: editing your own character needs the app.
+
 ## Showing something to everyone
 
 While hosting, every element header has a **Show to players** button. Press it and that element opens on every player's screen. On a private element the button reads **Share and show** and does both. The button turns green with **Showing** while it is the current one; the hosting panel names it and has **Stop showing**. A player who joins late gets the current one on arrival.

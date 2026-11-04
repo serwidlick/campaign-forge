@@ -20,7 +20,9 @@ use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
 
-use crate::storage::{AppState, Element, ElementSummary, Extra, StorageError, extract_links};
+use crate::storage::{
+    AppState, Element, ElementSummary, Extra, SaveElementInput, StorageError, extract_links,
+};
 
 const LINK_PREFIX: &str = "cf://element/";
 const UUID_LEN: usize = 36;
@@ -64,6 +66,60 @@ pub fn shared_element(state: &AppState, id: &str) -> Result<Option<Element>, Sto
     }
     let element = state.read_element(id)?;
     Ok(Some(sanitize_element(element, &visible)))
+}
+
+/// Whether a player may edit a character's sheet: the element is shared,
+/// is a character, and its sheet names them as `owner`.
+pub fn can_edit_sheet(e: &Element, player: &str) -> bool {
+    if e.meta.kind != "character" || !is_shared(&e.meta.extra) {
+        return false;
+    }
+    sheet_owner(&e.meta.extra)
+        .is_some_and(|o| !o.trim().is_empty() && o.trim().eq_ignore_ascii_case(player.trim()))
+}
+
+fn sheet_owner(extra: &Extra) -> Option<&str> {
+    extra
+        .get("sheet")
+        .and_then(Value::as_object)
+        .and_then(|s| s.get("owner"))
+        .and_then(Value::as_str)
+}
+
+/// Replaces a character's sheet on behalf of its owning player. The owner
+/// field itself stays as the GM set it. `None` when the player may not.
+pub fn update_sheet(
+    state: &AppState,
+    id: &str,
+    player: &str,
+    mut sheet: Value,
+) -> Result<Option<Element>, StorageError> {
+    let element = match state.read_element(id) {
+        Ok(e) => e,
+        Err(StorageError::ElementNotFound(_)) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    if !can_edit_sheet(&element, player) {
+        return Ok(None);
+    }
+    let Some(new) = sheet.as_object_mut() else {
+        return Err(StorageError::InvalidInput("sheet must be an object".into()));
+    };
+    if let Some(owner) = sheet_owner(&element.meta.extra) {
+        new.insert("owner".to_owned(), Value::String(owner.to_owned()));
+    }
+    let mut extra = element.meta.extra.clone();
+    extra.insert("sheet".to_owned(), sheet);
+    let saved = state.save_element(SaveElementInput {
+        id: element.meta.id.clone(),
+        name: element.meta.name.clone(),
+        tags: element.meta.tags.clone(),
+        body: element.body.clone(),
+        extra: Some(extra),
+    })?;
+    let all = state.list_elements()?;
+    let visible = shared_ids(&all);
+    Ok(Some(sanitize_element(saved, &visible)))
 }
 
 /// Relative asset paths players may fetch: the images of shared maps, the

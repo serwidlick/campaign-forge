@@ -167,6 +167,10 @@ export const table = {
   fetchAsset(path: string) {
     return invoke<ArrayBuffer>("table_fetch_asset", { path });
   },
+  /** Player: save the sheet of the character the GM assigned to you. */
+  updateSheet(id: string, sheet: unknown) {
+    return invoke<Element>("table_update_sheet", { id, sheet });
+  },
   /** Resolves when the GM's version passes `after`, after ~25 s, or when
    *  the GM stops hosting (`closed`). */
   waitForChange(after: number, event: number) {

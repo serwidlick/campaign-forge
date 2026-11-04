@@ -20,6 +20,10 @@ export interface PlayerSource {
   readElement(id: string): Promise<Element | null>;
   /** Raw bytes of a shared map image. */
   readAsset(path: string): Promise<ArrayBuffer>;
+  /** The player's table name, when sitting at a table. */
+  playerName?: string;
+  /** Saves the sheet of a character this player owns. */
+  updateSheet?(id: string, sheet: unknown): Promise<Element>;
 }
 
 export function isShared(e: Record<string, unknown>): boolean {
@@ -52,10 +56,28 @@ export function localPreviewSource(
 }
 
 /** A GM's table joined over the network. */
-export function remoteSource(elements: ElementSummary[]): PlayerSource {
+export function remoteSource(
+  elements: ElementSummary[],
+  playerName: string,
+): PlayerSource {
   return {
     elements,
     readElement: (id) => table.fetchElement(id),
     readAsset: (path) => table.fetchAsset(path),
+    playerName,
+    updateSheet: (id, sheet) => table.updateSheet(id, sheet),
   };
+}
+
+/** Whether this player may edit a character: the GM named them as owner. */
+export function ownsCharacter(
+  element: Record<string, unknown>,
+  playerName: string | undefined,
+): boolean {
+  if (!playerName || element.type !== "character") return false;
+  const sheet = element.sheet as { owner?: unknown } | undefined;
+  const owner = typeof sheet?.owner === "string" ? sheet.owner.trim() : "";
+  return (
+    owner !== "" && owner.toLowerCase() === playerName.trim().toLowerCase()
+  );
 }

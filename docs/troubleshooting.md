@@ -23,6 +23,10 @@ Notarised builds, when the Apple signing secrets are set up, do not need this.
 - On a Mac, the app needs local-network access. If it was declined, System Settings, Privacy & Security, Local Network.
 - Discovery is a best effort. The typed address always works when the network allows the connection at all: the hosting panel shows the addresses, players press **Enter an address instead**.
 
+## The QR code opens an address that does not load
+
+The machine has more than one network address, and the one in the code is not the Wi-Fi. A VPN such as ProtonVPN, a virtual machine switch or WSL each add an adapter. The hosting panel lists every address and, when there are several, lets you choose which one the code uses; pick the one that looks like your home network, usually 192.168.x.x. Switching the VPN off while hosting also works.
+
 ## A player is stuck on "trying to reconnect"
 
 The GM's machine stopped answering without ending the table: it went to sleep, changed network, or the app crashed. The player's app keeps trying. Either wait for the GM, or press **Leave table** and join again once the GM is back.

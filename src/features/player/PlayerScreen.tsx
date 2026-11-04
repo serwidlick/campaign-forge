@@ -39,7 +39,12 @@ import { documentFileOf } from "@/features/documents/document-model";
 import { readSheet5e, sheetSummary } from "@/features/templates/dnd5e-model";
 import { PdfViewer } from "@/features/documents/PdfViewer";
 
+import { CharacterSheet5e } from "@/features/templates/CharacterSheet5e";
+import { readStatBlock5e } from "@/features/templates/dnd5e-statblock";
+import { StatBlockView } from "@/features/templates/StatBlockView";
+
 import { PlayerMap } from "./PlayerMap";
+import { ownsCharacter } from "./player-model";
 import type { PlayerSource } from "./player-model";
 
 interface Props {
@@ -341,6 +346,10 @@ function PlayerElementView({
   const details = detailsFor(element, byId, calendar);
   const map = element.type === "map" ? readMap(element) : null;
   const pdf = element.type === "document" ? documentFileOf(element) : null;
+  const mine = ownsCharacter(element, source.playerName);
+  const statblock =
+    element.type === "creature" ? readStatBlock5e(element.statblock) : null;
+  const saveSheet = source.updateSheet;
 
   return (
     <div className="flex h-full flex-col">
@@ -392,6 +401,22 @@ function PlayerElementView({
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto max-w-3xl space-y-6">
+          {statblock && <StatBlockView name={element.name} sb={statblock} />}
+
+          {mine && saveSheet && (
+            <>
+              <p className="text-xs text-ember-300">
+                This is your character. Edits here go to the GM's copy.
+              </p>
+              <CharacterSheet5e
+                element={element}
+                onSave={async (sheet) => {
+                  await saveSheet(element.id, sheet);
+                }}
+              />
+            </>
+          )}
+
           {pdf && (
             <PdfViewer
               path={pdf}
@@ -545,6 +570,7 @@ function detailsFor(
     case "character": {
       const sheet = readSheet5e(element.sheet);
       if (!sheet) break;
+      if (sheet.owner) out.push({ label: "Played by", value: sheet.owner });
       const summary = sheetSummary(sheet);
       if (summary) out.push({ label: "Sheet", value: summary });
       if (sheet.ac !== null) out.push({ label: "AC", value: String(sheet.ac) });

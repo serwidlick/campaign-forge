@@ -50,6 +50,7 @@ pub fn run() {
             table::table_fetch_elements,
             table::table_fetch_element,
             table::table_fetch_asset,
+            table::table_update_sheet,
             table::table_wait_for_change,
             secrets::get_api_key,
             secrets::set_api_key,

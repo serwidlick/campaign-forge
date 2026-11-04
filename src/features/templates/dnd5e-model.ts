@@ -153,6 +153,8 @@ export function newId(): string {
 
 export interface Sheet5e {
   role: SheetRole;
+  /** Table name of the player who may edit this sheet; empty for GM-only. */
+  owner: string;
   class: string;
   subclass: string;
   level: number;
@@ -186,6 +188,7 @@ export interface Sheet5e {
 
 export const EMPTY_SHEET: Sheet5e = {
   role: "npc",
+  owner: "",
   class: "",
   subclass: "",
   level: 1,
@@ -250,6 +253,7 @@ export function readSheet5e(v: unknown): Sheet5e | null {
     Array.isArray(x) ? (x.filter(keep) as string[]) : [];
   return {
     role: o.role === "pc" ? "pc" : "npc",
+    owner: str(o.owner),
     class: str(o.class),
     subclass: str(o.subclass),
     level: Math.max(1, Math.min(20, int(o.level) ?? 1)),

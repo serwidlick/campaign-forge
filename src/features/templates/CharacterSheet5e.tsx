@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import type { Element } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
+import { useTableStore } from "@/stores/table-store";
 
 import {
   sameSet,
@@ -39,14 +40,25 @@ const FIELD =
   "rounded-md border border-ink-700 bg-ink-900 px-2 py-1 text-sm text-ink-100 outline-none focus:border-ember-500";
 const LABEL = "text-[11px] text-ink-400";
 const AUTOSAVE_MS = 400;
+const EMPTY_PLAYERS: { name: string }[] = [];
 
 /**
  * The structured part of a D&D 5e character. Edits save on a short
  * debounce; everything derived (modifiers, proficiency, totals) is computed
  * from the stored scores.
  */
-export function CharacterSheet5e({ element }: { element: Element }) {
+export function CharacterSheet5e({
+  element,
+  onSave,
+}: {
+  element: Element;
+  /** Where edits go; the GM's store by default, the table for a player. */
+  onSave?: (sheet: Sheet5e) => Promise<void>;
+}) {
   const saveElement = useCampaignStore((s) => s.saveElement);
+  const hostedPlayers = useTableStore(
+    (s) => s.hosting?.players ?? EMPTY_PLAYERS,
+  );
   const [sheet, setSheet] = useState<Sheet5e>(
     () => readSheet5e(element.sheet) ?? EMPTY_SHEET,
   );
@@ -68,7 +80,8 @@ export function CharacterSheet5e({ element }: { element: Element }) {
     if (!dirty.current) return;
     dirty.current = false;
     setSheet((s) => {
-      void saveElement(element.id, { sheet: s });
+      if (onSave) void onSave(s);
+      else void saveElement(element.id, { sheet: s });
       return s;
     });
   }
@@ -251,6 +264,16 @@ export function CharacterSheet5e({ element }: { element: Element }) {
             <option value="npc">NPC</option>
           </select>
         </label>
+        {!onSave && (
+          <Combo
+            label="Player"
+            value={sheet.owner}
+            onChange={(v) => update((s) => ({ ...s, owner: v }))}
+            options={hostedPlayers.map((p) => p.name)}
+            width="w-36"
+            placeholder="Who may edit this"
+          />
+        )}
         <Combo
           label="Class"
           value={sheet.class}
