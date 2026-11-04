@@ -111,18 +111,21 @@ export function WelcomeScreen() {
   return (
     <div className="relative h-full overflow-auto bg-ink-950 text-ink-100">
       <ErrorBanner />
-      <Contours />
-      <div className="relative mx-auto flex min-h-full max-w-[660px] flex-col gap-10 px-10 pt-20 pb-7 lg:max-w-[1160px] lg:gap-12 lg:px-12 lg:pt-[72px]">
-        <div className="grid flex-1 gap-x-16 gap-y-10 lg:grid-cols-[minmax(0,42fr)_minmax(0,46fr)] lg:items-start">
+      {/* Clipped to the viewport so the drawing never adds scroll. */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <Contours />
+      </div>
+      <div className="relative mx-auto flex min-h-full max-w-[660px] flex-col gap-10 px-10 pt-20 pb-7 wide:max-w-[1160px] wide:gap-12 wide:px-12 wide:pt-[72px]">
+        <div className="grid flex-1 gap-x-16 gap-y-10 wide:grid-cols-[minmax(0,42fr)_minmax(0,46fr)] wide:items-start">
           {/* ---- Identity and actions ------------------------------------ */}
-          <section className="order-1 flex min-w-0 flex-col gap-[22px] lg:col-start-1 lg:row-start-1 lg:gap-8">
+          <section className="order-1 flex min-w-0 flex-col gap-[22px] wide:col-start-1 wide:row-start-1 wide:gap-8">
             <div className="flex flex-col gap-5">
               <img
                 src={appIcon}
                 alt=""
                 width={80}
                 height={80}
-                className="h-20 w-20 rounded-[18px] lg:h-[72px] lg:w-[72px] lg:rounded-2xl"
+                className="h-20 w-20 rounded-[18px] wide:h-[72px] wide:w-[72px] wide:rounded-2xl"
                 draggable={false}
               />
               <div className="flex flex-col gap-3">
@@ -132,7 +135,7 @@ export function WelcomeScreen() {
                 <h1 className="font-serif text-[52px] leading-[1.05] font-semibold tracking-[-0.01em] text-ink-100">
                   {firstRun ? "Start your first campaign" : "Campaign Forge"}
                 </h1>
-                <p className="max-w-[480px] text-[17px] leading-[1.55] text-[#a3abba] lg:max-w-[440px]">
+                <p className="max-w-[480px] text-[17px] leading-[1.55] text-[#a3abba] wide:max-w-[440px]">
                   {firstRun
                     ? "Pick an empty folder and Campaign Forge will set it up. Already have one? Open it and carry on."
                     : "Your world, in plain Markdown files on your own disk. No account, no server, works offline."}
@@ -147,7 +150,9 @@ export function WelcomeScreen() {
               >
                 <p className="text-xs text-[#7d8595]">
                   New campaign in{" "}
-                  <span className="font-mono text-ink-200">{draftPath}</span>
+                  <span className="font-mono break-all text-ink-200">
+                    {draftPath}
+                  </span>
                 </p>
                 <label className="block text-sm">
                   <span className="text-ink-300">Campaign name</span>
@@ -246,7 +251,7 @@ export function WelcomeScreen() {
           </section>
 
           {/* ---- Recents, or what a campaign is -------------------------- */}
-          <section className="order-2 flex min-w-0 flex-col gap-3.5 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+          <section className="order-2 flex min-w-0 flex-col gap-3.5 wide:col-start-2 wide:row-span-2 wide:row-start-1">
             {recent === null ? null : firstRun ? (
               <FolderExplainer />
             ) : (
@@ -265,16 +270,16 @@ export function WelcomeScreen() {
                 </div>
 
                 {latest && (
-                  <div className="flex flex-col gap-[18px] rounded-xl border border-ink-700 bg-ink-900 p-6 lg:p-[22px]">
+                  <div className="flex flex-col gap-[18px] rounded-xl border border-ink-700 bg-ink-900 p-6 wide:p-[22px]">
                     <div className="flex items-start gap-4">
-                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[10px] bg-[#2a2119] font-serif text-[26px] font-semibold text-ember-500 lg:h-[52px] lg:w-[52px] lg:text-2xl">
+                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[10px] bg-[#2a2119] font-serif text-[26px] font-semibold text-ember-500 wide:h-[52px] wide:w-[52px] wide:text-2xl">
                         {initialOf(latest.name)}
                       </span>
                       <div className="flex min-w-0 flex-1 flex-col gap-1">
                         <span className="text-xs font-semibold text-ember-500">
                           Last opened {relativeOpened(latest.openedAt)}
                         </span>
-                        <span className="font-serif text-2xl font-semibold text-ink-100 lg:text-[22px]">
+                        <span className="font-serif text-2xl font-semibold text-ink-100 wide:text-[22px]">
                           {latest.name}
                         </span>
                         <span className="truncate font-mono text-xs text-[#7d8595]">
@@ -287,14 +292,14 @@ export function WelcomeScreen() {
                         type="button"
                         onClick={() => void openCampaign(latest.path)}
                         disabled={busy}
-                        className="inline-flex h-[42px] items-center gap-2 rounded-lg bg-ember-500 px-[18px] text-sm font-semibold text-ink-950 transition hover:brightness-110 disabled:opacity-50 lg:h-10 lg:px-4"
+                        className="inline-flex h-[42px] items-center gap-2 rounded-lg bg-ember-500 px-[18px] text-sm font-semibold text-ink-950 transition hover:brightness-110 disabled:opacity-50 wide:h-10 wide:px-4"
                       >
                         Continue <ArrowRight size={16} />
                       </button>
                       <button
                         type="button"
                         onClick={() => void handleReveal(latest.path)}
-                        className="inline-flex h-[42px] items-center rounded-lg border border-ink-700 px-3.5 text-sm text-ink-200 transition hover:border-ink-500 hover:bg-ink-800 lg:h-10"
+                        className="inline-flex h-[42px] items-center rounded-lg border border-ink-700 px-3.5 text-sm text-ink-200 transition hover:border-ink-500 hover:bg-ink-800 wide:h-10"
                       >
                         Show folder
                       </button>
@@ -350,7 +355,7 @@ export function WelcomeScreen() {
           </section>
 
           {/* ---- Join a table ---------------------------------------------- */}
-          <section className="order-3 min-w-0 lg:col-start-1 lg:row-start-2">
+          <section className="order-3 min-w-0 wide:col-start-1 wide:row-start-2">
             <JoinTable
               title={firstRun ? "Here to play?" : "Join a table"}
               description={
@@ -452,7 +457,7 @@ function Contours() {
         fill="none"
         stroke="#1d2028"
         strokeWidth="1.25"
-        className="pointer-events-none absolute -top-[300px] -right-[340px] h-[860px] w-[860px] lg:-top-[260px] lg:-right-[220px] lg:h-[900px] lg:w-[900px]"
+        className="pointer-events-none absolute -top-[300px] -right-[340px] h-[860px] w-[860px] wide:-top-[260px] wide:-right-[220px] wide:h-[900px] wide:w-[900px]"
       >
         {CONTOUR_PATHS.map((d) => (
           <path key={d} d={d} />
@@ -464,7 +469,7 @@ function Contours() {
         fill="none"
         stroke="#191b22"
         strokeWidth="1.25"
-        className="pointer-events-none absolute -bottom-[380px] -left-[420px] h-[820px] w-[820px] lg:hidden"
+        className="pointer-events-none absolute -bottom-[380px] -left-[420px] h-[820px] w-[820px] wide:hidden"
       >
         {[0, 2, 5, 6].map((i) => (
           <path key={i} d={CONTOUR_PATHS[i]} />

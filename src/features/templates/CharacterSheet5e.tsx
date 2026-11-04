@@ -4,14 +4,18 @@ import type { Element } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 
 import {
+  sameSet,
+  shiftAbilities,
+  withAutoSlots,
+  withGrantedSkills,
+} from "./dnd5e-build";
+import {
   BACKGROUNDS,
   CLASSES,
   SPECIES,
-  THIRD_CASTERS,
   backgroundByName,
   classByName,
   speciesByName,
-  type Asi,
 } from "./dnd5e-data";
 import {
   ABILITIES,
@@ -27,7 +31,6 @@ import {
   signed,
   skillBonus,
   type Ability,
-  slotsFor,
   type Sheet5e,
 } from "./dnd5e-model";
 import { SheetExtras } from "./SheetExtras";
@@ -592,53 +595,6 @@ export function CharacterSheet5e({ element }: { element: Element }) {
  * Keeps the spellcasting ability and slot maximums in step with class,
  * subclass and level, until the GM edits a maximum by hand.
  */
-function withAutoSlots(s: Sheet5e): Sheet5e {
-  const cls = classByName(s.class);
-  const third = THIRD_CASTERS[s.subclass.trim()];
-  const progression =
-    cls?.spellcasting?.progression ?? (third ? "third" : null);
-  const ability = cls?.spellcasting?.ability ?? third ?? null;
-  const sc = s.spellcasting;
-  const nextAbility = sc.ability || ability || "";
-  if (!sc.slotsAuto) {
-    return nextAbility === sc.ability
-      ? s
-      : { ...s, spellcasting: { ...sc, ability: nextAbility } };
-  }
-  const maxes = progression ? slotsFor(progression, s.level) : {};
-  const slots: Sheet5e["spellcasting"]["slots"] = {};
-  for (const [level, max] of Object.entries(maxes)) {
-    const used = sc.slots[level]?.used ?? 0;
-    slots[level] = { max, used: Math.min(used, max) };
-  }
-  return { ...s, spellcasting: { ...sc, ability: nextAbility, slots } };
-}
-
-function shiftAbilities(
-  abilities: Sheet5e["abilities"],
-  asi: Asi,
-  sign: 1 | -1,
-): Sheet5e["abilities"] {
-  const out = { ...abilities };
-  for (const [key, bonus] of Object.entries(asi) as [Ability, number][]) {
-    out[key] = Math.max(1, Math.min(30, out[key] + sign * bonus));
-  }
-  return out;
-}
-
-/** Drops skills the previous pick granted and adds the next pick's. */
-function withGrantedSkills(
-  current: string[],
-  previous: string[],
-  next: string[],
-): string[] {
-  const kept = current.filter(
-    (id) => !previous.includes(id) || next.includes(id),
-  );
-  for (const id of next) if (!kept.includes(id)) kept.push(id);
-  return kept;
-}
-
 function skillName(id: string): string {
   return SKILLS.find((s) => s.id === id)?.name ?? id;
 }
@@ -719,10 +675,6 @@ function GrantRow({
       {children}
     </div>
   );
-}
-
-function sameSet<T>(a: T[], b: readonly T[]): boolean {
-  return a.length === b.length && a.every((x) => b.includes(x));
 }
 
 /** A text field with suggestions: pick from the list or type anything. */

@@ -61,6 +61,14 @@ export function ElementEditor({ element, panel }: Props) {
   const [tagsText, setTagsText] = useState(element.tags.join(", "));
   const [status, setStatus] = useState<"saved" | "dirty" | "saving">("saved");
   const [mention, setMention] = useState<MentionState | null>(null);
+  /**
+   * The trash button asks once, in place, before deleting. Keyed by element
+   * so switching elements drops the question on its own.
+   */
+  const [confirmingFor, setConfirmingFor] = useState<string | null>(null);
+  const confirmingDelete = confirmingFor === element.id;
+  const setConfirmingDelete = (on: boolean) =>
+    setConfirmingFor(on ? element.id : null);
   const [linkMode, setLinkMode] = useState(false);
   const shared = element.shared === true;
   const hosting = useTableStore((s) => s.hosting);
@@ -202,15 +210,18 @@ export function ElementEditor({ element, panel }: Props) {
   }
 
   async function handleDelete() {
-    if (
-      !window.confirm(
-        `Delete "${element.name}"? The file will be removed from disk.`,
-      )
-    )
-      return;
+    setConfirmingDelete(false);
     pending.current = {};
     await deleteElement(element.id);
   }
+
+  // Clicking anywhere else drops the question.
+  useEffect(() => {
+    if (!confirmingDelete) return;
+    const cancel = () => setConfirmingFor(null);
+    window.addEventListener("pointerdown", cancel);
+    return () => window.removeEventListener("pointerdown", cancel);
+  }, [confirmingDelete]);
 
   return (
     <div className="flex h-full flex-col">
@@ -290,14 +301,42 @@ export function ElementEditor({ element, panel }: Props) {
                 ? "Saving…"
                 : "Unsaved"}
           </span>
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={handleDelete}
-            aria-label="Delete element"
-          >
-            <Trash2 size={14} />
-          </Button>
+          {confirmingDelete ? (
+            <span
+              className="flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/10 py-0.5 pl-2 pr-0.5 text-[11px] text-red-200"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              Delete from disk?
+              <Button
+                variant="danger"
+                size="sm"
+                autoFocus
+                onClick={handleDelete}
+                onKeyDown={(e) =>
+                  e.key === "Escape" && setConfirmingDelete(false)
+                }
+              >
+                Delete
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmingDelete(false)}
+              >
+                Keep
+              </Button>
+            </span>
+          ) : (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => setConfirmingDelete(true)}
+              aria-label="Delete element"
+              title="Delete"
+            >
+              <Trash2 size={14} />
+            </Button>
+          )}
         </div>
       </header>
 

@@ -24,6 +24,9 @@ import { isShared, localPreviewSource } from "@/features/player/player-model";
 import { Portrait } from "@/features/images/Portrait";
 import { portraitOf } from "@/features/images/portrait-model";
 import { HostPanel } from "@/features/table/HostPanel";
+import { Charactermancer5e } from "@/features/templates/Charactermancer5e";
+import { EMPTY_SHEET, type Sheet5e } from "@/features/templates/dnd5e-model";
+import { rulesOf } from "@/features/templates/rulesets";
 import { calendarOf } from "@/features/timeline/calendar-model";
 import { CalendarSettings } from "@/features/timeline/CalendarSettings";
 import { TimelineList } from "@/features/timeline/TimelineList";
@@ -65,6 +68,9 @@ export function BibleScreen() {
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState<string | null>(null);
   const [newKind, setNewKind] = useState<string>("character");
+  /** The name the charactermancer opened with; null while it is closed. */
+  const [mancerName, setMancerName] = useState<string | null>(null);
+  const rules = rulesOf(campaign);
   const [view, setView] = useState<
     "elements" | "timeline" | "graph" | "journal" | "table"
   >("elements");
@@ -167,11 +173,38 @@ export function BibleScreen() {
     return sortForList(filtered, kindFilter);
   }, [elements, kindFilter, query]);
 
+  const creatingKind = kindFilter ?? newKind;
+  // A 5e character can start three ways: as an NPC, as a blank player
+  // sheet, or through the guided builder. Other kinds just get a name.
+  const characterChoice = creatingKind === "character" && rules === "dnd5e";
+
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     if (!newName?.trim()) return;
-    await createElement(kindFilter ?? newKind, newName.trim());
+    if (characterChoice) {
+      await createCharacter("npc");
+      return;
+    }
+    await createElement(creatingKind, newName.trim());
     setNewName(null);
+  }
+
+  async function createCharacter(role: Sheet5e["role"]) {
+    if (!newName?.trim()) return;
+    await createElement("character", newName.trim(), {
+      sheet: { ...EMPTY_SHEET, role },
+    });
+    setNewName(null);
+  }
+
+  function openCharactermancer() {
+    setMancerName(newName ?? "");
+    setNewName(null);
+  }
+
+  async function finishCharactermancer(name: string, sheet: Sheet5e) {
+    await createElement("character", name, { sheet });
+    setMancerName(null);
   }
 
   if (!campaign) return null;
@@ -430,18 +463,51 @@ export function BibleScreen() {
                     placeholder="Name"
                     className="w-full rounded-md border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm outline-none focus:border-ember-500"
                   />
-                  <div className="mt-2 flex gap-2">
-                    <Button size="sm" type="submit" disabled={!newName.trim()}>
-                      Create
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setNewName(null)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
+                  {characterChoice ? (
+                    <div className="mt-2 space-y-1.5">
+                      <CreateChoice
+                        label="NPC"
+                        blurb="A person in the world, with a light sheet."
+                        disabled={!newName.trim()}
+                        onClick={() => void createCharacter("npc")}
+                      />
+                      <CreateChoice
+                        label="Character sheet"
+                        blurb="A blank player sheet to fill in by hand."
+                        disabled={!newName.trim()}
+                        onClick={() => void createCharacter("pc")}
+                      />
+                      <CreateChoice
+                        label="Charactermancer"
+                        blurb="Build a player character step by step."
+                        onClick={openCharactermancer}
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setNewName(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex gap-2">
+                      <Button
+                        size="sm"
+                        type="submit"
+                        disabled={!newName.trim()}
+                      >
+                        Create
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setNewName(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
                 </form>
               )}
 
@@ -592,7 +658,39 @@ export function BibleScreen() {
           </>
         )}
       </Group>
+      {mancerName !== null && (
+        <Charactermancer5e
+          initialName={mancerName}
+          onCancel={() => setMancerName(null)}
+          onCreate={finishCharactermancer}
+        />
+      )}
     </div>
+  );
+}
+
+/** One of the ways a new character can start. */
+function CreateChoice({
+  label,
+  blurb,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  blurb: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="block w-full rounded-md border border-ink-700 px-2.5 py-1.5 text-left transition-colors hover:border-ember-500/60 hover:bg-ember-500/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-ink-700 disabled:hover:bg-transparent"
+    >
+      <span className="block text-sm text-ink-100">{label}</span>
+      <span className="block text-[11px] text-ink-400">{blurb}</span>
+    </button>
   );
 }
 

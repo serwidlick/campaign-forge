@@ -21,6 +21,31 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "graphify update . >/dev/null 2>&1 && graphify export wiki >/dev/null 2>&1 || true",
+            "timeout": 60,
+            "statusMessage": "Updating graphify graph and wiki"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "graphify update . >/dev/null 2>&1 && graphify export wiki >/dev/null 2>&1 || true",
+            "timeout": 60,
+            "statusMessage": "Updating graphify graph and wiki"
+          }
+        ]
+      }
     ]
   }
 }

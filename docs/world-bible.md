@@ -20,7 +20,7 @@ Most kinds are just a body. Sessions, arcs, maps, events, journal entries and do
 - **New** in the list column creates an element of the kind you are looking at. On the Everything view it asks which kind first.
 - The name is the big title at the top of the editor. Change it any time; links keep working because they point at the element's id, not its name.
 - Tags are a comma-separated line under the name. The list search matches names and tags.
-- The red bin button in the header deletes the element and its file. There is no undo beyond your own backups.
+- The red bin button in the header deletes the element and its file: click it once and it asks in place, click **Delete** to confirm or anywhere else to keep it. There is no undo beyond your own backups.
 
 Everything saves itself a moment after you stop typing. The small word next to the bin says Saved, Unsaved or Saving.
 
@@ -39,6 +39,16 @@ If a body contains a heading such as `## Players know`, players receive only tha
 ## Templates
 
 A new element starts from a template for its kind: a body skeleton of headings such as Appearance, Personality and Backstory for a character, or Hook, Objectives, Complications and Rewards for a quest. Every template ends with a **Players know** heading, so a freshly shared element reveals nothing until you write something there. Delete any heading you do not want; they are only text.
+
+## Creating a character
+
+In a D&D 5e campaign, naming a new character offers three ways to start:
+
+- **NPC** makes a person in the world with a light sheet, for someone the players meet rather than play.
+- **Character sheet** makes a blank player sheet to fill in by hand.
+- **Charactermancer** builds a player character step by step: species, class and level (with the subclass once the class would have one), background, ability scores (standard array, point buy, 4d6-drop-lowest rolls, or typed in, with species bonuses added and any flexible bonus points placed), skills (what species and background grant is already ticked; you pick the class's choices, any the background leaves open, and expertise for rogues and bards), then name, alignment, hit points (the book's maximum, editable) and personality. The review page shows the finished sheet and lists anything still to choose; nothing is written to disk until you press **Create character**. Saving throws, speed, senses, languages, species traits and spell slots are filled in from the picks. Equipment, class features and spells known are left for the sheet.
+
+In another game's campaign, a new character is just named and opened.
 
 ## Character sheets
 

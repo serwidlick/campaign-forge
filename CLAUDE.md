@@ -45,7 +45,7 @@ pnpm tauri:dev         # run the app
 
 ## Code graph
 
-[graphify](https://github.com/Graphify-Labs/graphify) turns the repo into a queryable knowledge graph. It is installed as a uv tool and registered project-wide: the `/graphify` skill lives in `.claude/skills/graphify/`, and `.claude/settings.json` has `PreToolUse` hooks that point Claude Code at the graph before raw searches and reads. `graphify-out/` is gitignored; rebuild it locally.
+[graphify](https://github.com/Graphify-Labs/graphify) turns the repo into a queryable knowledge graph. It is installed as a uv tool and registered project-wide: the `/graphify` skill lives in `.claude/skills/graphify/`, and `.claude/settings.json` has `PreToolUse` hooks that point Claude Code at the graph before raw searches and reads, plus `PostToolUse` (Write/Edit) and `Stop` hooks that run `graphify update . && graphify export wiki` so the graph and `graphify-out/wiki/` are rebuilt after every change. `graphify-out/` is gitignored; rebuild it locally.
 
 ```bash
 uv tool install graphifyy    # once per machine, from your own terminal (winget install astral-sh.uv first on Windows)
@@ -66,5 +66,5 @@ Rules:
 - When graphify-out/graph.json exists, run `graphify query "<question>"` before your first grep, search or source-file read for a codebase question, and put this rule in every subagent prompt that explores code. Read raw files only for lines the graph or an earlier read already located. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- The graph and wiki are rebuilt automatically: a `PostToolUse` hook runs `graphify update . && graphify export wiki` after every Write/Edit, and a `Stop` hook runs the same at the end of each turn to catch edits made through shell commands. Both are AST-only with no API cost. Do not run them by hand after each change; only run `graphify cluster-only .` when the wiki export warns that the analysis sidecar is stale (it rewrites community ids and a dated backup folder, so it is not in the hook).
 - A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.

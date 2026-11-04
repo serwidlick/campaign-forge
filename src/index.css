@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Side-by-side layouts: wide enough, and a landscape window. A portrait
+   monitor is wider than the usual breakpoint but still wants one column. */
+@custom-variant wide (@media (min-width: 64rem) and (orientation: landscape));
+
 @theme {
   --color-ink-950: #0e0f13;
   --color-ink-900: #15171d;
