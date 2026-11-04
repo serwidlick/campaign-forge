@@ -24,6 +24,8 @@ import {
   hasPlayersSection,
 } from "@/features/player/player-model";
 import { PortraitPicker } from "@/features/images/PortraitPicker";
+import { AudiencePicker } from "@/features/table/AudiencePicker";
+import { audienceOf, playersOf } from "@/features/table/players-model";
 import { useTableStore } from "@/stores/table-store";
 
 import {
@@ -56,6 +58,9 @@ export function ElementEditor({ element, panel }: Props) {
   const deleteElement = useCampaignStore((s) => s.deleteElement);
   const navigate = useCampaignStore((s) => s.navigate);
   const elements = useCampaignStore((s) => s.elements);
+  const campaign = useCampaignStore((s) => s.campaign);
+  const registry = playersOf(campaign);
+  const audience = audienceOf(element);
 
   const [name, setName] = useState(element.name);
   const [tagsText, setTagsText] = useState(element.tags.join(", "));
@@ -275,9 +280,9 @@ export function ElementEditor({ element, panel }: Props) {
               aria-pressed={showing}
               title={
                 showing
-                  ? "Players are looking at this. Click to stop showing it."
+                  ? "Players have been offered this. Click to stop showing it."
                   : shared
-                    ? "Open this on every player's screen"
+                    ? "Offer this to every player: they get a bar with Look and Not now"
                     : "Share this and open it on every player's screen"
               }
               className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
@@ -342,6 +347,16 @@ export function ElementEditor({ element, panel }: Props) {
 
       {shared && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ember-500/20 bg-ember-500/5 px-6 py-1.5 text-[11px] text-ember-200/90">
+          <AudiencePicker
+            players={registry}
+            value={audience}
+            onChange={(ids) =>
+              void saveElement(element.id, {
+                audience: ids.length ? ids : undefined,
+              })
+            }
+          />
+          <span className="text-ember-500/50">·</span>
           {playersSection ? (
             <>
               Players see only the <strong>{PLAYERS_HEADING}</strong> section.

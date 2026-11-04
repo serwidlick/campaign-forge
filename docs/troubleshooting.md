@@ -27,6 +27,10 @@ Notarised builds, when the Apple signing secrets are set up, do not need this.
 
 The machine has more than one network address, and the one in the code is not the Wi-Fi. A VPN such as ProtonVPN, a virtual machine switch or WSL each add an adapter. The hosting panel lists every address and, when there are several, lets you choose which one the code uses; pick the one that looks like your home network, usually 192.168.x.x. Switching the VPN off while hosting also works.
 
+## A paired device is asked for the code again
+
+The GM removed the device or the player, the player reinstalled the app or cleared the credential store (which makes a new key), or the campaign folder was restored from a backup made before the pairing. Join with the code once and the GM pairs the device again.
+
 ## A player is stuck on "trying to reconnect"
 
 The GM's machine stopped answering without ending the table: it went to sleep, changed network, or the app crashed. The player's app keeps trying. Either wait for the GM, or press **Leave table** and join again once the GM is back.

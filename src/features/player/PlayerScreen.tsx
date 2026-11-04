@@ -58,6 +58,8 @@ interface Props {
   onExit: () => void;
   /** Something the GM wants on screen now; a new nonce opens it again. */
   focus?: { id: string; nonce: number };
+  /** Extra controls in the banner, e.g. a preview-as selector. */
+  bannerExtra?: React.ReactNode;
 }
 
 /**
@@ -74,6 +76,7 @@ export function PlayerScreen({
   exitLabel,
   onExit,
   focus,
+  bannerExtra,
 }: Props) {
   const [kindFilter, setKindFilter] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -81,11 +84,18 @@ export function PlayerScreen({
   // The GM's spotlight: adopt it once per nonce, during render, so it does
   // not fight the player's own clicks afterwards.
   const [focusSeen, setFocusSeen] = useState<number | null>(null);
+  // Offered, not forced: a new spotlight raises a bar the player can accept
+  // or wave away. Adopted during render so it never fights their clicks.
+  const [offer, setOffer] = useState<{ id: string; nonce: number } | null>(
+    null,
+  );
   if (focus && focus.nonce !== focusSeen) {
     setFocusSeen(focus.nonce);
-    setSelectedId(focus.id);
-    setKindFilter(null);
+    setOffer(focus.id === selectedId ? null : focus);
   }
+  const offered = offer
+    ? (source.elements.find((e) => e.id === offer.id) ?? null)
+    : null;
   const [opened, setOpened] = useState<{
     id: string;
     element: Element | null;
@@ -139,8 +149,34 @@ export function PlayerScreen({
         <div className="flex items-center gap-3 border-b border-ember-500/40 bg-ember-500/10 px-4 py-1.5 text-xs text-ember-200">
           <Eye size={13} />
           <span className="flex-1">{banner}</span>
+          {bannerExtra}
           <Button size="sm" variant="ghost" onClick={onExit}>
             <ArrowLeft size={13} /> {exitLabel}
+          </Button>
+        </div>
+      )}
+      {offer && offered && (
+        <div className="flex items-center gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
+          <Eye size={14} className="shrink-0" />
+          <span className="min-w-0 flex-1 truncate">
+            The GM is showing <strong>{offered.name}</strong>
+            <span className="text-amber-200/70">
+              {" "}
+              · {kindById(offered.type).label}
+            </span>
+          </span>
+          <Button
+            size="sm"
+            onClick={() => {
+              setSelectedId(offer.id);
+              setKindFilter(null);
+              setOffer(null);
+            }}
+          >
+            Look
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setOffer(null)}>
+            Not now
           </Button>
         </div>
       )}

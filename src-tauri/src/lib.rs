@@ -1,4 +1,5 @@
 mod commands;
+mod identity;
 mod secrets;
 mod storage;
 mod table;
@@ -52,6 +53,9 @@ pub fn run() {
             table::table_fetch_asset,
             table::table_update_sheet,
             table::table_wait_for_change,
+            identity::device_identity,
+            table::table_bind_device,
+            table::table_players,
             secrets::get_api_key,
             secrets::set_api_key,
             secrets::clear_api_key,

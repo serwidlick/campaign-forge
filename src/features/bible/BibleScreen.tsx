@@ -27,6 +27,7 @@ import { HostPanel } from "@/features/table/HostPanel";
 import { Charactermancer5e } from "@/features/templates/Charactermancer5e";
 import { EMPTY_SHEET, type Sheet5e } from "@/features/templates/dnd5e-model";
 import { rulesOf } from "@/features/templates/rulesets";
+import { playersOf } from "@/features/table/players-model";
 import { calendarOf } from "@/features/timeline/calendar-model";
 import { CalendarSettings } from "@/features/timeline/CalendarSettings";
 import { TimelineList } from "@/features/timeline/TimelineList";
@@ -78,13 +79,16 @@ export function BibleScreen() {
   const stopHosting = useTableStore((s) => s.stopHosting);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [playerPreview, setPlayerPreview] = useState(false);
+  const [previewAs, setPreviewAs] = useState<string | null>(null);
+  const registry = playersOf(campaign);
+  const previewPlayer = registry.find((p) => p.id === previewAs);
   // The preview reads through the same Rust sanitiser as the table server.
   const [sharedElements, setSharedElements] = useState<ElementSummary[]>([]);
   useEffect(() => {
     if (!playerPreview) return;
     let cancelled = false;
     storage
-      .listSharedElements()
+      .listSharedElements(previewPlayer?.id)
       .then((list) => {
         if (!cancelled) setSharedElements(list);
       })
@@ -94,10 +98,10 @@ export function BibleScreen() {
     return () => {
       cancelled = true;
     };
-  }, [playerPreview, elements]);
+  }, [playerPreview, elements, previewPlayer?.id]);
   const previewSource = useMemo(
-    () => localPreviewSource(sharedElements),
-    [sharedElements],
+    () => localPreviewSource(sharedElements, previewPlayer),
+    [sharedElements, previewPlayer],
   );
   const calendar = useMemo(() => calendarOf(campaign), [campaign]);
   const sharedCount = useMemo(
@@ -221,6 +225,23 @@ export function BibleScreen() {
           banner="Previewing as a player: only shared elements, and only what is shared on them."
           exitLabel="Back to GM view"
           onExit={() => setPlayerPreview(false)}
+          bannerExtra={
+            <label className="flex items-center gap-1.5 text-xs">
+              Previewing as
+              <select
+                value={previewAs ?? ""}
+                onChange={(e) => setPreviewAs(e.target.value || null)}
+                className="rounded-md border border-ink-700 bg-ink-900 px-1.5 py-0.5 text-xs text-ink-100 outline-none"
+              >
+                <option value="">anyone</option>
+                {registry.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          }
         />
       </div>
     );

@@ -28,7 +28,7 @@ export function TableScreen() {
   const banner =
     connection === "reconnecting"
       ? `Lost the GM. Trying to reconnect to ${session.address}…`
-      : `At the table as ${session.playerName}. The GM can change what you see at any time.`;
+      : `At the table as ${session.playerName}${session.recognized ? " (paired device)" : ""}. The GM can change what you see at any time.`;
 
   return (
     <div className="flex h-full flex-col">

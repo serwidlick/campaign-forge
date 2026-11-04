@@ -152,6 +152,23 @@
         color: #fbd5b5;
         font-size: 13px;
       }
+      .notice button.mini {
+        margin-left: 8px;
+        padding: 4px 10px;
+        border: 0;
+        border-radius: 6px;
+        background: var(--ember-500);
+        color: var(--ink-950);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .notice button.mini.ghost {
+        background: transparent;
+        border: 1px solid rgba(217, 131, 59, 0.5);
+        color: #fbd5b5;
+        font-weight: 500;
+      }
       .filters {
         display: flex;
         gap: 6px;
@@ -610,7 +627,7 @@
               }
               if (v.spotlightSeq > state.event) {
                 state.event = v.spotlightSeq;
-                if (v.spotlight) openElement(v.spotlight);
+                if (v.spotlight) offerSpotlight(v.spotlight);
               }
               var changed = v.version > state.version;
               state.version = v.version;
@@ -625,6 +642,36 @@
               setNotice("Lost the GM. Trying again…");
               setTimeout(loop, 3000);
             });
+        }
+
+        function offerSpotlight(id) {
+          if (id === state.openId) return;
+          var target = byId(id);
+          var el = $("notice");
+          el.innerHTML = "";
+          el.hidden = false;
+          el.appendChild(
+            document.createTextNode(
+              "The GM is showing " +
+                (target ? target.name : "something") +
+                ". ",
+            ),
+          );
+          var look = document.createElement("button");
+          look.textContent = "Look";
+          look.className = "mini";
+          look.onclick = function () {
+            el.hidden = true;
+            openElement(id);
+          };
+          var later = document.createElement("button");
+          later.textContent = "Not now";
+          later.className = "mini ghost";
+          later.onclick = function () {
+            el.hidden = true;
+          };
+          el.appendChild(look);
+          el.appendChild(later);
         }
 
         function setNotice(text) {

@@ -199,15 +199,36 @@ pub fn read_asset(state: State<'_, AppState>, path: String) -> CommandResult<tau
 
 /// Shared elements exactly as the table server would send them: the GM's
 /// "preview as player" reads through this so it can never drift.
+/// `player_id` previews what one paired player sees; `None` is anyone.
 #[tauri::command]
-pub fn list_shared_elements(state: State<'_, AppState>) -> CommandResult<Vec<ElementSummary>> {
-    share::shared_summaries(&state).map_err(to_command_error)
+pub fn list_shared_elements(
+    state: State<'_, AppState>,
+    player_id: Option<String>,
+) -> CommandResult<Vec<ElementSummary>> {
+    let registry = crate::table::players::load(&state);
+    let record = player_id
+        .as_deref()
+        .and_then(|id| crate::table::players::find_by_id(&registry, id));
+    let viewer = record.map(|p| share::Viewer {
+        name: &p.name,
+        player_id: Some(&p.id),
+    });
+    share::shared_summaries(&state, viewer.as_ref()).map_err(to_command_error)
 }
 
 #[tauri::command]
 pub fn read_shared_element(
     state: State<'_, AppState>,
     id: String,
+    player_id: Option<String>,
 ) -> CommandResult<Option<Element>> {
-    share::shared_element(&state, &id).map_err(to_command_error)
+    let registry = crate::table::players::load(&state);
+    let record = player_id
+        .as_deref()
+        .and_then(|pid| crate::table::players::find_by_id(&registry, pid));
+    let viewer = record.map(|p| share::Viewer {
+        name: &p.name,
+        player_id: Some(&p.id),
+    });
+    share::shared_element(&state, &id, viewer.as_ref()).map_err(to_command_error)
 }

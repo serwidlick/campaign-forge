@@ -41,6 +41,8 @@ interface CampaignState {
 
   /** Re-attach to a campaign the Rust side already has open (dev reloads). */
   restore: () => Promise<void>;
+  /** Re-read campaign.json after Rust changed it (pairing a device). */
+  reloadCampaignMeta: () => Promise<void>;
   openCampaign: (path: string) => Promise<void>;
   createCampaign: (
     path: string,
@@ -193,6 +195,15 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
         await restoreLayout(campaign);
       } catch (err) {
         set({ error: errorMessage(err) });
+      }
+    },
+
+    async reloadCampaignMeta() {
+      try {
+        const campaign = await storage.getCampaign();
+        if (campaign) set({ campaign });
+      } catch {
+        /* keep what we have */
       }
     },
 

@@ -45,9 +45,25 @@ The player view then fills the window: kinds down the side with counts, a search
 
 If the GM's machine goes quiet, the banner says the connection was lost and the app keeps trying until you leave or the GM is back.
 
+## Players and devices
+
+Players need no account. Every copy of the app makes itself a key the first time it runs and keeps it in the operating system's credential store. When someone joins your table from the app, their row in **At the table** shows their device and a **Pair as new player** button (or a dropdown to attach the device to a player you already have). Pairing writes the player, with their device, into `campaign.json`, so it travels with the folder.
+
+From then on:
+
+- That device joins without a code. The app proves it holds the key by signing a one-time challenge; nothing secret is ever sent.
+- The player's name is the one you gave, not whatever they typed.
+- You can assign pages and characters to them (below).
+
+The **Players** section of the hosting panel lists everyone with their devices. Remove a device and it needs the code again; remove a player and their assignments stop matching. A player with a second laptop simply gets paired again, to the same player. The phone page has no key, so phones always join with the code as guests.
+
+## Only for some players
+
+A shared element normally goes to everyone at the table. The shared strip under its header has a **Visible to** dropdown: tick players and only they receive it; the rest never see it exists. That makes private letters, a secret the rogue found, or a faction briefing straightforward. The player preview has a **Previewing as** selector so you can check each person's view.
+
 ## Your own character
 
-The GM can hand a character to a player: on the character's sheet, the **Player** field takes the name the player joins the table with (the names of everyone currently sitting at the table are offered). From then on, when that player opens the character at the table they get the full sheet, editable, instead of the read-only summary. Hit points, slots, inventory, death saves, all of it saves straight into the GM's file and shows up for the GM within a second. The character still has to be **Shared**, and the player sees only the Players know part of its body like anyone else.
+The GM can hand a character to a player: on the character's sheet, the **Player** field lists the paired players; pick one. From then on, when that player opens the character at the table they get the full sheet, editable, instead of the read-only summary. Hit points, slots, inventory, death saves, all of it saves straight into the GM's file and shows up for the GM within a second. The character still has to be **Shared**, and the player sees only the Players know part of its body like anyone else.
 
 A player cannot change who owns a sheet, and nobody but the owner can edit it over the table. If GM and player edit the same sheet at the same moment, the last save wins.
 
@@ -57,9 +73,7 @@ The hosting panel also shows a QR code and a web address. Anyone on the same Wi-
 
 ## Showing something to everyone
 
-While hosting, every element header has a **Show to players** button. Press it and that element opens on every player's screen. On a private element the button reads **Share and show** and does both. The button turns green with **Showing** while it is the current one; the hosting panel names it and has **Stop showing**. A player who joins late gets the current one on arrival.
-
-Players can wander off to read other things afterwards; showing again brings them back.
+While hosting, every element header has a **Show to players** button. Press it and every player gets a bar across the top of their screen saying what you are showing, with **Look** and **Not now**. Nothing moves until they choose, so a player halfway through reading something is not yanked away. On a private element the button reads **Share and show** and does both. The button turns green with **Showing** while it is the current one; the hosting panel names it and has **Stop showing**. A player who joins late is offered the current one on arrival. Showing the same thing again raises the bar again for anyone who waved it away.
 
 ## Across devices
 

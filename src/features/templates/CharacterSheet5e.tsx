@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import type { Element } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
-import { useTableStore } from "@/stores/table-store";
+import { playersOf } from "@/features/table/players-model";
 
 import {
   sameSet,
@@ -40,7 +40,6 @@ const FIELD =
   "rounded-md border border-ink-700 bg-ink-900 px-2 py-1 text-sm text-ink-100 outline-none focus:border-ember-500";
 const LABEL = "text-[11px] text-ink-400";
 const AUTOSAVE_MS = 400;
-const EMPTY_PLAYERS: { name: string }[] = [];
 
 /**
  * The structured part of a D&D 5e character. Edits save on a short
@@ -56,9 +55,8 @@ export function CharacterSheet5e({
   onSave?: (sheet: Sheet5e) => Promise<void>;
 }) {
   const saveElement = useCampaignStore((s) => s.saveElement);
-  const hostedPlayers = useTableStore(
-    (s) => s.hosting?.players ?? EMPTY_PLAYERS,
-  );
+  const campaign = useCampaignStore((s) => s.campaign);
+  const registry = playersOf(campaign);
   const [sheet, setSheet] = useState<Sheet5e>(
     () => readSheet5e(element.sheet) ?? EMPTY_SHEET,
   );
@@ -265,14 +263,25 @@ export function CharacterSheet5e({
           </select>
         </label>
         {!onSave && (
-          <Combo
-            label="Player"
-            value={sheet.owner}
-            onChange={(v) => update((s) => ({ ...s, owner: v }))}
-            options={hostedPlayers.map((p) => p.name)}
-            width="w-36"
-            placeholder="Who may edit this"
-          />
+          <label className={LABEL}>
+            Player
+            <select
+              value={sheet.owner}
+              onChange={(e) => update((s) => ({ ...s, owner: e.target.value }))}
+              className={`mt-1 block w-40 ${FIELD}`}
+              title="The paired player who may edit this sheet at the table"
+            >
+              <option value="">Nobody (GM only)</option>
+              {registry.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+              {sheet.owner && !registry.some((p) => p.id === sheet.owner) && (
+                <option value={sheet.owner}>{sheet.owner} (by name)</option>
+              )}
+            </select>
+          </label>
         )}
         <Combo
           label="Class"

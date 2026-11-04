@@ -8,6 +8,7 @@
 
 mod client;
 mod discovery;
+pub mod players;
 mod server;
 pub mod share;
 
@@ -187,6 +188,63 @@ pub fn table_spotlight(
     Ok(host.status())
 }
 
+/// Pairs a connected device with a player: an existing one (`player_id`)
+/// or a new one named `name`. From then on that device joins without a code
+/// and counts as that player for audiences and character ownership.
+#[tauri::command]
+pub fn table_bind_device(
+    app: AppHandle,
+    table: State<'_, TableState>,
+    token: String,
+    player_id: Option<String>,
+    name: Option<String>,
+) -> CommandResult<HostStatus> {
+    let guard = lock(&table.host)?;
+    let host = guard
+        .as_ref()
+        .ok_or_else(|| "not hosting a table".to_owned())?;
+    let (device, join_name) = {
+        let players = host
+            .players
+            .lock()
+            .map_err(|_| "player list poisoned".to_owned())?;
+        let p = players
+            .get(&token)
+            .ok_or_else(|| "that connection is gone".to_owned())?;
+        let d = p
+            .device
+            .clone()
+            .ok_or_else(|| "that device cannot be paired (it joined from a browser)".to_owned())?;
+        (d, p.name.clone())
+    };
+    let state = app.state::<AppState>();
+    let record = players::bind_device(
+        &state,
+        player_id.as_deref(),
+        name.as_deref().unwrap_or(&join_name),
+        players::PlayerDevice {
+            fingerprint: device.fingerprint,
+            public_key: device.public_key,
+            label: device.label,
+            added_at: String::new(),
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    if let Ok(mut players) = host.players.lock()
+        && let Some(p) = players.get_mut(&token)
+    {
+        p.player_id = Some(record.id.clone());
+        p.name = record.name.clone();
+    }
+    Ok(host.status())
+}
+
+/// The campaign's players and their paired devices.
+#[tauri::command]
+pub fn table_players(app: AppHandle) -> CommandResult<Vec<players::PlayerRecord>> {
+    Ok(players::load(&app.state::<AppState>()))
+}
+
 #[tauri::command]
 pub fn table_host_status(table: State<'_, TableState>) -> CommandResult<Option<HostStatus>> {
     Ok(lock(&table.host)?.as_ref().map(Host::status))
@@ -217,9 +275,9 @@ pub async fn table_join(
     table: State<'_, TableState>,
     address: String,
     name: String,
-    code: String,
+    code: Option<String>,
 ) -> CommandResult<SessionInfo> {
-    let session = client::Session::join(&address, &name, &code).await?;
+    let session = client::Session::join(&address, &name, code.as_deref()).await?;
     let info = session.summary();
     *lock(&table.client)? = Some(session);
     Ok(info)

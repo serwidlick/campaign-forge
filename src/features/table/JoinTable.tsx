@@ -1,7 +1,8 @@
 import { Radio, Search, Wifi, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import type { FoundTable } from "@/lib/types";
+import { deviceIdentity } from "@/lib/tauri";
+import type { DeviceIdentity, FoundTable } from "@/lib/types";
 import { useTableStore } from "@/stores/table-store";
 
 /** How long one press of Find tables keeps listening. */
@@ -54,6 +55,12 @@ export function JoinTable({
   const [address, setAddress] = useState("");
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [device, setDevice] = useState<DeviceIdentity | null>(null);
+  useEffect(() => {
+    deviceIdentity()
+      .then(setDevice)
+      .catch(() => setDevice(null));
+  }, []);
   const searchTimers = useRef<{ poll: number; end: number } | null>(null);
 
   function stopSearch() {
@@ -96,8 +103,9 @@ export function JoinTable({
   }, [stopDiscovery]);
 
   const target = manual ? address.trim() : (picked?.addresses[0] ?? "");
-  const canJoin =
-    Boolean(target) && name.trim().length > 0 && code.trim().length > 0;
+  // The code is only needed the first time from this device; after the GM
+  // pairs it, the device key is the proof.
+  const canJoin = Boolean(target) && name.trim().length > 0;
 
   async function handleJoin(e: FormEvent) {
     e.preventDefault();
@@ -107,7 +115,7 @@ export function JoinTable({
     } catch {
       /* no storage; fine */
     }
-    const ok = await join(target, name.trim(), code.trim());
+    const ok = await join(target, name.trim(), code.trim() || undefined);
     if (ok) setCode("");
   }
 
@@ -233,7 +241,12 @@ export function JoinTable({
               />
             </label>
             <label className="block w-40 text-sm">
-              <span className="text-ink-300">Join code</span>
+              <span className="text-ink-300">
+                Join code{" "}
+                <span className="text-ink-500">
+                  · first time from this device
+                </span>
+              </span>
               <input
                 value={code}
                 onChange={(e) =>
@@ -257,6 +270,13 @@ export function JoinTable({
                 <X size={14} />
               </button>
             </div>
+          )}
+          {device && (
+            <p className="text-xs text-ink-500">
+              This device: {device.label} ·{" "}
+              <span className="font-mono">{device.fingerprint}</span>. Once the
+              GM pairs it, you join without a code.
+            </p>
           )}
           <div className="flex gap-2">
             <button

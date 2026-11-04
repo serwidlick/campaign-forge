@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/Button";
 import { isShared } from "@/features/player/player-model";
+import type { PlayerRecord, TablePlayer } from "@/lib/types";
+
+import { playersOf, shortFingerprint } from "./players-model";
 import { useCampaignStore } from "@/stores/campaign-store";
 import { useTableStore } from "@/stores/table-store";
 
@@ -21,6 +24,13 @@ export function HostPanel({
   onPreview: () => void;
 }) {
   const elements = useCampaignStore((s) => s.elements);
+  const campaign = useCampaignStore((s) => s.campaign);
+  const reloadCampaignMeta = useCampaignStore((s) => s.reloadCampaignMeta);
+  const updateCampaignSettings = useCampaignStore(
+    (s) => s.updateCampaignSettings,
+  );
+  const bindDevice = useTableStore((s) => s.bindDevice);
+  const registry = playersOf(campaign);
   const hosting = useTableStore((s) => s.hosting);
   const hostBusy = useTableStore((s) => s.hostBusy);
   const error = useTableStore((s) => s.error);
@@ -234,22 +244,15 @@ export function HostPanel({
               ) : (
                 <ul className="divide-y divide-ink-800 rounded-md border border-ink-800 bg-ink-900">
                   {hosting.players.map((p) => (
-                    <li
-                      key={`${p.name}-${p.joinedAt}`}
-                      className="flex items-center gap-3 px-3 py-2 text-sm"
-                    >
-                      <span
-                        className={`h-2 w-2 rounded-full ${
-                          isRecent(p.lastSeen) ? "bg-green-400" : "bg-ink-600"
-                        }`}
-                      />
-                      <span className="flex-1 text-ink-100">{p.name}</span>
-                      <span className="text-xs text-ink-500">
-                        {isRecent(p.lastSeen)
-                          ? "connected"
-                          : `last seen ${ago(p.lastSeen)}`}
-                      </span>
-                    </li>
+                    <ConnectionRow
+                      key={p.token}
+                      p={p}
+                      registry={registry}
+                      onBind={async (playerId, name) => {
+                        await bindDevice(p.token, playerId, name);
+                        await reloadCampaignMeta();
+                      }}
+                    />
                   ))}
                 </ul>
               )}
@@ -270,7 +273,8 @@ export function HostPanel({
                     {showing.name}
                   </button>
                   <span className="text-xs text-green-300/80">
-                    is open on every player's screen
+                    is offered to every player: they see a bar and choose to
+                    look
                   </span>
                   <span className="flex-1" />
                   <Button
@@ -289,6 +293,29 @@ export function HostPanel({
                 </p>
               )}
             </section>
+
+            <PlayersSection
+              players={registry}
+              onRemovePlayer={(id) =>
+                void updateCampaignSettings({
+                  players: registry.filter((p) => p.id !== id),
+                })
+              }
+              onRemoveDevice={(id, fingerprint) =>
+                void updateCampaignSettings({
+                  players: registry.map((p) =>
+                    p.id === id
+                      ? {
+                          ...p,
+                          devices: p.devices.filter(
+                            (d) => d.fingerprint !== fingerprint,
+                          ),
+                        }
+                      : p,
+                  ),
+                })
+              }
+            />
 
             <section>
               <SectionTitle>Sharing</SectionTitle>
@@ -314,6 +341,156 @@ export function HostPanel({
         )}
       </div>
     </div>
+  );
+}
+
+/** One connection at the table, with pairing for devices the GM has not seen. */
+function ConnectionRow({
+  p,
+  registry,
+  onBind,
+}: {
+  p: TablePlayer;
+  registry: PlayerRecord[];
+  onBind: (playerId: string | null, name: string | null) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const paired = p.playerId
+    ? registry.find((r) => r.id === p.playerId)
+    : undefined;
+  async function bind(playerId: string | null, name: string | null) {
+    setBusy(true);
+    try {
+      await onBind(playerId, name);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <li className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
+      <span
+        className={`h-2 w-2 rounded-full ${
+          isRecent(p.lastSeen) ? "bg-green-400" : "bg-ink-600"
+        }`}
+      />
+      <span className="min-w-0 flex-1">
+        <span className="text-ink-100">{p.name}</span>
+        <span className="ml-2 text-xs text-ink-500">
+          {p.device
+            ? `${p.device.label || "device"} · ${shortFingerprint(p.device.fingerprint)}`
+            : "browser"}
+        </span>
+      </span>
+      <span className="text-xs text-ink-500">
+        {isRecent(p.lastSeen) ? "connected" : `last seen ${ago(p.lastSeen)}`}
+      </span>
+      {paired ? (
+        <span className="rounded-full border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-[11px] text-green-200">
+          paired · {paired.name}
+        </span>
+      ) : p.device ? (
+        <span className="flex items-center gap-1.5">
+          <Button
+            size="sm"
+            onClick={() => void bind(null, p.name)}
+            disabled={busy}
+            title="Create a player with this name and pair this device to them"
+          >
+            Pair as new player
+          </Button>
+          {registry.length > 0 && (
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) void bind(e.target.value, null);
+              }}
+              disabled={busy}
+              className="rounded-md border border-ink-700 bg-ink-900 px-2 py-1 text-xs text-ink-200 outline-none"
+              aria-label="Pair with an existing player"
+            >
+              <option value="">or an existing player…</option>
+              {registry.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </span>
+      ) : (
+        <span className="text-[11px] text-ink-600">guest</span>
+      )}
+    </li>
+  );
+}
+
+/** Every paired player of the campaign and their devices. */
+function PlayersSection({
+  players,
+  onRemovePlayer,
+  onRemoveDevice,
+}: {
+  players: PlayerRecord[];
+  onRemovePlayer: (id: string) => void;
+  onRemoveDevice: (id: string, fingerprint: string) => void;
+}) {
+  return (
+    <section>
+      <SectionTitle>
+        Players
+        <span className="ml-2 font-normal normal-case tracking-normal text-ink-600">
+          {players.length}
+        </span>
+      </SectionTitle>
+      {players.length === 0 ? (
+        <p className="text-sm text-ink-500">
+          Nobody paired yet. When someone joins from the app, press{" "}
+          <span className="text-ink-300">Pair as new player</span> on their row
+          above. Paired devices never need the code again, and you can assign
+          pages and characters to them.
+        </p>
+      ) : (
+        <ul className="divide-y divide-ink-800 rounded-md border border-ink-800 bg-ink-900">
+          {players.map((p) => (
+            <li key={p.id} className="px-3 py-2 text-sm">
+              <div className="flex items-center gap-3">
+                <span className="flex-1 text-ink-100">{p.name}</span>
+                {p.lastSeen && (
+                  <span className="text-xs text-ink-500">
+                    last at the table {ago(p.lastSeen)}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onRemovePlayer(p.id)}
+                  className="text-xs text-ink-500 hover:text-red-300"
+                  title="Remove this player; their devices will need the code again"
+                >
+                  Remove
+                </button>
+              </div>
+              <ul className="mt-1 space-y-0.5 text-xs text-ink-500">
+                {p.devices.map((d) => (
+                  <li key={d.fingerprint} className="flex items-center gap-2">
+                    <span className="text-ink-400">{d.label || "device"}</span>
+                    <span className="font-mono">{d.fingerprint}</span>
+                    <button
+                      type="button"
+                      onClick={() => onRemoveDevice(p.id, d.fingerprint)}
+                      className="text-ink-600 hover:text-red-300"
+                      aria-label={`Forget device ${d.fingerprint}`}
+                    >
+                      forget
+                    </button>
+                  </li>
+                ))}
+                {p.devices.length === 0 && <li>No devices paired.</li>}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

@@ -47,11 +47,13 @@ export function hasPlayersSection(body: string): boolean {
 /** The GM's own campaign, seen as a player would see it. */
 export function localPreviewSource(
   sharedElements: ElementSummary[],
+  as?: { id: string; name: string },
 ): PlayerSource {
   return {
     elements: sharedElements,
-    readElement: (id) => storage.readSharedElement(id),
+    readElement: (id) => storage.readSharedElement(id, as?.id),
     readAsset: (path) => storage.readAsset(path),
+    playerName: as?.name,
   };
 }
 

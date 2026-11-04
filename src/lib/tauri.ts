@@ -6,10 +6,12 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type {
   CampaignMeta,
+  DeviceIdentity,
   Element,
   ElementSummary,
   FoundTable,
   HostStatus,
+  PlayerRecord,
   ImportedDocument,
   ImportedImage,
   SaveElementInput,
@@ -121,15 +123,26 @@ export const storage = {
     return invoke<ArrayBuffer>("read_asset", { path });
   },
 
-  /** Shared elements exactly as players receive them. */
-  listSharedElements() {
-    return invoke<ElementSummary[]>("list_shared_elements");
+  /** Shared elements exactly as players receive them; `playerId` previews
+   *  one paired player's view, otherwise anyone's. */
+  listSharedElements(playerId?: string) {
+    return invoke<ElementSummary[]>("list_shared_elements", {
+      playerId: playerId ?? null,
+    });
   },
 
-  readSharedElement(id: string) {
-    return invoke<Element | null>("read_shared_element", { id });
+  readSharedElement(id: string, playerId?: string) {
+    return invoke<Element | null>("read_shared_element", {
+      id,
+      playerId: playerId ?? null,
+    });
   },
 };
+
+/** This device's identity for tables (`src-tauri/src/identity.rs`). */
+export function deviceIdentity() {
+  return invoke<DeviceIdentity>("device_identity");
+}
 
 /** Hosting a table and joining one (`src-tauri/src/table`). */
 export const table = {
@@ -149,8 +162,20 @@ export const table = {
   discoverStop() {
     return invoke<void>("table_discover_stop");
   },
-  join(address: string, name: string, code: string) {
-    return invoke<TableSession>("table_join", { address, name, code });
+  /** Joins; the code is only needed the first time from a device. */
+  join(address: string, name: string, code?: string) {
+    return invoke<TableSession>("table_join", {
+      address,
+      name,
+      code: code ?? null,
+    });
+  },
+  /** GM: pair a connected device with an existing player (id) or a new one (name). */
+  bindDevice(token: string, playerId: string | null, name: string | null) {
+    return invoke<HostStatus>("table_bind_device", { token, playerId, name });
+  },
+  players() {
+    return invoke<PlayerRecord[]>("table_players");
   },
   leave() {
     return invoke<void>("table_leave");

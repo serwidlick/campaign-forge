@@ -7,7 +7,9 @@ use serde::Serialize;
 
 use crate::storage::{Element, ElementSummary};
 
-use super::server::{JoinResponse, TableInfo, VersionResponse};
+use crate::identity::{DeviceKey, device_label};
+
+use super::server::{Challenge, JoinResponse, TableInfo, VersionResponse};
 
 /// Error text the frontend recognises as "the table closed".
 pub const CLOSED_ERROR: &str = "TABLE_CLOSED";
@@ -21,6 +23,8 @@ pub struct Session {
     pub info: TableInfo,
     pub address: String,
     pub player_name: String,
+    pub player_id: Option<String>,
+    pub recognized: bool,
 }
 
 /// What the frontend keeps about the joined table.
@@ -29,6 +33,8 @@ pub struct Session {
 pub struct SessionInfo {
     pub address: String,
     pub player_name: String,
+    pub player_id: Option<String>,
+    pub recognized: bool,
     pub info: TableInfo,
 }
 
@@ -64,7 +70,11 @@ fn connection_error(e: reqwest::Error) -> String {
 }
 
 impl Session {
-    pub async fn join(address: &str, player_name: &str, code: &str) -> Result<Session, String> {
+    pub async fn join(
+        address: &str,
+        player_name: &str,
+        code: Option<&str>,
+    ) -> Result<Session, String> {
         let base = normalise(address);
         let http = reqwest::Client::builder()
             // Long enough for the version long-poll, which answers within 25 s.
@@ -72,9 +82,34 @@ impl Session {
             .connect_timeout(Duration::from_secs(5))
             .build()
             .map_err(|e| e.to_string())?;
+
+        // Prove this device: sign the nonce the table hands out.
+        let challenge: Challenge = {
+            let resp = http
+                .get(format!("{base}/api/challenge"))
+                .send()
+                .await
+                .map_err(connection_error)?;
+            if !resp.status().is_success() {
+                return Err(describe(resp).await);
+            }
+            resp.json().await.map_err(|e| e.to_string())?
+        };
+        let key = DeviceKey::load_or_create()?;
+        let device = serde_json::json!({
+            "publicKey": key.public_key_b64(),
+            "label": device_label(),
+            "nonce": challenge.nonce,
+            "signature": key.sign_b64(challenge.nonce.as_bytes()),
+        });
+
         let resp = http
             .post(format!("{base}/api/join"))
-            .json(&serde_json::json!({ "name": player_name, "code": code }))
+            .json(&serde_json::json!({
+                "name": player_name,
+                "code": code,
+                "device": device,
+            }))
             .send()
             .await
             .map_err(connection_error)?;
@@ -88,7 +123,9 @@ impl Session {
             token: joined.token,
             info: joined.info,
             address: address.trim().to_owned(),
-            player_name: player_name.to_owned(),
+            player_name: joined.name,
+            player_id: joined.player_id,
+            recognized: joined.recognized,
         })
     }
 
@@ -96,6 +133,8 @@ impl Session {
         SessionInfo {
             address: self.address.clone(),
             player_name: self.player_name.clone(),
+            player_id: self.player_id.clone(),
+            recognized: self.recognized,
             info: self.info.clone(),
         }
     }

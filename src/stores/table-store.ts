@@ -43,7 +43,13 @@ interface TableState {
   /** Forget earlier results so a new search starts clean. */
   clearFound: () => void;
   stopDiscovery: () => Promise<void>;
-  join: (address: string, name: string, code: string) => Promise<boolean>;
+  join: (address: string, name: string, code?: string) => Promise<boolean>;
+  /** GM: pair a connected device with a player (existing id, or new by name). */
+  bindDevice: (
+    token: string,
+    playerId: string | null,
+    name: string | null,
+  ) => Promise<void>;
   leave: () => Promise<void>;
 
   clearError: () => void;
@@ -181,6 +187,14 @@ export const useTableStore = create<TableState>((set, get) => {
         set({ error: errorMessage(err) });
       } finally {
         set({ hostBusy: false });
+      }
+    },
+
+    async bindDevice(token, playerId, name) {
+      try {
+        set({ hosting: await table.bindDevice(token, playerId, name) });
+      } catch (err) {
+        set({ error: errorMessage(err) });
       }
     },
 

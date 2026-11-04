@@ -3,7 +3,10 @@
 //! preview can never differ from what players actually receive.
 //!
 //! Rules:
-//! - An element is visible only when its frontmatter has `shared: true`.
+//! - An element is visible only when its frontmatter has `shared: true`,
+//!   and, when it also lists an `audience` of player ids, only to those
+//!   players. A viewer with no player id (a browser, or the GM previewing as
+//!   anyone) sees elements with no audience.
 //! - Links to elements that are not visible are turned back into plain text,
 //!   in bodies and in the derived `links` list, so private names never leak.
 //! - Maps keep only pins, routes and territories that are themselves
@@ -31,18 +34,48 @@ pub fn is_shared(extra: &Extra) -> bool {
     extra.get("shared") == Some(&Value::Bool(true))
 }
 
+/// Who is looking: the table name they joined with and, once their device
+/// is paired, their player id. `None` means "anyone".
+#[derive(Debug, Clone, Copy)]
+pub struct Viewer<'a> {
+    pub name: &'a str,
+    pub player_id: Option<&'a str>,
+}
+
+/// Shared, and either for everyone or for this viewer's player.
+pub fn visible_to(extra: &Extra, viewer: Option<&Viewer<'_>>) -> bool {
+    if !is_shared(extra) {
+        return false;
+    }
+    let audience: Vec<&str> = extra
+        .get("audience")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if audience.is_empty() {
+        return true;
+    }
+    match viewer.and_then(|v| v.player_id) {
+        Some(id) => audience.contains(&id),
+        None => false,
+    }
+}
+
 /// Ids of every shared element in the open campaign.
-fn shared_ids(all: &[ElementSummary]) -> HashSet<String> {
+fn shared_ids(all: &[ElementSummary], viewer: Option<&Viewer<'_>>) -> HashSet<String> {
     all.iter()
-        .filter(|e| is_shared(&e.meta.extra))
+        .filter(|e| visible_to(&e.meta.extra, viewer))
         .map(|e| e.meta.id.clone())
         .collect()
 }
 
 /// Summaries of all shared elements, sanitised.
-pub fn shared_summaries(state: &AppState) -> Result<Vec<ElementSummary>, StorageError> {
+pub fn shared_summaries(
+    state: &AppState,
+    viewer: Option<&Viewer<'_>>,
+) -> Result<Vec<ElementSummary>, StorageError> {
     let all = state.list_elements()?;
-    let visible = shared_ids(&all);
+    let visible = shared_ids(&all, viewer);
     Ok(all
         .into_iter()
         .filter(|e| visible.contains(&e.meta.id))
@@ -58,9 +91,13 @@ pub fn shared_summaries(state: &AppState) -> Result<Vec<ElementSummary>, Storage
 }
 
 /// One shared element with its body, or `None` when it is not shared.
-pub fn shared_element(state: &AppState, id: &str) -> Result<Option<Element>, StorageError> {
+pub fn shared_element(
+    state: &AppState,
+    id: &str,
+    viewer: Option<&Viewer<'_>>,
+) -> Result<Option<Element>, StorageError> {
     let all = state.list_elements()?;
-    let visible = shared_ids(&all);
+    let visible = shared_ids(&all, viewer);
     if !visible.contains(id) {
         return Ok(None);
     }
@@ -70,12 +107,14 @@ pub fn shared_element(state: &AppState, id: &str) -> Result<Option<Element>, Sto
 
 /// Whether a player may edit a character's sheet: the element is shared,
 /// is a character, and its sheet names them as `owner`.
-pub fn can_edit_sheet(e: &Element, player: &str) -> bool {
-    if e.meta.kind != "character" || !is_shared(&e.meta.extra) {
+pub fn can_edit_sheet(e: &Element, viewer: &Viewer<'_>) -> bool {
+    if e.meta.kind != "character" || !visible_to(&e.meta.extra, Some(viewer)) {
         return false;
     }
-    sheet_owner(&e.meta.extra)
-        .is_some_and(|o| !o.trim().is_empty() && o.trim().eq_ignore_ascii_case(player.trim()))
+    sheet_owner(&e.meta.extra).is_some_and(|o| {
+        let o = o.trim();
+        !o.is_empty() && (viewer.player_id == Some(o) || o.eq_ignore_ascii_case(viewer.name.trim()))
+    })
 }
 
 fn sheet_owner(extra: &Extra) -> Option<&str> {
@@ -91,7 +130,7 @@ fn sheet_owner(extra: &Extra) -> Option<&str> {
 pub fn update_sheet(
     state: &AppState,
     id: &str,
-    player: &str,
+    viewer: &Viewer<'_>,
     mut sheet: Value,
 ) -> Result<Option<Element>, StorageError> {
     let element = match state.read_element(id) {
@@ -99,7 +138,7 @@ pub fn update_sheet(
         Err(StorageError::ElementNotFound(_)) => return Ok(None),
         Err(e) => return Err(e),
     };
-    if !can_edit_sheet(&element, player) {
+    if !can_edit_sheet(&element, viewer) {
         return Ok(None);
     }
     let Some(new) = sheet.as_object_mut() else {
@@ -118,15 +157,18 @@ pub fn update_sheet(
         extra: Some(extra),
     })?;
     let all = state.list_elements()?;
-    let visible = shared_ids(&all);
+    let visible = shared_ids(&all, Some(viewer));
     Ok(Some(sanitize_element(saved, &visible)))
 }
 
 /// Relative asset paths players may fetch: the images of shared maps, the
 /// portraits of shared elements and the PDFs of shared documents.
-pub fn shared_asset_paths(state: &AppState) -> Result<HashSet<String>, StorageError> {
+pub fn shared_asset_paths(
+    state: &AppState,
+    viewer: Option<&Viewer<'_>>,
+) -> Result<HashSet<String>, StorageError> {
     let mut out = HashSet::new();
-    for e in shared_summaries(state)? {
+    for e in shared_summaries(state, viewer)? {
         if e.meta.kind == "map"
             && let Some(image) = e.meta.extra.get("image").and_then(Value::as_str)
         {

@@ -198,6 +198,32 @@ export interface TablePlayer {
   name: string;
   joinedAt: string;
   lastSeen: string;
+  /** The connection's token; lets the GM's UI act on it (pairing). */
+  token: string;
+  /** Present when the app joined; a browser has no device key. */
+  device: { fingerprint: string; publicKey: string; label: string } | null;
+  /** Set once the device is paired with a player. */
+  playerId: string | null;
+}
+
+export interface PlayerDevice {
+  fingerprint: string;
+  publicKey: string;
+  label: string;
+  addedAt: string;
+}
+
+/** A player of the campaign, stored in campaign.json under `players`. */
+export interface PlayerRecord {
+  id: string;
+  name: string;
+  devices: PlayerDevice[];
+  lastSeen: string | null;
+}
+
+export interface DeviceIdentity {
+  fingerprint: string;
+  label: string;
 }
 
 export interface HostStatus {
@@ -239,5 +265,9 @@ export interface TableChange {
 export interface TableSession {
   address: string;
   playerName: string;
+  /** Set when the GM has paired this device with a player. */
+  playerId: string | null;
+  /** True when no code was needed because the device was known. */
+  recognized: boolean;
   info: TableInfo;
 }
