@@ -330,7 +330,6 @@ export function buildSheet(b: Build5e): Sheet5e {
   const hpMax = b.hpMax ?? computedHp(b);
   const sheet: Sheet5e = {
     ...EMPTY_SHEET,
-    role: "pc",
     class: b.class.trim(),
     subclass: b.subclass.trim(),
     level: Math.max(1, Math.min(20, b.level)),

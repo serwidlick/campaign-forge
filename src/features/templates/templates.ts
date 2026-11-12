@@ -1,9 +1,11 @@
 /**
  * What a new element starts with, per ruleset and kind: a body skeleton of
- * headings and any structured fields. Every template ends with a
- * "Players know" heading so a freshly shared element reveals nothing until
- * something is written there on purpose.
+ * headings and any structured fields (a character's `role`, a 5e sheet).
+ * Every template ends with a "Players know" heading so a freshly shared
+ * element reveals nothing until something is written there on purpose.
  */
+import { DEFAULT_CHARACTER_ROLE } from "@/lib/types";
+
 import { EMPTY_SHEET } from "./dnd5e-model";
 import type { RulesId } from "./rulesets";
 
@@ -23,7 +25,7 @@ const PLAYERS = "Players know";
 const GENERIC: Record<string, ElementTemplate> = {
   character: {
     body: body("Appearance", "Personality", "Backstory", "Notes", PLAYERS),
-    extra: {},
+    extra: { role: DEFAULT_CHARACTER_ROLE },
   },
   creature: {
     body: body("Description", "Abilities", "Behaviour", "Lore", PLAYERS),
@@ -71,7 +73,7 @@ const DND5E: Record<string, ElementTemplate> = {
   ...GENERIC,
   character: {
     body: body("Appearance", "Personality", "Backstory", "Notes", PLAYERS),
-    extra: { sheet: EMPTY_SHEET },
+    extra: { role: DEFAULT_CHARACTER_ROLE, sheet: EMPTY_SHEET },
   },
   creature: {
     body:

@@ -128,7 +128,7 @@ export function JoinTable({
         </span>
         <div className="flex min-w-0 flex-[1_1_240px] flex-col gap-0.5">
           <h2 className="text-[15px] font-semibold text-ink-100">{title}</h2>
-          <p className="text-[13px] text-[#7d8595]">{description}</p>
+          <p className="text-[13px] text-ink-400">{description}</p>
         </div>
         <div className="flex items-center gap-3.5">
           <button
@@ -137,7 +137,7 @@ export function JoinTable({
               setManual((v) => !v);
               setPicked(null);
             }}
-            className="text-[13px] text-[#a3abba] hover:text-ember-300"
+            className="text-[13px] text-ink-300 hover:text-ember-300"
           >
             {manual ? "Hide address" : "Enter address"}
           </button>
@@ -170,7 +170,7 @@ export function JoinTable({
         </div>
       )}
 
-      {status && <p className="text-xs text-[#7d8595]">{status}</p>}
+      {status && <p className="text-xs text-ink-400">{status}</p>}
 
       {found.length > 0 && (
         <ul className="divide-y divide-ink-800 overflow-hidden rounded-lg border border-ink-800">
@@ -178,7 +178,7 @@ export function JoinTable({
             <li key={t.id} className="flex items-center gap-3 px-3 py-2.5">
               <div className="min-w-0 flex-1">
                 <div className="text-sm text-ink-100">{t.name}</div>
-                <div className="truncate text-xs text-[#7d8595]">
+                <div className="truncate text-xs text-ink-400">
                   {t.system ? `${t.system} · ` : ""}
                   {t.addresses[0] ?? "no address yet"}
                 </div>

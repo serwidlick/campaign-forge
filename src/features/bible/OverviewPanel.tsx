@@ -5,7 +5,13 @@ import {
   bySessionNumber,
   displayName,
 } from "@/features/sessions/session-model";
-import { kindById, type ElementKind, type ElementSummary } from "@/lib/types";
+import {
+  filterNames,
+  filtersForKind,
+  matchesFilter,
+  type ElementSummary,
+  type ListFilter,
+} from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 
 import { WHEEL, type WheelNode } from "./wheel";
@@ -33,8 +39,8 @@ function nodePosition(index: number): { x: number; y: number } {
 export function OverviewPanel({
   onNew,
 }: {
-  /** Start creating an element of this kind. */
-  onNew: (kind: string) => void;
+  /** Start creating an element in this list (a kind, or a character role). */
+  onNew: (filter: ListFilter) => void;
 }) {
   const campaign = useCampaignStore((s) => s.campaign);
   const elements = useCampaignStore((s) => s.elements);
@@ -198,10 +204,10 @@ export function OverviewPanel({
           <NodeSection
             key={node.id}
             node={node}
-            kinds={[
-              ...node.kinds.map(kindById),
-              ...(node.id === "story" ? extraKinds.map(kindById) : []),
-            ]}
+            filters={[
+              ...node.kinds,
+              ...(node.id === "story" ? extraKinds : []),
+            ].flatMap(filtersForKind)}
             byKind={byKind}
             onOpen={(id, pane) => void navigate(id, { pane })}
             onNew={onNew}
@@ -212,21 +218,24 @@ export function OverviewPanel({
   );
 }
 
+/** One spoke's elements, a column per list (characters split by role). */
 function NodeSection({
   node,
-  kinds,
+  filters,
   byKind,
   onOpen,
   onNew,
 }: {
   node: WheelNode;
-  kinds: ElementKind[];
+  filters: ListFilter[];
   byKind: Map<string, ElementSummary[]>;
   onOpen: (id: string, pane: boolean) => void;
-  onNew: (kind: string) => void;
+  onNew: (filter: ListFilter) => void;
 }) {
   const Icon = node.icon;
-  const total = kinds.reduce((n, k) => n + (byKind.get(k.id)?.length ?? 0), 0);
+  const itemsOf = (f: ListFilter) =>
+    (byKind.get(f.kind) ?? []).filter((e) => matchesFilter(e, f));
+  const total = filters.reduce((n, f) => n + itemsOf(f).length, 0);
   return (
     <section className="mb-10">
       <div className="mb-3 flex items-center gap-2 border-b border-ink-800 pb-2">
@@ -237,21 +246,24 @@ function NodeSection({
         <span className="text-[11px] text-ink-600">{total}</span>
       </div>
       <div className="grid gap-6 md:grid-cols-2">
-        {kinds.map((kind) => {
-          const items = byKind.get(kind.id) ?? [];
+        {filters.map((f) => {
+          const items = itemsOf(f);
+          const names = filterNames(f);
+          const key = f.role === undefined ? f.kind : `${f.kind}:${f.role}`;
+          const newLabel = `New ${lower(names.label)}`;
           return (
-            <div key={kind.id}>
+            <div key={key}>
               <div className="mb-1.5 flex items-center gap-2">
                 <h3 className="text-sm font-medium text-ink-200">
-                  {kind.plural}
+                  {names.plural}
                 </h3>
                 <span className="text-[11px] text-ink-600">{items.length}</span>
                 <span className="flex-1" />
                 <button
                   type="button"
-                  onClick={() => onNew(kind.id)}
-                  title={`New ${kind.label.toLowerCase()}`}
-                  aria-label={`New ${kind.label.toLowerCase()}`}
+                  onClick={() => onNew(f)}
+                  title={newLabel}
+                  aria-label={newLabel}
                   className="rounded p-0.5 text-ink-600 hover:bg-ink-800 hover:text-ink-200"
                 >
                   <Plus size={13} />
@@ -286,4 +298,9 @@ function NodeSection({
       </div>
     </section>
   );
+}
+
+/** Lower-cases a label for mid-sentence use, keeping acronyms like NPC. */
+function lower(label: string): string {
+  return label === label.toUpperCase() ? label : label.toLowerCase();
 }

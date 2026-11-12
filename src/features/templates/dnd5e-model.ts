@@ -56,8 +56,6 @@ export const ALIGNMENTS = [
   "Unaligned",
 ];
 
-export type SheetRole = "pc" | "npc";
-
 export interface Attack {
   id: string;
   name: string;
@@ -152,7 +150,6 @@ export function newId(): string {
 }
 
 export interface Sheet5e {
-  role: SheetRole;
   class: string;
   subclass: string;
   level: number;
@@ -185,7 +182,6 @@ export interface Sheet5e {
 }
 
 export const EMPTY_SHEET: Sheet5e = {
-  role: "npc",
   class: "",
   subclass: "",
   level: 1,
@@ -249,7 +245,6 @@ export function readSheet5e(v: unknown): Sheet5e | null {
   const list = (x: unknown, keep: (s: unknown) => boolean) =>
     Array.isArray(x) ? (x.filter(keep) as string[]) : [];
   return {
-    role: o.role === "pc" ? "pc" : "npc",
     class: str(o.class),
     subclass: str(o.subclass),
     level: Math.max(1, Math.min(20, int(o.level) ?? 1)),

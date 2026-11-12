@@ -37,7 +37,7 @@ export function VersionLine() {
         type="button"
         onClick={() => void check({ manual: true })}
         disabled={phase === "checking"}
-        className="text-[#a3abba] hover:text-ember-300 disabled:opacity-60"
+        className="text-ink-300 hover:text-ember-300 disabled:opacity-60"
       >
         Check for updates
       </button>

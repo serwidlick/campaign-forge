@@ -192,6 +192,95 @@ export function kindById(id: string): ElementKind {
   );
 }
 
+// ---- Characters: player characters and NPCs ---------------------------------
+
+/**
+ * Whether a character belongs to a player or to the GM. Stored as `role` in
+ * the character's frontmatter; the kind stays `character`, so ids, links and
+ * files are untouched by the split.
+ */
+export type CharacterRole = "pc" | "npc";
+
+export interface CharacterRoleInfo {
+  id: CharacterRole;
+  label: string;
+  plural: string;
+}
+
+export const CHARACTER_ROLES: CharacterRoleInfo[] = [
+  { id: "pc", label: "Player character", plural: "Player characters" },
+  { id: "npc", label: "NPC", plural: "NPCs" },
+];
+
+export const DEFAULT_CHARACTER_ROLE: CharacterRole = "npc";
+
+export function isCharacterRole(v: unknown): v is CharacterRole {
+  return v === "pc" || v === "npc";
+}
+
+export function roleById(id: CharacterRole): CharacterRoleInfo {
+  return CHARACTER_ROLES.find((r) => r.id === id) ?? CHARACTER_ROLES[1]!;
+}
+
+/**
+ * A character's role. Files written before the field existed may carry it
+ * inside the 5e sheet (`sheet.role`); anything else is an NPC, so a GM's
+ * existing cast lands where they expect it.
+ */
+export function characterRoleOf(e: Record<string, unknown>): CharacterRole {
+  if (isCharacterRole(e.role)) return e.role;
+  const sheet = e.sheet;
+  if (sheet && typeof sheet === "object") {
+    const legacy = (sheet as Record<string, unknown>).role;
+    if (isCharacterRole(legacy)) return legacy;
+  }
+  return DEFAULT_CHARACTER_ROLE;
+}
+
+/**
+ * What the element list is narrowed to: one kind, and for characters one
+ * role. `null` is everything.
+ */
+export interface ListFilter {
+  kind: string;
+  role?: CharacterRole;
+}
+
+export function matchesFilter(
+  e: Record<string, unknown> & { type: string },
+  filter: ListFilter | null,
+): boolean {
+  if (!filter) return true;
+  if (e.type !== filter.kind) return false;
+  return filter.role === undefined || characterRoleOf(e) === filter.role;
+}
+
+/** Singular and plural names for what a filter shows. */
+export function filterNames(filter: ListFilter): {
+  label: string;
+  plural: string;
+} {
+  if (filter.role !== undefined) return roleById(filter.role);
+  const kind = kindById(filter.kind);
+  return { label: kind.label, plural: kind.plural };
+}
+
+/** The sidebar rows for a kind: characters are split by role. */
+export function filtersForKind(kind: string): ListFilter[] {
+  if (kind === "character") {
+    return CHARACTER_ROLES.map((r) => ({ kind, role: r.id }));
+  }
+  return [{ kind }];
+}
+
+/** The label shown under an element's name in lists. */
+export function elementLabel(
+  e: Record<string, unknown> & { type: string },
+): string {
+  if (e.type === "character") return roleById(characterRoleOf(e)).label;
+  return kindById(e.type).label;
+}
+
 // ---- Playing at a table over the local network -----------------------------
 
 export interface TablePlayer {

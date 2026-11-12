@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 
-import type { Element } from "@/lib/types";
+import { characterRoleOf, type Element } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 
 import {
@@ -57,7 +57,8 @@ export function CharacterSheet5e({ element }: { element: Element }) {
     setSheet(fn);
     dirty.current = true;
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(flush, AUTOSAVE_MS);
+    // Through the ref so the save sees the element as it is at flush time.
+    timer.current = setTimeout(() => flushRef.current(), AUTOSAVE_MS);
   }
 
   function flush() {
@@ -68,7 +69,13 @@ export function CharacterSheet5e({ element }: { element: Element }) {
     if (!dirty.current) return;
     dirty.current = false;
     setSheet((s) => {
-      void saveElement(element.id, { sheet: s });
+      // The role used to live inside the sheet. Writing it at the top level
+      // here means a pre-split character keeps its role once its sheet is
+      // saved without the old nested field.
+      void saveElement(element.id, {
+        sheet: s,
+        role: characterRoleOf(element),
+      });
       return s;
     });
   }
@@ -238,19 +245,6 @@ export function CharacterSheet5e({ element }: { element: Element }) {
     <section className="space-y-4 rounded-lg border border-ink-800 bg-ink-900/60 p-4">
       {/* Identity */}
       <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-        <label className={LABEL}>
-          Role
-          <select
-            value={sheet.role}
-            onChange={(e) =>
-              update((s) => ({ ...s, role: e.target.value as Sheet5e["role"] }))
-            }
-            className={`mt-1 block ${FIELD}`}
-          >
-            <option value="pc">Player character</option>
-            <option value="npc">NPC</option>
-          </select>
-        </label>
         <Combo
           label="Class"
           value={sheet.class}

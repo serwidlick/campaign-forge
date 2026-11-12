@@ -5,6 +5,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import appIcon from "@/assets/icon.png";
 import { ErrorBanner } from "@/components/ErrorBanner";
+import { ThemePicker } from "@/components/ThemePicker";
 import { JoinTable } from "@/features/table/JoinTable";
 import { VersionLine } from "@/features/updates/VersionLine";
 import {
@@ -135,7 +136,7 @@ export function WelcomeScreen() {
                 <h1 className="font-serif text-[52px] leading-[1.05] font-semibold tracking-[-0.01em] text-ink-100">
                   {firstRun ? "Start your first campaign" : "Campaign Forge"}
                 </h1>
-                <p className="max-w-[480px] text-[17px] leading-[1.55] text-[#a3abba] wide:max-w-[440px]">
+                <p className="max-w-[480px] text-[17px] leading-[1.55] text-ink-300 wide:max-w-[440px]">
                   {firstRun
                     ? "Pick an empty folder and Campaign Forge will set it up. Already have one? Open it and carry on."
                     : "Your world, in plain Markdown files on your own disk. No account, no server, works offline."}
@@ -148,7 +149,7 @@ export function WelcomeScreen() {
                 onSubmit={handleCreate}
                 className="flex flex-col gap-3 rounded-xl border border-ink-800 bg-ink-900 p-5"
               >
-                <p className="text-xs text-[#7d8595]">
+                <p className="text-xs text-ink-400">
                   New campaign in{" "}
                   <span className="font-mono break-all text-ink-200">
                     {draftPath}
@@ -176,7 +177,7 @@ export function WelcomeScreen() {
                       </option>
                     ))}
                   </select>
-                  <span className="mt-1 block text-xs text-[#7d8595]">
+                  <span className="mt-1 block text-xs text-ink-400">
                     {rulesetById(draftRules).blurb}
                   </span>
                 </label>
@@ -257,13 +258,13 @@ export function WelcomeScreen() {
             ) : (
               <>
                 <div className="flex items-baseline justify-between">
-                  <h2 className="text-xs font-semibold tracking-[0.12em] text-[#7d8595] uppercase">
+                  <h2 className="text-xs font-semibold tracking-[0.12em] text-ink-400 uppercase">
                     Recent campaigns
                   </h2>
                   <button
                     type="button"
                     onClick={() => void handleOpen()}
-                    className="text-xs text-[#a3abba] hover:text-ember-300"
+                    className="text-xs text-ink-300 hover:text-ember-300"
                   >
                     Open another folder…
                   </button>
@@ -282,7 +283,7 @@ export function WelcomeScreen() {
                         <span className="font-serif text-2xl font-semibold text-ink-100 wide:text-[22px]">
                           {latest.name}
                         </span>
-                        <span className="truncate font-mono text-xs text-[#7d8595]">
+                        <span className="truncate font-mono text-xs text-ink-400">
                           {latest.path}
                         </span>
                       </div>
@@ -329,12 +330,12 @@ export function WelcomeScreen() {
                             <span className="text-sm font-medium text-ink-100">
                               {c.name}
                             </span>
-                            <span className="truncate font-mono text-xs text-[#7d8595]">
+                            <span className="truncate font-mono text-xs text-ink-400">
                               {c.path}
                             </span>
                           </span>
                         </button>
-                        <span className="text-xs whitespace-nowrap text-[#7d8595]">
+                        <span className="text-xs whitespace-nowrap text-ink-400">
                           {relativeOpened(c.openedAt)}
                         </span>
                         <button
@@ -342,7 +343,7 @@ export function WelcomeScreen() {
                           onClick={() => void handleForget(c.path)}
                           aria-label={`Remove ${c.name} from recent`}
                           title="Remove from recent"
-                          className="flex h-8 w-8 items-center justify-center rounded-md text-[#7d8595] hover:bg-ink-800 hover:text-ink-200"
+                          className="flex h-8 w-8 items-center justify-center rounded-md text-ink-400 hover:bg-ink-800 hover:text-ink-200"
                         >
                           <X size={15} />
                         </button>
@@ -367,17 +368,19 @@ export function WelcomeScreen() {
           </section>
         </div>
 
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-850 pt-5 text-xs text-[#7d8595]">
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-850 pt-5 text-xs text-ink-400">
           <span>
             <VersionLine />
             {" · "}
             <button
               type="button"
               onClick={() => void openUrl(GUIDE_URL)}
-              className="text-[#a3abba] hover:text-ember-300"
+              className="text-ink-300 hover:text-ember-300"
             >
               Guide
             </button>
+            {" · "}
+            <ThemePicker variant="text" placement="above-start" />
           </span>
           <span className="inline-flex items-center gap-2">
             <Shield size={14} /> Everything stays in folders you choose
@@ -392,16 +395,16 @@ export function WelcomeScreen() {
 function FolderExplainer() {
   return (
     <>
-      <h2 className="text-xs font-semibold tracking-[0.12em] text-[#7d8595] uppercase">
+      <h2 className="text-xs font-semibold tracking-[0.12em] text-ink-400 uppercase">
         A campaign is just a folder
       </h2>
       <div className="flex flex-col overflow-hidden rounded-xl border border-ink-800 bg-ink-900">
-        <div className="flex items-center gap-2 border-b border-ink-800 px-[18px] py-3 font-mono text-xs text-[#7d8595]">
+        <div className="flex items-center gap-2 border-b border-ink-800 px-[18px] py-3 font-mono text-xs text-ink-400">
           <span className="h-2 w-2 rounded-full bg-ember-500" /> my-campaign
         </div>
         <pre className="overflow-x-auto px-[18px] pt-[18px] pb-5 font-mono text-[13px] leading-[1.9] text-ink-200">
           {"campaign.json        "}
-          <span className="text-[#7d8595]">name, system, calendar</span>
+          <span className="text-ink-400">name, system, calendar</span>
           {
             "\nelements/\n  character/\n    harbourmaster-ivel.md\n  location/\n    the-rusty-tankard.md\n  map/\n    sword-coast.md\nassets/\n  maps/sword-coast.png"
           }
@@ -427,7 +430,7 @@ function FolderExplainer() {
             className="flex flex-col gap-1.5 rounded-[10px] border border-ink-800 bg-ink-900 p-4"
           >
             <span className="text-sm font-semibold text-ink-100">{title}</span>
-            <span className="text-[13px] leading-[1.45] text-[#7d8595]">
+            <span className="text-[13px] leading-[1.45] text-ink-400">
               {text}
             </span>
           </div>

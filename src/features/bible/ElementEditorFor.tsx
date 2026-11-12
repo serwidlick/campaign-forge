@@ -9,6 +9,7 @@ import { rulesOf } from "@/features/templates/rulesets";
 import type { Element } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 
+import { CharacterRoleField } from "./CharacterRoleField";
 import { ElementEditor } from "./ElementEditor";
 
 /**
@@ -24,9 +25,10 @@ export function ElementEditorFor({ element }: { element: Element }) {
         <ElementEditor
           element={element}
           panel={
-            rules === "dnd5e" ? (
-              <CharacterSheet5e element={element} />
-            ) : undefined
+            <div className="space-y-4">
+              <CharacterRoleField element={element} />
+              {rules === "dnd5e" && <CharacterSheet5e element={element} />}
+            </div>
           }
         />
       );

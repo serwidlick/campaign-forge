@@ -15,6 +15,7 @@ import { storage } from "@/lib/tauri";
 import {
   ELEMENT_KINDS,
   RESERVED_ELEMENT_KEYS,
+  characterRoleOf,
   elementHref,
   extraOf,
   type ElementSummary,
@@ -57,6 +58,7 @@ function summaryLine(e: ElementSummary): string {
     if (fields.status) extras.push(String(fields.status));
     if (fields.date) extras.push(String(fields.date));
   }
+  if (e.type === "character") extras.push(characterRoleOf(e));
   if (e.tags.length) extras.push(`tags: ${e.tags.join(", ")}`);
   const tail = extras.length ? ` (${extras.join(" · ")})` : "";
   return `- ${e.type} · ${e.name} · id ${e.id}${tail}`;
@@ -111,14 +113,17 @@ const searchCampaign: AgentTool = {
   },
 };
 
-const ListInput = z.object({ kind: KIND_ENUM.optional() });
+const ListInput = z.object({
+  kind: KIND_ENUM.optional(),
+  role: z.enum(["pc", "npc"]).optional(),
+});
 
 const listElements: AgentTool = {
   permission: "read",
   definition: {
     name: "list_elements",
     description:
-      "List elements with their ids, optionally filtered to one kind. Sessions include their number, status and date. Cheap; use it to get an overview or to find an id by name.",
+      "List elements with their ids, optionally filtered to one kind. Sessions include their number, status and date; characters include their role (pc or npc). Cheap; use it to get an overview or to find an id by name.",
     input_schema: {
       type: "object",
       properties: {
@@ -126,6 +131,12 @@ const listElements: AgentTool = {
           type: "string",
           enum: KIND_IDS,
           description: "Only elements of this kind.",
+        },
+        role: {
+          type: "string",
+          enum: ["pc", "npc"],
+          description:
+            "Only characters with this role: the players' characters (pc) or everyone else (npc). Implies kind = character.",
         },
       },
       additionalProperties: false,
@@ -135,9 +146,12 @@ const listElements: AgentTool = {
     const parsed = ListInput.safeParse(raw);
     if (!parsed.success) return invalid(parsed.error);
     const all = useCampaignStore.getState().elements;
-    const items = parsed.data.kind
-      ? all.filter((e) => e.type === parsed.data.kind)
-      : all;
+    const { role } = parsed.data;
+    const kind = role ? "character" : parsed.data.kind;
+    const items = all.filter(
+      (e) =>
+        (!kind || e.type === kind) && (!role || characterRoleOf(e) === role),
+    );
     if (items.length === 0) return "No elements.";
     return items.map(summaryLine).join("\n");
   },

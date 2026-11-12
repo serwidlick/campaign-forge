@@ -16,6 +16,8 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { Button } from "@/components/Button";
 import { ErrorBanner } from "@/components/ErrorBanner";
+import { ThemePicker } from "@/components/ThemePicker";
+import { ToolbarButton } from "@/components/ToolbarButton";
 import { AgentPane } from "@/features/agent/AgentPane";
 import { GraphPanel } from "@/features/graph/GraphPanel";
 import { JournalList } from "@/features/journal/JournalList";
@@ -25,7 +27,7 @@ import { Portrait } from "@/features/images/Portrait";
 import { portraitOf } from "@/features/images/portrait-model";
 import { HostPanel } from "@/features/table/HostPanel";
 import { Charactermancer5e } from "@/features/templates/Charactermancer5e";
-import { EMPTY_SHEET, type Sheet5e } from "@/features/templates/dnd5e-model";
+import type { Sheet5e } from "@/features/templates/dnd5e-model";
 import { rulesOf } from "@/features/templates/rulesets";
 import { calendarOf } from "@/features/timeline/calendar-model";
 import { CalendarSettings } from "@/features/timeline/CalendarSettings";
@@ -33,10 +35,17 @@ import { TimelineList } from "@/features/timeline/TimelineList";
 import { displayName, sortForList } from "@/features/sessions/session-model";
 import { storage } from "@/lib/tauri";
 import {
+  DEFAULT_CHARACTER_ROLE,
   ELEMENT_FAMILIES,
   ELEMENT_KINDS,
+  elementLabel,
+  filterNames,
+  filtersForKind,
   kindById,
+  matchesFilter,
+  type CharacterRole,
   type ElementSummary,
+  type ListFilter,
 } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 import { useTableStore } from "@/stores/table-store";
@@ -64,7 +73,7 @@ export function BibleScreen() {
   const createElement = useCampaignStore((s) => s.createElement);
   const closeCampaign = useCampaignStore((s) => s.closeCampaign);
 
-  const [kindFilter, setKindFilter] = useState<string | null>(null);
+  const [filter, setFilter] = useState<ListFilter | null>(null);
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState<string | null>(null);
   const [newKind, setNewKind] = useState<string>("character");
@@ -116,17 +125,17 @@ export function BibleScreen() {
     [elements],
   );
 
-  function showKind(kind: string | null) {
+  function showList(next: ListFilter | null) {
     setView("elements");
-    setKindFilter(kind);
+    setFilter(next);
     // "Everything" is the overview page; clear the selection so it shows.
-    if (kind === null) void select(null);
+    if (next === null) void select(null);
   }
 
-  function startNew(kind: string) {
+  function startNew(next: ListFilter) {
     setView("elements");
-    setKindFilter(kind);
-    setNewKind(kind);
+    setFilter(next);
+    setNewKind(next.kind);
     setNewName("");
   }
 
@@ -151,13 +160,20 @@ export function BibleScreen() {
 
   function openNewForm() {
     // Inside a kind, the kind is implied. On "Everything" the user picks one.
-    setNewKind(kindFilter ?? "character");
+    setNewKind(filter?.kind ?? "character");
     setNewName("");
   }
 
+  // One count per sidebar row: a kind, or a character role.
   const counts = useMemo(() => {
     const map = new Map<string, number>();
-    for (const e of elements) map.set(e.type, (map.get(e.type) ?? 0) + 1);
+    const bump = (key: string) => map.set(key, (map.get(key) ?? 0) + 1);
+    for (const e of elements) {
+      bump(e.type);
+      for (const f of filtersForKind(e.type)) {
+        if (f.role !== undefined && matchesFilter(e, f)) bump(filterKey(f));
+      }
+    }
     return map;
   }, [elements]);
 
@@ -165,35 +181,39 @@ export function BibleScreen() {
     const q = query.trim().toLowerCase();
     const filtered = elements.filter(
       (e) =>
-        (!kindFilter || e.type === kindFilter) &&
+        matchesFilter(e, filter) &&
         (!q ||
           e.name.toLowerCase().includes(q) ||
           e.tags.some((t) => t.toLowerCase().includes(q))),
     );
-    return sortForList(filtered, kindFilter);
-  }, [elements, kindFilter, query]);
+    return sortForList(filtered, filter?.kind ?? null);
+  }, [elements, filter, query]);
 
-  const creatingKind = kindFilter ?? newKind;
+  const creatingKind = filter?.kind ?? newKind;
+  // Inside the player characters or NPCs list the role is implied; on
+  // "Everything" or "Characters" a new character is an NPC unless chosen.
+  const creatingRole: CharacterRole = filter?.role ?? DEFAULT_CHARACTER_ROLE;
   // A 5e character can start three ways: as an NPC, as a blank player
-  // sheet, or through the guided builder. Other kinds just get a name.
-  const characterChoice = creatingKind === "character" && rules === "dnd5e";
+  // sheet, or through the guided builder. Inside the NPC list, and for
+  // other kinds, a name is all it takes.
+  const characterChoice =
+    creatingKind === "character" && rules === "dnd5e" && filter?.role !== "npc";
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     if (!newName?.trim()) return;
-    if (characterChoice) {
-      await createCharacter("npc");
+    if (creatingKind === "character") {
+      await createCharacter(creatingRole);
       return;
     }
     await createElement(creatingKind, newName.trim());
     setNewName(null);
   }
 
-  async function createCharacter(role: Sheet5e["role"]) {
+  /** The ruleset's template supplies the rest (a 5e sheet, the headings). */
+  async function createCharacter(role: CharacterRole) {
     if (!newName?.trim()) return;
-    await createElement("character", newName.trim(), {
-      sheet: { ...EMPTY_SHEET, role },
-    });
+    await createElement("character", newName.trim(), { role });
     setNewName(null);
   }
 
@@ -203,7 +223,7 @@ export function BibleScreen() {
   }
 
   async function finishCharactermancer(name: string, sheet: Sheet5e) {
-    await createElement("character", name, { sheet });
+    await createElement("character", name, { role: "pc", sheet });
     setMancerName(null);
   }
 
@@ -233,70 +253,21 @@ export function BibleScreen() {
         {/* ---- Kinds sidebar ---------------------------------------- */}
         <Panel
           defaultSize={230}
-          minSize={170}
+          minSize={190}
           maxSize={380}
           className="flex flex-col bg-ink-900"
         >
           <header className="border-b border-ink-800 px-3 py-3">
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => {
-                  void stopHosting();
-                  closeCampaign();
-                }}
-                className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink-200"
-              >
-                <ChevronLeft size={14} /> Campaigns
-              </button>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setView((v) => (v === "table" ? "elements" : "table"))
-                  }
-                  title={
-                    hosting
-                      ? `Hosting a table · code ${hosting.code}`
-                      : "Host a table"
-                  }
-                  aria-label="Table"
-                  aria-pressed={view === "table"}
-                  className={`rounded-md p-1 transition-colors ${
-                    hosting
-                      ? "bg-green-500/20 text-green-300"
-                      : view === "table"
-                        ? "bg-ink-700/60 text-ink-100"
-                        : "text-ink-400 hover:bg-ink-800 hover:text-ink-200"
-                  }`}
-                >
-                  <Radio size={14} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPlayerPreview(true)}
-                  title={`Preview as a player (${sharedCount} shared)`}
-                  aria-label="Preview as a player"
-                  className="rounded-md p-1 text-ink-400 transition-colors hover:bg-ink-800 hover:text-ink-200"
-                >
-                  <Eye size={14} />
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleAgent}
-                  title={agentOpen ? "Hide assistant" : "Show assistant"}
-                  aria-label={agentOpen ? "Hide assistant" : "Show assistant"}
-                  aria-pressed={agentOpen}
-                  className={`rounded-md p-1 transition-colors ${
-                    agentOpen
-                      ? "bg-ember-500/25 text-ember-200"
-                      : "text-ink-400 hover:bg-ink-800 hover:text-ink-200"
-                  }`}
-                >
-                  <Sparkles size={14} />
-                </button>
-              </div>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void stopHosting();
+                closeCampaign();
+              }}
+              className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink-200"
+            >
+              <ChevronLeft size={14} /> Campaigns
+            </button>
             <h1 className="mt-1 truncate font-serif text-lg font-semibold">
               {campaign.name}
             </h1>
@@ -354,28 +325,63 @@ export function BibleScreen() {
             <KindRow
               label="Everything"
               count={elements.length}
-              active={view === "elements" && kindFilter === null}
-              onClick={() => showKind(null)}
+              active={view === "elements" && filter === null}
+              onClick={() => showList(null)}
             />
             {ELEMENT_FAMILIES.map((family) => (
               <div key={family.id} className="mt-3">
                 <div className="px-2 text-[10px] font-semibold uppercase tracking-wider text-ink-600">
                   {family.label}
                 </div>
-                {ELEMENT_KINDS.filter((k) => k.family === family.id).map(
-                  (k) => (
+                {ELEMENT_KINDS.filter((k) => k.family === family.id)
+                  .flatMap((k) => filtersForKind(k.id))
+                  .map((f) => (
                     <KindRow
-                      key={k.id}
-                      label={k.plural}
-                      count={counts.get(k.id) ?? 0}
-                      active={view === "elements" && kindFilter === k.id}
-                      onClick={() => showKind(k.id)}
+                      key={filterKey(f)}
+                      label={filterNames(f).plural}
+                      count={counts.get(filterKey(f)) ?? 0}
+                      active={
+                        view === "elements" &&
+                        filter !== null &&
+                        filterKey(filter) === filterKey(f)
+                      }
+                      onClick={() => showList(f)}
                     />
-                  ),
-                )}
+                  ))}
               </div>
             ))}
           </nav>
+          <footer className="relative grid grid-cols-4 gap-0.5 border-t border-ink-800 px-1 py-1.5">
+            <ToolbarButton
+              label="Table"
+              icon={<Radio size={16} />}
+              title={
+                hosting
+                  ? `Hosting a table · code ${hosting.code}`
+                  : "Host a table"
+              }
+              pressed={view === "table"}
+              tone={hosting ? "live" : "default"}
+              onClick={() =>
+                setView((v) => (v === "table" ? "elements" : "table"))
+              }
+            />
+            <ToolbarButton
+              label="Preview"
+              icon={<Eye size={16} />}
+              title={`Preview as a player (${sharedCount} shared)`}
+              onClick={() => setPlayerPreview(true)}
+            />
+            <ToolbarButton
+              label="Assistant"
+              icon={<Sparkles size={16} />}
+              title={agentOpen ? "Hide assistant" : "Show assistant"}
+              pressed={agentOpen}
+              tone={agentOpen ? "accent" : "default"}
+              onClick={toggleAgent}
+            />
+            <ThemePicker variant="tile" placement="above-fill" />
+          </footer>
         </Panel>
 
         <Separator className={SEPARATOR_CLASS} />
@@ -404,8 +410,8 @@ export function BibleScreen() {
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder={
-                      kindFilter
-                        ? `Search ${kindById(kindFilter).plural.toLowerCase()}…`
+                      filter
+                        ? `Search ${lower(filterNames(filter).plural)}…`
                         : "Search…"
                     }
                     className="w-full bg-transparent text-sm text-ink-100 outline-none placeholder:text-ink-600"
@@ -425,9 +431,9 @@ export function BibleScreen() {
                   onSubmit={handleCreate}
                   className="border-b border-ink-800 px-3 py-2"
                 >
-                  {kindFilter ? (
+                  {filter ? (
                     <p className="mb-1 text-[11px] text-ink-400">
-                      New {kindById(kindFilter).label.toLowerCase()}
+                      New {lower(filterNames(filter).label)}
                     </p>
                   ) : (
                     <label className="mb-2 block text-[11px] text-ink-400">
@@ -456,7 +462,7 @@ export function BibleScreen() {
                     </label>
                   )}
                   <input
-                    autoFocus={kindFilter !== null}
+                    autoFocus={filter !== null}
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     onKeyDown={(e) => e.key === "Escape" && setNewName(null)}
@@ -465,12 +471,14 @@ export function BibleScreen() {
                   />
                   {characterChoice ? (
                     <div className="mt-2 space-y-1.5">
-                      <CreateChoice
-                        label="NPC"
-                        blurb="A person in the world, with a light sheet."
-                        disabled={!newName.trim()}
-                        onClick={() => void createCharacter("npc")}
-                      />
+                      {filter?.role !== "pc" && (
+                        <CreateChoice
+                          label="NPC"
+                          blurb="A person in the world, with a light sheet."
+                          disabled={!newName.trim()}
+                          onClick={() => void createCharacter("npc")}
+                        />
+                      )}
                       <CreateChoice
                         label="Character sheet"
                         blurb="A blank player sheet to fill in by hand."
@@ -554,7 +562,7 @@ export function BibleScreen() {
                           )}
                         </div>
                         <div className="truncate text-[11px] text-ink-500">
-                          {kindById(e.type).label}
+                          {elementLabel(e)}
                           {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
                         </div>
                       </div>
@@ -581,7 +589,7 @@ export function BibleScreen() {
                 <GraphPanel />
               ) : calendarOpen && view === "timeline" ? (
                 <CalendarSettings onClose={() => setCalendarOpen(false)} />
-              ) : view === "elements" && kindFilter === null && !selected ? (
+              ) : view === "elements" && filter === null && !selected ? (
                 <OverviewPanel onNew={startNew} />
               ) : selected ? (
                 <ElementEditorFor
@@ -667,6 +675,16 @@ export function BibleScreen() {
       )}
     </div>
   );
+}
+
+/** A stable key for a sidebar row: the kind, plus the role for characters. */
+function filterKey(f: ListFilter): string {
+  return f.role === undefined ? f.kind : `${f.kind}:${f.role}`;
+}
+
+/** Lower-cases a label for mid-sentence use, keeping acronyms like NPC. */
+function lower(label: string): string {
+  return label === label.toUpperCase() ? label : label.toLowerCase();
 }
 
 /** One of the ways a new character can start. */

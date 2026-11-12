@@ -624,7 +624,7 @@ export function MapPanel({ element }: { element: Element }) {
         radius,
         color,
         weight: 2,
-        fillColor: "#0e0f13",
+        fillColor: "var(--color-ink-950)",
         fillOpacity: 1,
       }).addTo(layer);
 
@@ -668,23 +668,23 @@ export function MapPanel({ element }: { element: Element }) {
 
     // Measurement
     if (measureMode === "crow") {
-      for (const p of measure) dot(p, "#e69a57");
+      for (const p of measure) dot(p, "var(--color-ember-400)");
       dashed(
         measure,
-        "#e69a57",
+        "var(--color-ember-400)",
         measure.length >= 2 ? measureLabel : undefined,
       );
     } else {
-      for (const p of measure) dot(p, "#e69a57", 3);
+      for (const p of measure) dot(p, "var(--color-ember-400)", 3);
       if (snaps && measureRoute) {
-        for (const s of snaps) dot(s.point, "#ffffff", 5);
+        for (const s of snaps) dot(s.point, "var(--color-ink-100)", 5);
         // Thin leaders from each click to where it snapped on the route.
         const [a, b] = measure;
-        if (a) dashed([a, snaps[0].point], "#7d8595");
-        if (b) dashed([b, snaps[1].point], "#7d8595");
+        if (a) dashed([a, snaps[0].point], "var(--color-ink-400)");
+        if (b) dashed([b, snaps[1].point], "var(--color-ink-400)");
         const sub = routeSubPath(measureRoute.points, snaps[0], snaps[1]);
         const highlight = L.polyline(sub.map(toLatLng), {
-          color: "#ffffff",
+          color: "var(--color-ink-100)",
           weight: 6,
           opacity: 0.9,
         }).addTo(layer);
