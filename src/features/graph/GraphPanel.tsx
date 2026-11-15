@@ -447,7 +447,11 @@ export function GraphPanel() {
                       r={r}
                       fill={n.color}
                       fillOpacity={isFocus ? 1 : 0.85}
-                      stroke={isFocus ? "#ffffff" : "var(--color-ink-950)"}
+                      stroke={
+                        isFocus
+                          ? "var(--color-ink-100)"
+                          : "var(--color-ink-950)"
+                      }
                       strokeWidth={
                         isFocus ? 2.5 / transform.k : 1.5 / transform.k
                       }

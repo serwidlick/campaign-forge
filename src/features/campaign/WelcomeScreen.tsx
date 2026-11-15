@@ -12,6 +12,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import appIcon from "@/assets/icon.png";
 import { ErrorBanner } from "@/components/ErrorBanner";
+import { ThemePicker } from "@/components/ThemePicker";
 import { JoinTable } from "@/features/table/JoinTable";
 import { VersionLine } from "@/features/updates/VersionLine";
 import {
@@ -170,7 +171,7 @@ export function WelcomeScreen() {
                 <h1 className="font-serif text-[52px] leading-[1.05] font-semibold tracking-[-0.01em] text-ink-100">
                   {firstRun ? "Start your first campaign" : "Campaign Forge"}
                 </h1>
-                <p className="max-w-[480px] text-[17px] leading-[1.55] text-[#a3abba] wide:max-w-[440px]">
+                <p className="max-w-[480px] text-[17px] leading-[1.55] text-ink-300 wide:max-w-[440px]">
                   {firstRun
                     ? "Pick an empty folder and Campaign Forge will set it up. Already have one? Open it and carry on."
                     : "Your world, in plain Markdown files on your own disk. No account, no server, works offline."}
@@ -183,7 +184,7 @@ export function WelcomeScreen() {
                 onSubmit={handleCreate}
                 className="flex flex-col gap-3 rounded-xl border border-ink-800 bg-ink-900 p-5"
               >
-                <p className="text-xs text-[#7d8595]">
+                <p className="text-xs text-ink-400">
                   New campaign in{" "}
                   <span className="font-mono break-all text-ink-200">
                     {draftPath}
@@ -211,7 +212,7 @@ export function WelcomeScreen() {
                       </option>
                     ))}
                   </select>
-                  <span className="mt-1 block text-xs text-[#7d8595]">
+                  <span className="mt-1 block text-xs text-ink-400">
                     {rulesetById(draftRules).blurb}
                   </span>
                 </label>
@@ -292,13 +293,13 @@ export function WelcomeScreen() {
             ) : (
               <>
                 <div className="flex items-baseline justify-between">
-                  <h2 className="text-xs font-semibold tracking-[0.12em] text-[#7d8595] uppercase">
+                  <h2 className="text-xs font-semibold tracking-[0.12em] text-ink-400 uppercase">
                     Recent campaigns
                   </h2>
                   <button
                     type="button"
                     onClick={() => void handleOpen()}
-                    className="text-xs text-[#a3abba] hover:text-ember-300"
+                    className="text-xs text-ink-300 hover:text-ember-300"
                   >
                     Open another folder…
                   </button>
@@ -324,10 +325,8 @@ export function WelcomeScreen() {
                           {latest.name}
                         </span>
                         <span
-                          className={`truncate font-mono text-xs ${
-                            latestMissing
-                              ? "text-[#7d8595] line-through"
-                              : "text-[#7d8595]"
+                          className={`truncate font-mono text-xs text-ink-400 ${
+                            latestMissing ? "line-through" : ""
                           }`}
                         >
                           {latest.path}
@@ -336,7 +335,7 @@ export function WelcomeScreen() {
                     </div>
                     {latestMissing ? (
                       <div className="flex flex-col gap-3">
-                        <p className="text-sm leading-[1.5] text-[#a3abba]">
+                        <p className="text-sm leading-[1.5] text-ink-300">
                           Nothing is at that path any more. If you moved or
                           renamed the folder, point Campaign Forge at its new
                           home; the campaign itself is untouched.
@@ -382,7 +381,7 @@ export function WelcomeScreen() {
                           onClick={() => void handleLocate(latest)}
                           disabled={busy}
                           title="Moved the folder? Point Campaign Forge at its new location"
-                          className="ml-auto inline-flex h-[42px] items-center gap-1.5 px-2 text-xs text-[#7d8595] transition hover:text-ember-300 disabled:opacity-50 wide:h-10"
+                          className="ml-auto inline-flex h-[42px] items-center gap-1.5 px-2 text-xs text-ink-400 transition hover:text-ember-300 disabled:opacity-50 wide:h-10"
                         >
                           <FolderSearch size={14} /> Folder moved?
                         </button>
@@ -420,7 +419,7 @@ export function WelcomeScreen() {
                             <span
                               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg font-serif text-base font-semibold ${
                                 gone
-                                  ? "bg-ink-850 text-[#7d8595]"
+                                  ? "bg-ink-850 text-ink-400"
                                   : "bg-ink-800 text-ink-200"
                               }`}
                             >
@@ -431,10 +430,8 @@ export function WelcomeScreen() {
                                 {c.name}
                               </span>
                               <span
-                                className={`truncate font-mono text-xs ${
-                                  gone
-                                    ? "text-[#7d8595] line-through"
-                                    : "text-[#7d8595]"
+                                className={`truncate font-mono text-xs text-ink-400 ${
+                                  gone ? "line-through" : ""
                                 }`}
                               >
                                 {c.path}
@@ -443,7 +440,7 @@ export function WelcomeScreen() {
                           </button>
                           <span
                             className={`text-xs whitespace-nowrap ${
-                              gone ? "text-amber-400" : "text-[#7d8595]"
+                              gone ? "text-amber-400" : "text-ink-400"
                             }`}
                           >
                             {gone ? "not found" : relativeOpened(c.openedAt)}
@@ -455,7 +452,7 @@ export function WelcomeScreen() {
                             aria-label={`Locate the folder for ${c.name}`}
                             title="Folder moved? Locate it"
                             className={`flex h-8 w-8 items-center justify-center rounded-md hover:bg-ink-800 hover:text-ink-200 disabled:opacity-50 ${
-                              gone ? "text-amber-400" : "text-[#7d8595]"
+                              gone ? "text-amber-400" : "text-ink-400"
                             }`}
                           >
                             <FolderSearch size={15} />
@@ -465,7 +462,7 @@ export function WelcomeScreen() {
                             onClick={() => void handleForget(c.path)}
                             aria-label={`Remove ${c.name} from recent`}
                             title="Remove from recent"
-                            className="flex h-8 w-8 items-center justify-center rounded-md text-[#7d8595] hover:bg-ink-800 hover:text-ink-200"
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-ink-400 hover:bg-ink-800 hover:text-ink-200"
                           >
                             <X size={15} />
                           </button>
@@ -491,17 +488,19 @@ export function WelcomeScreen() {
           </section>
         </div>
 
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-850 pt-5 text-xs text-[#7d8595]">
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-850 pt-5 text-xs text-ink-400">
           <span>
             <VersionLine />
             {" · "}
             <button
               type="button"
               onClick={() => void openUrl(GUIDE_URL)}
-              className="text-[#a3abba] hover:text-ember-300"
+              className="text-ink-300 hover:text-ember-300"
             >
               Guide
             </button>
+            {" · "}
+            <ThemePicker variant="text" placement="above-start" />
           </span>
           <span className="inline-flex items-center gap-2">
             <Shield size={14} /> Everything stays in folders you choose
@@ -516,16 +515,16 @@ export function WelcomeScreen() {
 function FolderExplainer() {
   return (
     <>
-      <h2 className="text-xs font-semibold tracking-[0.12em] text-[#7d8595] uppercase">
+      <h2 className="text-xs font-semibold tracking-[0.12em] text-ink-400 uppercase">
         A campaign is just a folder
       </h2>
       <div className="flex flex-col overflow-hidden rounded-xl border border-ink-800 bg-ink-900">
-        <div className="flex items-center gap-2 border-b border-ink-800 px-[18px] py-3 font-mono text-xs text-[#7d8595]">
+        <div className="flex items-center gap-2 border-b border-ink-800 px-[18px] py-3 font-mono text-xs text-ink-400">
           <span className="h-2 w-2 rounded-full bg-ember-500" /> my-campaign
         </div>
         <pre className="overflow-x-auto px-[18px] pt-[18px] pb-5 font-mono text-[13px] leading-[1.9] text-ink-200">
           {"campaign.json        "}
-          <span className="text-[#7d8595]">name, system, calendar</span>
+          <span className="text-ink-400">name, system, calendar</span>
           {
             "\nelements/\n  character/\n    harbourmaster-ivel.md\n  location/\n    the-rusty-tankard.md\n  map/\n    sword-coast.md\nassets/\n  maps/sword-coast.png"
           }
@@ -551,7 +550,7 @@ function FolderExplainer() {
             className="flex flex-col gap-1.5 rounded-[10px] border border-ink-800 bg-ink-900 p-4"
           >
             <span className="text-sm font-semibold text-ink-100">{title}</span>
-            <span className="text-[13px] leading-[1.45] text-[#7d8595]">
+            <span className="text-[13px] leading-[1.45] text-ink-400">
               {text}
             </span>
           </div>

@@ -11,6 +11,7 @@
   --color-ink-800: #22262f;
   --color-ink-700: #2e333e;
   --color-ink-600: #434a58;
+  --color-ink-500: #5c6474;
   --color-ink-400: #7d8595;
   --color-ink-300: #a3abba;
   --color-ink-200: #cfd4de;
@@ -18,8 +19,202 @@
   --color-ember-500: #d9833b;
   --color-ember-400: #e69a57;
   --color-ember-300: #f0b47d;
+  --color-ember-200: #f6cda6;
+  --color-ember-100: #fbe5cf;
+  --color-ember-50: #fdf3e7;
   --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
+}
+
+/* ---- Themes ----------------------------------------------------------
+   Every colour in the app is an `ink` (neutral) or `ember` (accent) token,
+   so a theme is just a different set of values for those tokens. The
+   values above are the default theme, Ember. The others override them on
+   whatever element carries `data-theme`: normally <html>, set from
+   src/lib/theme.ts, but any element can carry one (the picker's swatches
+   do) and its subtree takes that theme.
+
+   Light themes invert the scale: ink-950 stays "the page" and ink-100
+   stays "the text", so components need no changes. The handful of
+   semantic Tailwind colours (red, green, amber, emerald) that are used as
+   text get darker shades in light themes so they stay readable. */
+
+:root {
+  color-scheme: dark;
+}
+
+/* Moonstone: cool slate with a lavender accent. */
+[data-theme="moonstone"] {
+  color-scheme: dark;
+  --color-ink-950: #0b0d14;
+  --color-ink-900: #11141e;
+  --color-ink-850: #161a27;
+  --color-ink-800: #1d2232;
+  --color-ink-700: #293042;
+  --color-ink-600: #3d465c;
+  --color-ink-500: #566078;
+  --color-ink-400: #7a849c;
+  --color-ink-300: #a1aac0;
+  --color-ink-200: #cdd3e2;
+  --color-ink-100: #ebeef6;
+  --color-ember-500: #8b7cf6;
+  --color-ember-400: #a195f8;
+  --color-ember-300: #b9b0fa;
+  --color-ember-200: #d2ccfc;
+  --color-ember-100: #e8e5fe;
+  --color-ember-50: #f4f3ff;
+}
+
+/* Greenwood: deep forest with a gold accent. */
+[data-theme="greenwood"] {
+  color-scheme: dark;
+  --color-ink-950: #0b100d;
+  --color-ink-900: #111813;
+  --color-ink-850: #161e19;
+  --color-ink-800: #1c261f;
+  --color-ink-700: #27332b;
+  --color-ink-600: #3b4a40;
+  --color-ink-500: #536458;
+  --color-ink-400: #76897c;
+  --color-ink-300: #9eaea3;
+  --color-ink-200: #cbd5ce;
+  --color-ink-100: #eaefeb;
+  --color-ember-500: #c9a227;
+  --color-ember-400: #d8b544;
+  --color-ember-300: #e4c86b;
+  --color-ember-200: #eedb98;
+  --color-ember-100: #f6ebc3;
+  --color-ember-50: #fbf6e3;
+}
+
+/* Obsidian: near-black neutral with an ice-blue accent. */
+[data-theme="obsidian"] {
+  color-scheme: dark;
+  --color-ink-950: #070809;
+  --color-ink-900: #0d0e10;
+  --color-ink-850: #121316;
+  --color-ink-800: #191b1f;
+  --color-ink-700: #24272d;
+  --color-ink-600: #383c45;
+  --color-ink-500: #51565f;
+  --color-ink-400: #737983;
+  --color-ink-300: #9ca2ab;
+  --color-ink-200: #cbd0d6;
+  --color-ink-100: #edeff2;
+  --color-ember-500: #4fb3e6;
+  --color-ember-400: #6fc2ec;
+  --color-ember-300: #93d1f1;
+  --color-ember-200: #b7e0f6;
+  --color-ember-100: #d9effa;
+  --color-ember-50: #edf7fd;
+}
+
+/* Dusk: deep plum with a rose accent. */
+[data-theme="dusk"] {
+  color-scheme: dark;
+  --color-ink-950: #130d14;
+  --color-ink-900: #1a121c;
+  --color-ink-850: #201723;
+  --color-ink-800: #291e2d;
+  --color-ink-700: #36293b;
+  --color-ink-600: #4d3d53;
+  --color-ink-500: #67556d;
+  --color-ink-400: #8a7890;
+  --color-ink-300: #ada0b2;
+  --color-ink-200: #d3cad6;
+  --color-ink-100: #efeaf0;
+  --color-ember-500: #e0707f;
+  --color-ember-400: #e88a96;
+  --color-ember-300: #efa8b1;
+  --color-ember-200: #f5c5cb;
+  --color-ember-100: #fae0e3;
+  --color-ember-50: #fdf0f1;
+}
+
+/* Parchment: warm paper with a sealing-wax red accent. Light. */
+[data-theme="parchment"] {
+  color-scheme: light;
+  --color-ink-950: #f6f0e4;
+  --color-ink-900: #efe7d7;
+  --color-ink-850: #e8dfcc;
+  --color-ink-800: #dfd4bf;
+  --color-ink-700: #cdc0a8;
+  --color-ink-600: #a99a80;
+  --color-ink-500: #8a7b63;
+  --color-ink-400: #6b5e4a;
+  --color-ink-300: #4f4537;
+  --color-ink-200: #36302a;
+  --color-ink-100: #1f1b17;
+  --color-ember-500: #9b3131;
+  --color-ember-400: #b03a3a;
+  --color-ember-300: #7f2727;
+  --color-ember-200: #671f1f;
+  --color-ember-100: #4f1717;
+  --color-ember-50: #3a1010;
+}
+
+/* Daylight: cool neutral with a teal accent. Light. */
+[data-theme="daylight"] {
+  color-scheme: light;
+  --color-ink-950: #f7f8fa;
+  --color-ink-900: #eff1f5;
+  --color-ink-850: #e7eaf0;
+  --color-ink-800: #dde1e8;
+  --color-ink-700: #c8cdd7;
+  --color-ink-600: #a0a7b4;
+  --color-ink-500: #7f8794;
+  --color-ink-400: #626a78;
+  --color-ink-300: #474e5a;
+  --color-ink-200: #30353e;
+  --color-ink-100: #171a20;
+  --color-ember-500: #0f766e;
+  --color-ember-400: #13857c;
+  --color-ember-300: #0c5f59;
+  --color-ember-200: #094d48;
+  --color-ember-100: #063b37;
+  --color-ember-50: #042b28;
+}
+
+/* Sage: soft green-grey paper with a terracotta accent. Light. */
+[data-theme="sage"] {
+  color-scheme: light;
+  --color-ink-950: #f3f5f0;
+  --color-ink-900: #eaeee6;
+  --color-ink-850: #e1e6db;
+  --color-ink-800: #d5dccd;
+  --color-ink-700: #c0c9b6;
+  --color-ink-600: #98a38d;
+  --color-ink-500: #78836e;
+  --color-ink-400: #5c6653;
+  --color-ink-300: #434b3c;
+  --color-ink-200: #2e3429;
+  --color-ink-100: #171a14;
+  --color-ember-500: #b5553a;
+  --color-ember-400: #c7634a;
+  --color-ember-300: #944431;
+  --color-ember-200: #773627;
+  --color-ember-100: #5b291d;
+  --color-ember-50: #431e15;
+}
+
+/* Semantic colours used as text, darkened for the light themes. */
+[data-theme="parchment"],
+[data-theme="daylight"],
+[data-theme="sage"] {
+  --color-red-400: #dc2626;
+  --color-red-300: #b91c1c;
+  --color-red-200: #991b1b;
+  --color-red-100: #7f1d1d;
+  --color-green-400: #16a34a;
+  --color-green-300: #15803d;
+  --color-green-100: #14532d;
+  --color-emerald-400: #059669;
+  --color-emerald-300: #047857;
+  --color-emerald-200: #065f46;
+  --color-amber-300: #b45309;
+  --color-amber-200: #92400e;
+  --color-amber-100: #78350f;
+  --color-amber-50: #451a03;
 }
 
 html,

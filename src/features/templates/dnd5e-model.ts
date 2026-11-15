@@ -56,8 +56,6 @@ export const ALIGNMENTS = [
   "Unaligned",
 ];
 
-export type SheetRole = "pc" | "npc";
-
 export interface Attack {
   id: string;
   name: string;
@@ -152,7 +150,6 @@ export function newId(): string {
 }
 
 export interface Sheet5e {
-  role: SheetRole;
   /** Table name of the player who may edit this sheet; empty for GM-only. */
   owner: string;
   class: string;
@@ -187,7 +184,6 @@ export interface Sheet5e {
 }
 
 export const EMPTY_SHEET: Sheet5e = {
-  role: "npc",
   owner: "",
   class: "",
   subclass: "",
@@ -252,7 +248,6 @@ export function readSheet5e(v: unknown): Sheet5e | null {
   const list = (x: unknown, keep: (s: unknown) => boolean) =>
     Array.isArray(x) ? (x.filter(keep) as string[]) : [];
   return {
-    role: o.role === "pc" ? "pc" : "npc",
     owner: str(o.owner),
     class: str(o.class),
     subclass: str(o.subclass),

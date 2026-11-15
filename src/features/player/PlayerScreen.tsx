@@ -26,8 +26,10 @@ import {
 import {
   ELEMENT_FAMILIES,
   ELEMENT_KINDS,
+  characterRoleOf,
   elementIdFromHref,
   kindById,
+  roleById,
   type Element,
   type ElementSummary,
 } from "@/lib/types";
@@ -604,6 +606,10 @@ function detailsFor(
       out.push({ label: "Status", value: readArc(element).status });
       break;
     case "character": {
+      out.push({
+        label: "Role",
+        value: roleById(characterRoleOf(element)).label,
+      });
       const sheet = readSheet5e(element.sheet);
       if (!sheet) break;
       if (sheet.owner) out.push({ label: "Played by", value: sheet.owner });
