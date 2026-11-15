@@ -65,6 +65,25 @@ export interface ElementSummary extends ElementMeta {
 export interface Element extends ElementSummary {
   /** Markdown body (everything after the frontmatter). */
   body: string;
+  /** Fingerprint of the file as last read or written. Pass it back as a
+   *  save's `baseVersion` so an edit made elsewhere is never overwritten. */
+  version?: string;
+}
+
+/** A saved assistant conversation, as listed: `conversations/<id>.json`. */
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A saved conversation file. Rust owns only the envelope; everything else is
+ * stored and returned untouched (see `features/agent/conversation-file.ts`).
+ */
+export interface StoredConversation extends ConversationSummary {
+  [key: string]: unknown;
 }
 
 /** The URL scheme used for links between elements. */
@@ -90,6 +109,22 @@ export interface SaveElementInput {
   body: string;
   /** Replaces the kind-specific fields wholesale when present. */
   extra?: Record<string, unknown>;
+  /** The element's `version` when the edit began. If the file has changed
+   *  since, the save fails with a `conflict:` error. Omit to overwrite. */
+  baseVersion?: string;
+}
+
+/** Payload of the `campaign-files-changed` event: edits made outside this
+ *  window (a sync client, another program, a player at the table). */
+export interface DiskChanges {
+  elementIds: string[];
+  listChanged: boolean;
+  campaignChanged: boolean;
+}
+
+/** Whether an error from a save is a version conflict. */
+export function isConflictError(message: string): boolean {
+  return message.startsWith("conflict:");
 }
 
 export interface ImportedDocument {
@@ -98,6 +133,21 @@ export interface ImportedDocument {
   bytes: number;
   /** Source file name without extension. */
   name: string;
+}
+
+/** Text extracted from a PDF, page by page (`src-tauri/src/pdf.rs`). */
+export interface PdfText {
+  /** Pages in the whole document. */
+  pageCount: number;
+  /** 1-based number of the first entry in `pages`. */
+  firstPage: number;
+  /** One string per page in the requested range; unreadable pages are "". */
+  pages: string[];
+  /** Pages in the range with no text at all (scans, art). */
+  emptyPages: number;
+  chars: number;
+  /** The text was cut at the extraction ceiling. */
+  truncated: boolean;
 }
 
 export interface ImportedImage {
@@ -126,6 +176,7 @@ export const RESERVED_ELEMENT_KEYS = new Set([
   "path",
   "links",
   "body",
+  "version",
 ]);
 
 /** The kind-specific fields of an element, minus nulls and undefineds. */

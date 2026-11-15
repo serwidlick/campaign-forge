@@ -10,6 +10,9 @@ pub enum StorageError {
     #[error("element not found: {0}")]
     ElementNotFound(String),
 
+    #[error("conversation not found: {0}")]
+    ConversationNotFound(String),
+
     #[error("not a campaign folder (missing campaign.json): {0}")]
     NotACampaign(PathBuf),
 
@@ -34,6 +37,10 @@ pub enum StorageError {
 
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// The frontend recognises this by its `conflict:` prefix.
+    #[error("conflict: element {0} changed on disk since it was loaded")]
+    Conflict(String),
 
     #[error("storage lock poisoned")]
     Poisoned,

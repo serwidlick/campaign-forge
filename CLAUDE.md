@@ -13,7 +13,7 @@ A local-first desktop campaign manager for tabletop game masters (world bible, m
 
 ## Layout
 
-- `src-tauri/src/storage/` — Rust storage layer. Owns all file IO. Elements are `elements/<kind>/<slug>.md` with YAML frontmatter; campaign metadata is `campaign.json`.
+- `src-tauri/src/storage/` — Rust storage layer. Owns all file IO. Elements are `elements/<kind>/<slug>.md` with YAML frontmatter; campaign metadata is `campaign.json`; saved assistant conversations are `conversations/<id>.json` (GM-only, never served to players).
 - `src-tauri/src/commands.rs` — Tauri commands exposed to the frontend. Thin wrappers over `storage`.
 - `src-tauri/src/table/` — hosting and joining a table over the LAN (axum server, mDNS discovery, reqwest client, sharing rules).
 - `src/lib/tauri.ts` — typed `invoke` wrappers. The only place the frontend calls Rust.

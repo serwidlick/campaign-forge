@@ -4,6 +4,7 @@ import {
   CalendarDays,
   ChevronLeft,
   Eye,
+  FileUp,
   Radio,
   Waypoints,
   Plus,
@@ -23,6 +24,7 @@ import { PlayerScreen } from "@/features/player/PlayerScreen";
 import { isShared, localPreviewSource } from "@/features/player/player-model";
 import { Portrait } from "@/features/images/Portrait";
 import { portraitOf } from "@/features/images/portrait-model";
+import { ImportPdfPanel } from "@/features/import/ImportPdfPanel";
 import { HostPanel } from "@/features/table/HostPanel";
 import { Charactermancer5e } from "@/features/templates/Charactermancer5e";
 import { EMPTY_SHEET, type Sheet5e } from "@/features/templates/dnd5e-model";
@@ -73,7 +75,7 @@ export function BibleScreen() {
   const [mancerName, setMancerName] = useState<string | null>(null);
   const rules = rulesOf(campaign);
   const [view, setView] = useState<
-    "elements" | "timeline" | "graph" | "journal" | "table"
+    "elements" | "timeline" | "graph" | "journal" | "table" | "import"
   >("elements");
   const hosting = useTableStore((s) => s.hosting);
   const stopHosting = useTableStore((s) => s.stopHosting);
@@ -439,6 +441,22 @@ export function BibleScreen() {
                 >
                   <Plus size={14} /> New
                 </Button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setView((v) => (v === "import" ? "elements" : "import"))
+                  }
+                  title="Import a PDF and build elements from it"
+                  aria-label="Import a PDF"
+                  aria-pressed={view === "import"}
+                  className={`rounded-md p-1.5 transition-colors ${
+                    view === "import"
+                      ? "bg-ember-500/25 text-ember-200"
+                      : "text-ink-400 hover:bg-ink-800 hover:text-ink-200"
+                  }`}
+                >
+                  <FileUp size={14} />
+                </button>
               </div>
 
               {newName !== null && (
@@ -600,6 +618,8 @@ export function BibleScreen() {
                 />
               ) : view === "graph" ? (
                 <GraphPanel />
+              ) : view === "import" ? (
+                <ImportPdfPanel onClose={() => setView("elements")} />
               ) : calendarOpen && view === "timeline" ? (
                 <CalendarSettings onClose={() => setCalendarOpen(false)} />
               ) : view === "elements" && kindFilter === null && !selected ? (

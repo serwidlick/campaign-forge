@@ -7,6 +7,7 @@
 //!   campaign.json              campaign metadata
 //!   elements/<kind>/<slug>.md  one Markdown file per world-bible element,
 //!                              YAML frontmatter + body
+//!   conversations/<id>.json    saved assistant conversations (GM-only)
 //! ```
 //!
 //! The files are the source of truth. The in-memory index maps element IDs to
@@ -15,6 +16,7 @@
 
 mod assets;
 mod campaign;
+mod conversations;
 mod elements;
 mod error;
 mod frontmatter;
@@ -24,16 +26,23 @@ mod search;
 mod slug;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use tokio::sync::watch;
 
-pub use assets::{ImportedDocument, ImportedImage, MAX_IMAGE_BYTES};
+pub use assets::{ImportedDocument, ImportedImage, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES};
+pub use conversations::{Conversation, ConversationSummary};
 pub use error::StorageError;
 pub use links::extract_links;
 pub use model::{CampaignMeta, Element, ElementSummary, Extra, SaveElementInput};
 pub use search::SearchHit;
+
+/// Whether `path` still holds a campaign (its `campaign.json` is present).
+/// Needs no open campaign and touches nothing on disk.
+pub fn campaign_exists(path: &str) -> bool {
+    campaign::exists(Path::new(path))
+}
 
 /// The currently open campaign, if any.
 struct OpenCampaign {
@@ -41,6 +50,28 @@ struct OpenCampaign {
     meta: CampaignMeta,
     /// element id -> absolute path of its Markdown file
     index: HashMap<String, PathBuf>,
+    /// Element file -> version this process last wrote or already reported.
+    /// The folder watcher uses it to tell the app's own writes apart from
+    /// edits made elsewhere (a sync client, another program).
+    seen: HashMap<PathBuf, String>,
+}
+
+/// What [`AppState::apply_disk_changes`] found in a batch of changed paths.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskChanges {
+    /// Elements whose file changed (or appeared) outside this window.
+    pub element_ids: Vec<String>,
+    /// Elements were added, removed or moved: the list needs a rescan.
+    pub list_changed: bool,
+    /// `campaign.json` changed outside this window.
+    pub campaign_changed: bool,
+}
+
+impl DiskChanges {
+    pub fn is_empty(&self) -> bool {
+        self.element_ids.is_empty() && !self.list_changed && !self.campaign_changed
+    }
 }
 
 /// Tauri-managed application state.
@@ -151,21 +182,42 @@ impl AppState {
         let mut guard = self.lock()?;
         let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
         let element = elements::create(&open.root, kind, name, extra)?;
-        open.index
-            .insert(element.meta.id.clone(), open.root.join(&element.meta.path));
+        let path = open.root.join(&element.meta.path);
+        open.seen.insert(path.clone(), element.version.clone());
+        open.index.insert(element.meta.id.clone(), path);
         drop(guard);
         self.bump();
         Ok(element)
     }
 
+    /// A save made by the GM's window, which already shows the result.
     pub fn save_element(&self, input: SaveElementInput) -> Result<Element, StorageError> {
-        let guard = self.lock()?;
-        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        self.save_element_inner(input, true)
+    }
+
+    /// A save the GM's window did not make (a player editing their sheet at
+    /// the table). It is left out of `seen`, so the folder watcher reports it
+    /// to the window exactly like an edit from another program.
+    pub fn save_element_unseen(&self, input: SaveElementInput) -> Result<Element, StorageError> {
+        self.save_element_inner(input, false)
+    }
+
+    fn save_element_inner(
+        &self,
+        input: SaveElementInput,
+        record: bool,
+    ) -> Result<Element, StorageError> {
+        let mut guard = self.lock()?;
+        let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
         let path = open
             .index
             .get(&input.id)
-            .ok_or_else(|| StorageError::ElementNotFound(input.id.clone()))?;
-        let saved = elements::save(&open.root, path, input)?;
+            .ok_or_else(|| StorageError::ElementNotFound(input.id.clone()))?
+            .clone();
+        let saved = elements::save(&open.root, &path, input)?;
+        if record {
+            open.seen.insert(path, saved.version.clone());
+        }
         drop(guard);
         self.bump();
         Ok(saved)
@@ -178,6 +230,7 @@ impl AppState {
             .index
             .remove(id)
             .ok_or_else(|| StorageError::ElementNotFound(id.to_owned()))?;
+        open.seen.remove(&path);
         elements::delete(&path)?;
         drop(guard);
         self.bump();
@@ -270,6 +323,28 @@ impl AppState {
         search::search(&open.root, &open.index, query, limit)
     }
 
+    // Conversations do not bump the change counter: they are GM-only, so no
+    // player view needs to wake up for them.
+
+    pub fn list_conversations(&self) -> Result<Vec<ConversationSummary>, StorageError> {
+        conversations::list(&self.root()?)
+    }
+
+    pub fn read_conversation(&self, id: &str) -> Result<Conversation, StorageError> {
+        conversations::read(&self.root()?, id)
+    }
+
+    pub fn save_conversation(
+        &self,
+        conversation: Conversation,
+    ) -> Result<ConversationSummary, StorageError> {
+        conversations::save(&self.root()?, conversation)
+    }
+
+    pub fn delete_conversation(&self, id: &str) -> Result<(), StorageError> {
+        conversations::delete(&self.root()?, id)
+    }
+
     pub fn read_asset(&self, rel: &str) -> Result<Vec<u8>, StorageError> {
         let guard = self.lock()?;
         let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
@@ -279,10 +354,98 @@ impl AppState {
     fn set_open(&self, root: PathBuf, meta: CampaignMeta) -> Result<(), StorageError> {
         let (_, index) = elements::scan(&root)?;
         let mut guard = self.lock()?;
-        *guard = Some(OpenCampaign { root, meta, index });
+        *guard = Some(OpenCampaign {
+            root,
+            meta,
+            index,
+            seen: HashMap::new(),
+        });
         drop(guard);
         self.bump();
         Ok(())
+    }
+
+    /// Takes a batch of paths the folder watcher saw change and works out
+    /// which of them are edits made outside this window. The app's own writes
+    /// are recognised by version and skipped. Updates the id index and the
+    /// campaign metadata to match the disk, and bumps the change counter so
+    /// players at the table see the new content too.
+    pub fn apply_disk_changes(&self, paths: &[PathBuf]) -> Result<DiskChanges, StorageError> {
+        let mut guard = self.lock()?;
+        let Some(open) = guard.as_mut() else {
+            return Ok(DiskChanges::default());
+        };
+        let mut changes = DiskChanges::default();
+        let elements_dir = open.root.join(campaign::ELEMENTS_DIR);
+
+        for path in paths {
+            if path == &open.root.join(campaign::CAMPAIGN_FILE) {
+                // A half-synced or hand-broken file is ignored until it parses.
+                if let Ok(meta) = campaign::open(&open.root)
+                    && serde_json::to_value(&meta).ok() != serde_json::to_value(&open.meta).ok()
+                {
+                    open.meta = meta;
+                    changes.campaign_changed = true;
+                }
+                continue;
+            }
+            let is_element = path.starts_with(&elements_dir)
+                && path.extension().and_then(|e| e.to_str()) == Some("md");
+            if !is_element {
+                continue;
+            }
+            if !path.is_file() {
+                // Gone. Only matters if it was an element we knew about; our
+                // own deletes already dropped it from the index.
+                let before = open.index.len();
+                open.index.retain(|_, p| p != path);
+                open.seen.remove(path);
+                if open.index.len() != before {
+                    changes.list_changed = true;
+                }
+                continue;
+            }
+            let element = match elements::read(&open.root, path) {
+                Ok(e) => e,
+                // Partly synced, or a stray note without frontmatter.
+                Err(StorageError::InvalidFrontmatter { .. }) => continue,
+                Err(StorageError::Io { .. }) => continue,
+                Err(other) => return Err(other),
+            };
+            if open.seen.get(path) == Some(&element.version) {
+                continue;
+            }
+            open.seen.insert(path.clone(), element.version.clone());
+            let id = element.meta.id;
+            match open.index.get(&id) {
+                Some(known) if known == path => {}
+                // The id already lives in another file that still exists (a
+                // sync client's conflict copy): keep the original for now.
+                Some(known) if known.is_file() => {
+                    changes.list_changed = true;
+                    continue;
+                }
+                _ => {
+                    open.index.insert(id.clone(), path.clone());
+                    changes.list_changed = true;
+                }
+            }
+            if !changes.element_ids.contains(&id) {
+                changes.element_ids.push(id);
+            }
+        }
+        drop(guard);
+        if !changes.is_empty() {
+            self.bump();
+        }
+        Ok(changes)
+    }
+
+    /// The open campaign's folder, without holding the lock during file IO.
+    fn root(&self) -> Result<PathBuf, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        Ok(open.root.clone())
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, Option<OpenCampaign>>, StorageError> {
@@ -375,6 +538,7 @@ mod tests {
                 tags: vec!["tavern".into(), " ".into(), "waterdeep".into()],
                 body: "# Renamed\n\nA **dockside** tavern.\n".into(),
                 extra: None,
+                base_version: None,
             })
             .unwrap();
         assert_eq!(saved.meta.tags, vec!["tavern", "waterdeep"]);
@@ -455,6 +619,7 @@ mod tests {
                 tags: vec![],
                 body: "notes".into(),
                 extra: None,
+                base_version: None,
             })
             .unwrap();
         assert_eq!(kept.meta.extra["status"], "planned");
@@ -470,6 +635,7 @@ mod tests {
                 tags: vec![],
                 body: "notes".into(),
                 extra: Some(replaced),
+                base_version: None,
             })
             .unwrap();
 
@@ -531,5 +697,157 @@ mod tests {
         let listed = state.list_elements().unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].meta.name, "Real");
+    }
+
+    fn save_input(element: &Element, body: &str, base: Option<&str>) -> SaveElementInput {
+        SaveElementInput {
+            id: element.meta.id.clone(),
+            name: element.meta.name.clone(),
+            tags: vec![],
+            body: body.into(),
+            extra: None,
+            base_version: base.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn save_refuses_when_file_changed_since_it_was_loaded() {
+        let root = TempRoot::new("conflict");
+        let state = AppState::default();
+        state
+            .create_campaign(root.path(), "Conflict".into(), None)
+            .unwrap();
+        let created = state.create_element("npc", "Mira", None).unwrap();
+
+        // Saving on top of the version we hold works and moves the version on.
+        let first = state
+            .save_element(save_input(&created, "one", Some(&created.version)))
+            .unwrap();
+        assert_ne!(first.version, created.version);
+        assert_eq!(
+            state.read_element(&created.meta.id).unwrap().version,
+            first.version
+        );
+
+        // Another device rewrites the file behind our back.
+        let file = root.0.join(&created.meta.path);
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, text.replace("one", "theirs")).unwrap();
+
+        assert!(matches!(
+            state.save_element(save_input(&created, "mine", Some(&first.version))),
+            Err(StorageError::Conflict(_))
+        ));
+        assert!(std::fs::read_to_string(&file).unwrap().contains("theirs"));
+
+        // No base version means "overwrite", which is what "keep mine" does.
+        state
+            .save_element(save_input(&created, "mine", None))
+            .unwrap();
+        assert!(std::fs::read_to_string(&file).unwrap().contains("mine"));
+    }
+
+    #[test]
+    fn disk_changes_skip_own_writes_and_report_outside_ones() {
+        let root = TempRoot::new("watch");
+        let state = AppState::default();
+        state
+            .create_campaign(root.path(), "Watch".into(), None)
+            .unwrap();
+        let created = state.create_element("npc", "Mira", None).unwrap();
+        let file = root.0.join(&created.meta.path);
+        let saved = state
+            .save_element(save_input(&created, "ours", Some(&created.version)))
+            .unwrap();
+
+        // Our own create and save: nothing to report.
+        assert!(
+            state
+                .apply_disk_changes(std::slice::from_ref(&file))
+                .unwrap()
+                .is_empty()
+        );
+
+        // An outside edit is reported once, then remembered.
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, text.replace("ours", "synced")).unwrap();
+        let changes = state
+            .apply_disk_changes(std::slice::from_ref(&file))
+            .unwrap();
+        assert_eq!(changes.element_ids, vec![created.meta.id.clone()]);
+        assert!(!changes.list_changed);
+        assert!(
+            state
+                .apply_disk_changes(std::slice::from_ref(&file))
+                .unwrap()
+                .is_empty()
+        );
+
+        // A player's sheet edit at the table is reported to the GM's window.
+        let latest = state.read_element(&created.meta.id).unwrap();
+        assert_ne!(latest.version, saved.version);
+        state
+            .save_element_unseen(save_input(&latest, "player", Some(&latest.version)))
+            .unwrap();
+        let changes = state
+            .apply_disk_changes(std::slice::from_ref(&file))
+            .unwrap();
+        assert_eq!(changes.element_ids, vec![created.meta.id.clone()]);
+
+        // A new file from another device joins the index.
+        let other = root.0.join("elements").join("npc").join("bran.md");
+        std::fs::write(
+            &other,
+            "---\nid: bran-1\ntype: npc\nname: Bran\ncreatedAt: x\nupdatedAt: x\n---\n# Bran\n",
+        )
+        .unwrap();
+        let changes = state
+            .apply_disk_changes(std::slice::from_ref(&other))
+            .unwrap();
+        assert!(changes.list_changed);
+        assert!(state.read_element("bran-1").is_ok());
+
+        // A conflict copy with the same id does not take over the original.
+        let copy = root.0.join("elements").join("npc").join("mira (1).md");
+        std::fs::copy(&file, &copy).unwrap();
+        state
+            .apply_disk_changes(std::slice::from_ref(&copy))
+            .unwrap();
+        assert_eq!(
+            state.read_element(&created.meta.id).unwrap().meta.path,
+            created.meta.path
+        );
+        let listed = state.list_elements().unwrap();
+        assert_eq!(listed.len(), 2);
+        assert_eq!(
+            state.read_element(&created.meta.id).unwrap().meta.path,
+            created.meta.path
+        );
+
+        // Deleted on another device: dropped from the index.
+        std::fs::remove_file(&other).unwrap();
+        assert!(state.apply_disk_changes(&[other]).unwrap().list_changed);
+        assert!(state.read_element("bran-1").is_err());
+
+        // campaign.json edited elsewhere is picked up; our own update is not.
+        state
+            .update_campaign(Some("Renamed".into()), None, None)
+            .unwrap();
+        let meta_file = root.0.join("campaign.json");
+        assert!(
+            state
+                .apply_disk_changes(std::slice::from_ref(&meta_file))
+                .unwrap()
+                .is_empty()
+        );
+        let text = std::fs::read_to_string(&meta_file).unwrap();
+        std::fs::write(&meta_file, text.replace("Renamed", "Synced")).unwrap();
+        assert!(
+            state
+                .apply_disk_changes(&[meta_file])
+                .unwrap()
+                .campaign_changed
+        );
+        assert_eq!(state.current_campaign().unwrap().name, "Synced");
     }
 }

@@ -68,6 +68,10 @@ pub struct Element {
     #[serde(default)]
     pub links: Vec<String>,
     pub body: String,
+    /// Fingerprint of the file as last read or written. Runtime-only; a save
+    /// that passes it back as `baseVersion` is refused if the file changed.
+    #[serde(default)]
+    pub version: String,
 }
 
 impl Element {
@@ -92,6 +96,11 @@ pub struct SaveElementInput {
     /// When absent, the existing fields are kept.
     #[serde(default)]
     pub extra: Option<Extra>,
+    /// The `version` of the element this edit started from. When present and
+    /// the file on disk no longer matches, the save fails with a conflict.
+    /// Absent means "overwrite whatever is there".
+    #[serde(default)]
+    pub base_version: Option<String>,
 }
 
 pub fn now_rfc3339() -> String {

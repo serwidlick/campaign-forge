@@ -4,6 +4,7 @@ import { BibleScreen } from "@/features/bible/BibleScreen";
 import { WelcomeScreen } from "@/features/campaign/WelcomeScreen";
 import { TableScreen } from "@/features/table/TableScreen";
 import { UpdateBanner } from "@/features/updates/UpdateBanner";
+import { storage } from "@/lib/tauri";
 import { useCampaignStore } from "@/stores/campaign-store";
 import { useTableStore } from "@/stores/table-store";
 
@@ -19,6 +20,15 @@ export default function App() {
     void restore();
     void restoreTable();
   }, [restore, restoreTable]);
+
+  // Edits to the campaign folder made elsewhere: a sync client (OneDrive,
+  // Google Drive...), another program, a player at the table.
+  useEffect(() => {
+    const unlisten = storage.onFilesChanged(
+      (changes) => void useCampaignStore.getState().applyDiskChanges(changes),
+    );
+    return () => void unlisten.then((stop) => stop());
+  }, []);
 
   const screen = session ? (
     <TableScreen />

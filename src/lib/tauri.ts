@@ -3,10 +3,13 @@
  * This is the only module in the frontend that calls `invoke`.
  */
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type {
   CampaignMeta,
+  ConversationSummary,
   DeviceIdentity,
+  DiskChanges,
   Element,
   ElementSummary,
   FoundTable,
@@ -14,8 +17,10 @@ import type {
   PlayerRecord,
   ImportedDocument,
   ImportedImage,
+  PdfText,
   SaveElementInput,
   SearchHit,
+  StoredConversation,
   TableChange,
   TableSession,
 } from "./types";
@@ -31,6 +36,11 @@ export const storage = {
 
   openCampaign(path: string) {
     return invoke<CampaignMeta>("open_campaign", { path });
+  },
+
+  /** For each path, whether a campaign folder still exists there. */
+  probeCampaigns(paths: string[]) {
+    return invoke<boolean[]>("probe_campaigns", { paths });
   },
 
   getCampaign() {
@@ -71,6 +81,14 @@ export const storage = {
     return invoke<Element>("save_element", { input });
   },
 
+  /** Calls `handler` whenever the open campaign's files change outside this
+   *  window (sync client, another program, a player at the table). */
+  onFilesChanged(handler: (changes: DiskChanges) => void): Promise<UnlistenFn> {
+    return listen<DiskChanges>("campaign-files-changed", (event) =>
+      handler(event.payload),
+    );
+  },
+
   deleteElement(id: string) {
     return invoke<void>("delete_element", { id });
   },
@@ -98,6 +116,25 @@ export const storage = {
   /** Copies a PDF into assets/docs/. */
   importDocument(source: string) {
     return invoke<ImportedDocument>("import_document", { source });
+  },
+
+  /** Text of a PDF or .txt/.md file anywhere on disk, by page (a text file
+   *  is cut into pseudo-pages); nothing is copied. */
+  extractDocumentText(source: string, from?: number, to?: number) {
+    return invoke<PdfText>("extract_document_text", {
+      source,
+      from: from ?? null,
+      to: to ?? null,
+    });
+  },
+
+  /** Text of a PDF under assets/docs/, by page. */
+  readDocumentText(path: string, from?: number, to?: number) {
+    return invoke<PdfText>("read_document_text", {
+      path,
+      from: from ?? null,
+      to: to ?? null,
+    });
   },
 
   /** Imports image bytes (base64) for a map element. */
@@ -204,6 +241,24 @@ export const table = {
   /** Show an element on every player's screen; null clears it. */
   spotlight(id: string | null) {
     return invoke<HostStatus>("table_spotlight", { id });
+  },
+};
+
+/** Saved assistant conversations in the open campaign's `conversations/`. */
+export const conversations = {
+  /** Most recently updated first. */
+  list() {
+    return invoke<ConversationSummary[]>("list_conversations");
+  },
+  read(id: string) {
+    return invoke<StoredConversation>("read_conversation", { id });
+  },
+  /** Stamps `updatedAt` (and `createdAt` on first save) and returns the summary. */
+  save(conversation: StoredConversation) {
+    return invoke<ConversationSummary>("save_conversation", { conversation });
+  },
+  delete(id: string) {
+    return invoke<void>("delete_conversation", { id });
   },
 };
 

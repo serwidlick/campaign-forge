@@ -22,7 +22,11 @@ pub fn scan(root: &Path) -> Result<(Vec<ElementSummary>, HashMap<String, PathBuf
         return Ok((summaries, index));
     }
 
-    for entry in WalkDir::new(&dir).min_depth(2).max_depth(2) {
+    for entry in WalkDir::new(&dir)
+        .min_depth(2)
+        .max_depth(2)
+        .sort_by_file_name()
+    {
         let entry = entry.map_err(|e| StorageError::io(dir.clone(), std::io::Error::other(e)))?;
         let path = entry.path();
         let is_markdown = path.extension().and_then(|e| e.to_str()) == Some("md");
@@ -31,6 +35,15 @@ pub fn scan(root: &Path) -> Result<(Vec<ElementSummary>, HashMap<String, PathBuf
         }
         match read(root, path) {
             Ok(element) => {
+                // Two files with one id: a sync client's conflict copy
+                // ("npc (1).md", "npc-LAPTOP.md"). Keep the shorter name,
+                // which is the original in every client's naming scheme.
+                if let Some(other) = index.get(&element.meta.id) {
+                    if file_name_len(other) <= file_name_len(path) {
+                        continue;
+                    }
+                    summaries.retain(|s: &ElementSummary| s.meta.id != element.meta.id);
+                }
                 index.insert(element.meta.id.clone(), path.to_path_buf());
                 summaries.push(element.summary());
             }
@@ -52,6 +65,10 @@ pub fn scan(root: &Path) -> Result<(Vec<ElementSummary>, HashMap<String, PathBuf
     Ok((summaries, index))
 }
 
+fn file_name_len(path: &Path) -> usize {
+    path.file_name().map_or(usize::MAX, |n| n.len())
+}
+
 pub fn read(root: &Path, path: &Path) -> Result<Element, StorageError> {
     let text = fs::read_to_string(path).map_err(|e| StorageError::io(path, e))?;
     let (yaml, body) =
@@ -69,12 +86,23 @@ pub fn read(root: &Path, path: &Path) -> Result<Element, StorageError> {
         meta,
         links: extract_links(body),
         body: body.to_owned(),
+        version: version_of(&text),
     })
+}
+
+/// Fingerprint of a file's exact text. Two reads of an unchanged file give
+/// the same version; any edit, by this app or anything else, changes it.
+pub fn version_of(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())[..12]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Frontmatter keys owned by `ElementMeta` or derived at runtime. They are
 /// stripped from `extra` so a caller can never produce duplicate YAML keys.
-const RESERVED_KEYS: [&str; 9] = [
+const RESERVED_KEYS: [&str; 10] = [
     "id",
     "type",
     "name",
@@ -84,6 +112,7 @@ const RESERVED_KEYS: [&str; 9] = [
     "path",
     "links",
     "body",
+    "version",
 ];
 
 fn sanitize_extra(mut extra: Extra) -> Extra {
@@ -120,16 +149,25 @@ pub fn create(
         extra: sanitize_extra(extra.unwrap_or_default()),
     };
     let body = format!("# {name}\n");
-    write(&path, &meta, &body)?;
+    let version = write(&path, &meta, &body)?;
     Ok(Element {
         meta,
         links: Vec::new(),
         body,
+        version,
     })
 }
 
 pub fn save(root: &Path, path: &Path, input: SaveElementInput) -> Result<Element, StorageError> {
     let existing = read(root, path)?;
+    // The caller edited the version it loaded. If the file has changed since
+    // (a sync client brought in another device's edit, or another program
+    // wrote it), refuse rather than silently overwrite that change.
+    if let Some(base) = &input.base_version
+        && *base != existing.version
+    {
+        return Err(StorageError::Conflict(existing.meta.id));
+    }
     let name = input.name.trim();
     if name.is_empty() {
         return Err(StorageError::InvalidInput("element name is empty".into()));
@@ -149,11 +187,12 @@ pub fn save(root: &Path, path: &Path, input: SaveElementInput) -> Result<Element
         },
         ..existing.meta
     };
-    write(path, &meta, &input.body)?;
+    let version = write(path, &meta, &input.body)?;
     Ok(Element {
         meta,
         links: extract_links(&input.body),
         body: input.body,
+        version,
     })
 }
 
@@ -161,7 +200,8 @@ pub fn delete(path: &Path) -> Result<(), StorageError> {
     fs::remove_file(path).map_err(|e| StorageError::io(path, e))
 }
 
-fn write(path: &Path, meta: &ElementMeta, body: &str) -> Result<(), StorageError> {
+/// Writes the element file and returns its new version.
+fn write(path: &Path, meta: &ElementMeta, body: &str) -> Result<String, StorageError> {
     // `path` is runtime-only and skipped when empty; clear it before writing.
     let mut persisted = meta.clone();
     persisted.path = String::new();
@@ -169,9 +209,11 @@ fn write(path: &Path, meta: &ElementMeta, body: &str) -> Result<(), StorageError
     let doc = frontmatter::join(&yaml, body);
     // Write to a sibling temp file and rename so a crash never leaves a
     // half-written element behind.
+    let version = version_of(&doc);
     let tmp = path.with_extension("md.tmp");
     fs::write(&tmp, doc).map_err(|e| StorageError::io(&tmp, e))?;
-    fs::rename(&tmp, path).map_err(|e| StorageError::io(path, e))
+    fs::rename(&tmp, path).map_err(|e| StorageError::io(path, e))?;
+    Ok(version)
 }
 
 fn unique_path(dir: &Path, slug: &str) -> PathBuf {

@@ -41,11 +41,15 @@ tauri-plugin-process = "2.4.0"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 sha2 = "0.10"
+pdf-extract = "0.12.1"
+notify-debouncer-mini = "0.7.0"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+# Unwind, not abort: PDF text extraction (src/pdf.rs) catches panics from
+# malformed files so one bad book cannot take the whole app down.
+panic = "unwind"
 strip = true

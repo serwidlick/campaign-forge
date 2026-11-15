@@ -1,6 +1,13 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { ArrowRight, FolderOpen, FolderPlus, Shield, X } from "lucide-react";
+import {
+  ArrowRight,
+  FolderOpen,
+  FolderPlus,
+  FolderSearch,
+  Shield,
+  X,
+} from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import appIcon from "@/assets/icon.png";
@@ -19,6 +26,7 @@ import {
   rulesetById,
   type RulesId,
 } from "@/features/templates/rulesets";
+import { storage } from "@/lib/tauri";
 import { useCampaignStore } from "@/stores/campaign-store";
 
 const GUIDE_URL = "https://serwidlick.github.io/campaign-forge/guide/";
@@ -54,18 +62,44 @@ export function WelcomeScreen() {
   const setError = useCampaignStore((s) => s.setError);
 
   const [recent, setRecent] = useState<RecentCampaign[] | null>(null);
+  /** Recent paths whose folder no longer holds a campaign (moved or deleted). */
+  const [missing, setMissing] = useState<ReadonlySet<string>>(new Set());
   const [draftPath, setDraftPath] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [draftSystem, setDraftSystem] = useState("");
   const [draftRules, setDraftRules] = useState<RulesId>(DEFAULT_RULES);
 
   useEffect(() => {
-    void getRecentCampaigns().then(setRecent);
+    let cancelled = false;
+    void (async () => {
+      const list = await getRecentCampaigns();
+      if (cancelled) return;
+      setRecent(list);
+      if (list.length === 0) return;
+      try {
+        const found = await storage.probeCampaigns(list.map((c) => c.path));
+        if (cancelled) return;
+        setMissing(
+          new Set(list.filter((_, i) => found[i] === false).map((c) => c.path)),
+        );
+      } catch {
+        // Outside the Tauri shell there is nothing to probe; assume present.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function handleOpen() {
     const path = await pickFolder("Open a campaign folder");
     if (path) await openCampaign(path);
+  }
+
+  /** The folder behind a recent entry moved: pick where it lives now. */
+  async function handleLocate(c: RecentCampaign) {
+    const path = await pickFolder(`Where is "${c.name}" now?`);
+    if (path) await openCampaign(path, c.path);
   }
 
   async function handleStartCreate() {
@@ -107,6 +141,7 @@ export function WelcomeScreen() {
   const list = recent ?? [];
   const firstRun = recent !== null && list.length === 0;
   const [latest, ...others] = list;
+  const latestMissing = latest !== undefined && missing.has(latest.path);
 
   return (
     <div className="relative h-full overflow-auto bg-ink-950 text-ink-100">
@@ -276,78 +311,167 @@ export function WelcomeScreen() {
                         {initialOf(latest.name)}
                       </span>
                       <div className="flex min-w-0 flex-1 flex-col gap-1">
-                        <span className="text-xs font-semibold text-ember-500">
-                          Last opened {relativeOpened(latest.openedAt)}
+                        <span
+                          className={`text-xs font-semibold ${
+                            latestMissing ? "text-amber-400" : "text-ember-500"
+                          }`}
+                        >
+                          {latestMissing
+                            ? "Folder not found"
+                            : `Last opened ${relativeOpened(latest.openedAt)}`}
                         </span>
                         <span className="font-serif text-2xl font-semibold text-ink-100 wide:text-[22px]">
                           {latest.name}
                         </span>
-                        <span className="truncate font-mono text-xs text-[#7d8595]">
+                        <span
+                          className={`truncate font-mono text-xs ${
+                            latestMissing
+                              ? "text-[#7d8595] line-through"
+                              : "text-[#7d8595]"
+                          }`}
+                        >
                           {latest.path}
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => void openCampaign(latest.path)}
-                        disabled={busy}
-                        className="inline-flex h-[42px] items-center gap-2 rounded-lg bg-ember-500 px-[18px] text-sm font-semibold text-ink-950 transition hover:brightness-110 disabled:opacity-50 wide:h-10 wide:px-4"
-                      >
-                        Continue <ArrowRight size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleReveal(latest.path)}
-                        className="inline-flex h-[42px] items-center rounded-lg border border-ink-700 px-3.5 text-sm text-ink-200 transition hover:border-ink-500 hover:bg-ink-800 wide:h-10"
-                      >
-                        Show folder
-                      </button>
-                    </div>
+                    {latestMissing ? (
+                      <div className="flex flex-col gap-3">
+                        <p className="text-sm leading-[1.5] text-[#a3abba]">
+                          Nothing is at that path any more. If you moved or
+                          renamed the folder, point Campaign Forge at its new
+                          home; the campaign itself is untouched.
+                        </p>
+                        <div className="flex items-center gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => void handleLocate(latest)}
+                            disabled={busy}
+                            className="inline-flex h-[42px] items-center gap-2 rounded-lg bg-ember-500 px-[18px] text-sm font-semibold text-ink-950 transition hover:brightness-110 disabled:opacity-50 wide:h-10 wide:px-4"
+                          >
+                            <FolderSearch size={16} /> Locate folder…
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleForget(latest.path)}
+                            disabled={busy}
+                            className="inline-flex h-[42px] items-center rounded-lg border border-ink-700 px-3.5 text-sm text-ink-200 transition hover:border-ink-500 hover:bg-ink-800 disabled:opacity-50 wide:h-10"
+                          >
+                            Remove from recent
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => void openCampaign(latest.path)}
+                          disabled={busy}
+                          className="inline-flex h-[42px] items-center gap-2 rounded-lg bg-ember-500 px-[18px] text-sm font-semibold text-ink-950 transition hover:brightness-110 disabled:opacity-50 wide:h-10 wide:px-4"
+                        >
+                          Continue <ArrowRight size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleReveal(latest.path)}
+                          className="inline-flex h-[42px] items-center rounded-lg border border-ink-700 px-3.5 text-sm text-ink-200 transition hover:border-ink-500 hover:bg-ink-800 wide:h-10"
+                        >
+                          Show folder
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleLocate(latest)}
+                          disabled={busy}
+                          title="Moved the folder? Point Campaign Forge at its new location"
+                          className="ml-auto inline-flex h-[42px] items-center gap-1.5 px-2 text-xs text-[#7d8595] transition hover:text-ember-300 disabled:opacity-50 wide:h-10"
+                        >
+                          <FolderSearch size={14} /> Folder moved?
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {others.length > 0 && (
                   <ul className="flex flex-col overflow-hidden rounded-xl border border-ink-800 bg-ink-900">
-                    {others.map((c, i) => (
-                      <li
-                        key={c.path}
-                        className={`flex items-center gap-3.5 py-3 pr-3 pl-4 hover:bg-ink-850 ${
-                          i > 0 ? "border-t border-ink-800" : ""
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => void openCampaign(c.path)}
-                          disabled={busy}
-                          className="flex min-h-11 min-w-0 flex-1 items-center gap-3.5 text-left"
+                    {others.map((c, i) => {
+                      const gone = missing.has(c.path);
+                      return (
+                        <li
+                          key={c.path}
+                          className={`flex items-center gap-3.5 py-3 pr-3 pl-4 hover:bg-ink-850 ${
+                            i > 0 ? "border-t border-ink-800" : ""
+                          }`}
                         >
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink-800 font-serif text-base font-semibold text-ink-200">
-                            {initialOf(c.name)}
-                          </span>
-                          <span className="flex min-w-0 flex-col gap-0.5">
-                            <span className="text-sm font-medium text-ink-100">
-                              {c.name}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void (gone
+                                ? handleLocate(c)
+                                : openCampaign(c.path))
+                            }
+                            disabled={busy}
+                            title={
+                              gone
+                                ? "Folder not found. Click to locate it"
+                                : undefined
+                            }
+                            className="flex min-h-11 min-w-0 flex-1 items-center gap-3.5 text-left"
+                          >
+                            <span
+                              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg font-serif text-base font-semibold ${
+                                gone
+                                  ? "bg-ink-850 text-[#7d8595]"
+                                  : "bg-ink-800 text-ink-200"
+                              }`}
+                            >
+                              {initialOf(c.name)}
                             </span>
-                            <span className="truncate font-mono text-xs text-[#7d8595]">
-                              {c.path}
+                            <span className="flex min-w-0 flex-col gap-0.5">
+                              <span className="text-sm font-medium text-ink-100">
+                                {c.name}
+                              </span>
+                              <span
+                                className={`truncate font-mono text-xs ${
+                                  gone
+                                    ? "text-[#7d8595] line-through"
+                                    : "text-[#7d8595]"
+                                }`}
+                              >
+                                {c.path}
+                              </span>
                             </span>
+                          </button>
+                          <span
+                            className={`text-xs whitespace-nowrap ${
+                              gone ? "text-amber-400" : "text-[#7d8595]"
+                            }`}
+                          >
+                            {gone ? "not found" : relativeOpened(c.openedAt)}
                           </span>
-                        </button>
-                        <span className="text-xs whitespace-nowrap text-[#7d8595]">
-                          {relativeOpened(c.openedAt)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => void handleForget(c.path)}
-                          aria-label={`Remove ${c.name} from recent`}
-                          title="Remove from recent"
-                          className="flex h-8 w-8 items-center justify-center rounded-md text-[#7d8595] hover:bg-ink-800 hover:text-ink-200"
-                        >
-                          <X size={15} />
-                        </button>
-                      </li>
-                    ))}
+                          <button
+                            type="button"
+                            onClick={() => void handleLocate(c)}
+                            disabled={busy}
+                            aria-label={`Locate the folder for ${c.name}`}
+                            title="Folder moved? Locate it"
+                            className={`flex h-8 w-8 items-center justify-center rounded-md hover:bg-ink-800 hover:text-ink-200 disabled:opacity-50 ${
+                              gone ? "text-amber-400" : "text-[#7d8595]"
+                            }`}
+                          >
+                            <FolderSearch size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleForget(c.path)}
+                            aria-label={`Remove ${c.name} from recent`}
+                            title="Remove from recent"
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-[#7d8595] hover:bg-ink-800 hover:text-ink-200"
+                          >
+                            <X size={15} />
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </>

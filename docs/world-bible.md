@@ -72,6 +72,8 @@ A **Document** is an element that carries a PDF: a rulebook, a handout, a letter
 
 Because it is an element you can @-mention it, open it beside a session with Ctrl+click, and share it with players as a handout.
 
+To build elements out of a PDF rather than just keep it, see [Importing a PDF](importing-a-pdf.md).
+
 ## Finding things
 
 - The search box above the list filters by name and tag within the current kind, or across everything on the Everything view.

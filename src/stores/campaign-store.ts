@@ -2,12 +2,14 @@ import { create } from "zustand";
 
 import { rulesOf, type RulesId } from "@/features/templates/rulesets";
 import { templateFor } from "@/features/templates/templates";
-import { rememberCampaign } from "@/lib/recent";
+import { forgetCampaign, rememberCampaign } from "@/lib/recent";
 import { errorMessage, storage } from "@/lib/tauri";
 import {
   campaignSettingsOf,
   extraOf,
+  isConflictError,
   type CampaignMeta,
+  type DiskChanges,
   type Element,
   type ElementSummary,
 } from "@/lib/types";
@@ -36,6 +38,9 @@ interface CampaignState {
   /** Per-element reload counters. Editors are keyed on these so an external
    *  rewrite (the assistant) remounts them with the new content. */
   revisions: Record<string, number>;
+  /** Elements whose file changed elsewhere while the GM was editing them.
+   *  Saves to them pause until `resolveConflict` picks a side. */
+  conflicts: Record<string, true>;
   busy: boolean;
   error: string | null;
 
@@ -43,7 +48,12 @@ interface CampaignState {
   restore: () => Promise<void>;
   /** Re-read campaign.json after Rust changed it (pairing a device). */
   reloadCampaignMeta: () => Promise<void>;
-  openCampaign: (path: string) => Promise<void>;
+  /**
+   * Open the campaign at `path`. `replacing` is the stale path of a recent
+   * entry whose folder was moved: it is dropped from the recent list once the
+   * new folder opens, so the campaign keeps a single row there.
+   */
+  openCampaign: (path: string, replacing?: string) => Promise<void>;
   createCampaign: (
     path: string,
     name: string,
@@ -74,6 +84,12 @@ interface CampaignState {
   deleteElement: (id: string) => Promise<void>;
   /** Re-read an element from disk after an external change. */
   reloadElement: (id: string) => Promise<void>;
+  /** An editor has typed changes it has not handed to `saveElement` yet. */
+  setEditing: (id: string, editing: boolean) => void;
+  /** React to files changed outside this window (the folder watcher). */
+  applyDiskChanges: (changes: DiskChanges) => Promise<void>;
+  /** After a conflict: load the other version, or overwrite it with ours. */
+  resolveConflict: (id: string, keep: "theirs" | "mine") => Promise<void>;
 
   /** Merge a patch into the campaign's settings (e.g. `{ calendar }`). */
   updateCampaignSettings: (patch: Record<string, unknown>) => Promise<void>;
@@ -112,27 +128,89 @@ function writeLayout(campaign: CampaignMeta | null, layout: Layout): void {
   }
 }
 
+/**
+ * Saves run one at a time per element, each starting from the version the
+ * previous one wrote, so back-to-back autosaves never trip the conflict
+ * check against each other.
+ */
+const saveChains = new Map<string, Promise<void>>();
+/** Saves queued or running, per element. */
+const savesInFlight = new Map<string, number>();
+/** Editors holding typed changes not yet handed to `saveElement`. */
+const editing = new Set<string>();
+
+function busyWith(id: string): boolean {
+  return editing.has(id) || (savesInFlight.get(id) ?? 0) > 0;
+}
+
 export const useCampaignStore = create<CampaignState>((set, get) => {
   const persistLayout = () => {
     const { campaign, selectedId, paneIds } = get();
     writeLayout(campaign, { selectedId, paneIds });
   };
 
+  /** The element as shown, main column first. */
+  const shown = (id: string): Element | undefined => {
+    const s = get();
+    return s.selected && s.selected.id === id ? s.selected : s.loaded[id];
+  };
+
+  /**
+   * Writes the element as currently shown. `force` skips the version check
+   * (the GM chose "keep mine" after a conflict).
+   */
+  const writeShown = (id: string, force = false): Promise<void> => {
+    savesInFlight.set(id, (savesInFlight.get(id) ?? 0) + 1);
+    const run = async () => {
+      try {
+        const current = shown(id);
+        if (!current) return;
+        if (!force && get().conflicts[id]) return;
+        const saved = await storage.saveElement({
+          id: current.id,
+          name: current.name,
+          tags: current.tags,
+          body: current.body,
+          extra: extraOf(current),
+          baseVersion: force ? undefined : current.version,
+        });
+        // Only the metadata can differ (updatedAt, links, version); keep the
+        // body the user is typing.
+        applySaved(saved);
+      } catch (err) {
+        const message = errorMessage(err);
+        if (isConflictError(message)) {
+          set((s) => ({ conflicts: { ...s.conflicts, [id]: true } }));
+        } else {
+          set({ error: message });
+        }
+      } finally {
+        const left = (savesInFlight.get(id) ?? 1) - 1;
+        if (left > 0) savesInFlight.set(id, left);
+        else savesInFlight.delete(id);
+      }
+    };
+    const next = (saveChains.get(id) ?? Promise.resolve()).then(run);
+    saveChains.set(id, next);
+    return next;
+  };
+
   /** Apply a saved element's metadata to every place it is shown. */
   const applySaved = (saved: Element) => {
+    const meta = {
+      updatedAt: saved.updatedAt,
+      links: saved.links,
+      version: saved.version,
+    };
     set((s) => ({
       selected:
         s.selected && s.selected.id === saved.id
-          ? { ...s.selected, updatedAt: saved.updatedAt, links: saved.links }
+          ? { ...s.selected, ...meta }
           : s.selected,
       loaded: s.loaded[saved.id]
         ? {
             ...s.loaded,
-            [saved.id]: {
-              ...s.loaded[saved.id]!,
-              updatedAt: saved.updatedAt,
-              links: saved.links,
-            },
+            [saved.id]: { ...s.loaded[saved.id]!, ...meta },
           }
         : s.loaded,
       elements: s.elements.map((e) =>
@@ -183,6 +261,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
     paneIds: [],
     loaded: {},
     revisions: {},
+    conflicts: {},
     busy: false,
     error: null,
 
@@ -207,10 +286,13 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
       }
     },
 
-    async openCampaign(path) {
+    async openCampaign(path, replacing) {
       set({ busy: true, error: null });
       try {
         const campaign = await storage.openCampaign(path);
+        if (replacing && replacing !== campaign.path) {
+          await forgetCampaign(replacing);
+        }
         await rememberCampaign({ path: campaign.path, name: campaign.name });
         set({
           campaign,
@@ -218,6 +300,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
           selected: null,
           paneIds: [],
           loaded: {},
+          conflicts: {},
         });
         await get().refreshElements();
         await restoreLayout(campaign);
@@ -240,6 +323,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
           selected: null,
           paneIds: [],
           loaded: {},
+          conflicts: {},
         });
         if (rules) await get().updateCampaignSettings({ rules });
       } catch (err) {
@@ -259,6 +343,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
         selected: null,
         paneIds: [],
         loaded: {},
+        conflicts: {},
       });
     },
 
@@ -365,6 +450,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
             tags: element.tags,
             body: template.body,
             extra: extraOf(element),
+            baseVersion: element.version,
           });
         }
         await get().refreshElements();
@@ -383,25 +469,14 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
         s.selected && s.selected.id === id ? s.selected : s.loaded[id];
       if (!current) return;
       const next: Element = { ...current, ...patch };
-      // Optimistic update so typing never waits on disk.
+      // Optimistic update so typing never waits on disk. While a conflict is
+      // open the edit stays in memory only, so "keep mine" still has it.
       set((st) => ({
         selected: st.selected && st.selected.id === id ? next : st.selected,
         loaded: st.loaded[id] ? { ...st.loaded, [id]: next } : st.loaded,
       }));
-      try {
-        const saved = await storage.saveElement({
-          id: next.id,
-          name: next.name,
-          tags: next.tags,
-          body: next.body,
-          extra: extraOf(next),
-        });
-        // Only the metadata can differ (updatedAt, links); keep the body the
-        // user is typing.
-        applySaved(saved);
-      } catch (err) {
-        set({ error: errorMessage(err) });
-      }
+      if (get().conflicts[id]) return;
+      await writeShown(id);
     },
 
     async saveSelected(patch) {
@@ -445,6 +520,42 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
         });
       } catch (err) {
         set({ error: errorMessage(err) });
+      }
+    },
+
+    setEditing(id, on) {
+      if (on) editing.add(id);
+      else editing.delete(id);
+    },
+
+    async applyDiskChanges(changes) {
+      if (!get().campaign) return;
+      if (changes.campaignChanged) await get().reloadCampaignMeta();
+      if (changes.listChanged || changes.elementIds.length > 0) {
+        // Names, tags and links in the list may have changed too.
+        await get().refreshElements();
+      }
+      const { selectedId, paneIds } = get();
+      for (const id of changes.elementIds) {
+        if (id !== selectedId && !paneIds.includes(id)) continue;
+        // Untouched here: show the new version. Being edited here: the next
+        // save meets the version check and raises the conflict instead.
+        if (!busyWith(id) && !get().conflicts[id])
+          await get().reloadElement(id);
+      }
+    },
+
+    async resolveConflict(id, keep) {
+      set((s) => {
+        const conflicts = { ...s.conflicts };
+        delete conflicts[id];
+        return { conflicts };
+      });
+      if (keep === "theirs") {
+        await get().reloadElement(id);
+      } else {
+        await writeShown(id, true);
+        await get().refreshElements();
       }
     },
 

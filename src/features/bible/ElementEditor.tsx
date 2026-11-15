@@ -55,6 +55,9 @@ function getMentionItems(query: string): ElementSummary[] {
  */
 export function ElementEditor({ element, panel }: Props) {
   const saveElement = useCampaignStore((s) => s.saveElement);
+  const setEditing = useCampaignStore((s) => s.setEditing);
+  const conflict = useCampaignStore((s) => s.conflicts[element.id] === true);
+  const resolveConflict = useCampaignStore((s) => s.resolveConflict);
   const deleteElement = useCampaignStore((s) => s.deleteElement);
   const navigate = useCampaignStore((s) => s.navigate);
   const elements = useCampaignStore((s) => s.elements);
@@ -105,21 +108,44 @@ export function ElementEditor({ element, panel }: Props) {
     }
     const patch = pending.current;
     pending.current = {};
-    if (Object.keys(patch).length === 0) return;
+    if (Object.keys(patch).length === 0) {
+      setEditing(element.id, false);
+      return;
+    }
     setStatus("saving");
-    await saveElement(element.id, patch);
+    // The store counts the save as in flight from this call on, so the edit
+    // is never unaccounted for when a change from elsewhere arrives.
+    const saving = saveElement(element.id, patch);
+    setEditing(element.id, false);
+    await saving;
     setStatus((s) => (Object.keys(pending.current).length > 0 ? s : "saved"));
-  }, [saveElement, element.id]);
+  }, [saveElement, setEditing, element.id]);
 
   const queue = useCallback(
     (patch: ElementPatch) => {
       pending.current = { ...pending.current, ...patch };
+      setEditing(element.id, true);
       setStatus("dirty");
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => void flush(), AUTOSAVE_MS);
     },
-    [flush],
+    [flush, setEditing, element.id],
   );
+
+  /** Throw away typing not yet saved, then load the other version. */
+  async function takeTheirs() {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    pending.current = {};
+    setEditing(element.id, false);
+    await resolveConflict(element.id, "theirs");
+  }
+
+  async function keepMine() {
+    await flush();
+    await resolveConflict(element.id, "mine");
+    setStatus("saved");
+  }
 
   // Flush on unmount (element switch, campaign close, window close).
   useEffect(() => () => void flush(), [flush]);
@@ -344,6 +370,25 @@ export function ElementEditor({ element, panel }: Props) {
           )}
         </div>
       </header>
+
+      {conflict && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 text-xs text-amber-100"
+        >
+          <span className="min-w-0 flex-1">
+            This page was changed somewhere else (another device, a sync client
+            or another program) while you were editing. Your changes are kept
+            here but not saved yet.
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => void takeTheirs()}>
+            Load their version
+          </Button>
+          <Button size="sm" variant="primary" onClick={() => void keepMine()}>
+            Keep mine
+          </Button>
+        </div>
+      )}
 
       {shared && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ember-500/20 bg-ember-500/5 px-6 py-1.5 text-[11px] text-ember-200/90">

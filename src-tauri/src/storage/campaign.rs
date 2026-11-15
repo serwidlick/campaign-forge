@@ -70,6 +70,12 @@ pub fn update(
     Ok(meta)
 }
 
+/// Whether `root` still holds a campaign. Used by the welcome screen to flag
+/// remembered folders that were moved or deleted; it never opens anything.
+pub fn exists(root: &Path) -> bool {
+    root.join(CAMPAIGN_FILE).is_file()
+}
+
 pub fn open(root: &Path) -> Result<CampaignMeta, StorageError> {
     let file = root.join(CAMPAIGN_FILE);
     if !file.is_file() {
@@ -89,5 +95,8 @@ fn write_meta(root: &Path, meta: &CampaignMeta) -> Result<(), StorageError> {
     persisted.path = String::new();
     let file = root.join(CAMPAIGN_FILE);
     let text = serde_json::to_string_pretty(&persisted)?;
-    fs::write(&file, text + "\n").map_err(|e| StorageError::io(&file, e))
+    // Temp file and rename, so a sync client or a crash never sees half a file.
+    let tmp = file.with_extension("json.tmp");
+    fs::write(&tmp, text + "\n").map_err(|e| StorageError::io(&tmp, e))?;
+    fs::rename(&tmp, &file).map_err(|e| StorageError::io(&file, e))
 }

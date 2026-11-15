@@ -45,6 +45,8 @@ Planned: table tools (show this to everyone, map reveal, dice, player notes back
   assets/
     maps/
       sword-coast.png
+  conversations/
+    <id>.json              saved assistant conversations (GM-only)
 ```
 
 Each element is a Markdown file with YAML frontmatter:

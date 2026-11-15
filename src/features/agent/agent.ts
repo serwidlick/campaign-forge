@@ -18,7 +18,7 @@ import {
   type Permissions,
   type TurnUsage,
 } from "./agent-settings";
-import { findTool, toolsFor } from "./agent-tools";
+import { AGENT_TOOLS, findTool } from "./agent-tools";
 
 export type AgentEvent =
   | { type: "text"; delta: string }
@@ -26,6 +26,7 @@ export type AgentEvent =
   | { type: "tool_result"; id: string; isError: boolean; preview: string }
   | { type: "usage"; usage: TurnUsage }
   | { type: "done"; stopReason: string }
+  | { type: "notice"; message: string }
   | { type: "error"; message: string };
 
 function usageOf(message: Anthropic.Beta.BetaMessage): TurnUsage {
@@ -45,6 +46,7 @@ const TOOL_PREVIEW_LIMIT = 240;
 /** ~8 KB ≈ 2K tokens per tool result keeps long loops affordable. */
 const MAX_TOOL_RESULT_CHARS = 8000;
 const MAX_INDEX_ENTRIES = 600;
+const MAX_DELTA_ENTRIES = 50;
 
 const SYSTEM_PROMPT = [
   "You are the campaign assistant inside Campaign Forge, a desktop app a game master (GM) uses to prepare and run a tabletop RPG campaign.",
@@ -56,13 +58,14 @@ const SYSTEM_PROMPT = [
   "## How to work",
   "- Look things up with the tools before answering questions about the campaign. Never invent campaign facts; if the files do not say, say so.",
   "- Start with search_campaign or list_elements to find ids, then read_element for detail. Read only what you need.",
+  "- A document element's PDF is readable with read_document, a few pages at a time. Elements tagged 'imported' were built from a PDF and end with a Source line naming the document and pages; read those pages when the GM wants detail the notes lack.",
   "- When you mention an element, link it as [Name](cf://element/<id>) so the GM can click straight to it. Use the exact ids the tools return.",
   "- You may brainstorm when asked (names, plot hooks, NPC motives, what an NPC would do next). Ground suggestions in what you read, and make clear they are suggestions.",
   "- Be concise. Prefer short paragraphs and bullet lists. Do not restate the question.",
   "- If a request is unrelated to the campaign or to running the game, say so briefly.",
   "",
   "## Changing the campaign",
-  "The GM decides which abilities you have; the current set is listed below and only those tools exist this turn. When you do have write abilities:",
+  "The GM decides which abilities you have. Every tool is listed, but a tool whose ability is off answers PERMISSION_DENIED; the abilities in force are stated below, and a system message in the conversation says when they change. When you do have write abilities:",
   "- Say in one short line what you are about to create or change, then do it, then link the result.",
   "- Read an element before updating it, and prefer append over replacing a body the GM wrote.",
   "- Keep the GM's voice and formatting. Do not pad with headings or boilerplate.",
@@ -74,13 +77,121 @@ export interface RunTurnOptions {
   apiKey: string;
   model: string;
   effort: Effort;
+  /** Abilities in force for this turn; tools outside them answer PERMISSION_DENIED. */
   permissions: Permissions;
-  campaign: CampaignMeta;
-  elements: ElementSummary[];
+  /** The conversation's frozen request prefix, from `startSession`. */
+  session: AgentSession;
   /** Conversation so far. Mutated in place: the assistant turn and any tool round-trips are appended. */
   history: Anthropic.Beta.BetaMessageParam[];
   onEvent: (event: AgentEvent) => void;
   signal?: AbortSignal;
+}
+
+/**
+ * The part of every request that must not change for the life of a
+ * conversation. A thinking block the model returns is signed against the
+ * `system` prompt, the `tools` list and every earlier message; replaying it
+ * after any of those changed is a 400 ("bound to a different conversation").
+ * So the prefix is built once per conversation and anything that moves
+ * afterwards (abilities, new elements) is appended as a system message.
+ */
+export interface AgentSession {
+  campaignId: string;
+  system: Anthropic.Beta.BetaTextBlockParam[];
+  tools: Anthropic.Beta.BetaToolUnion[];
+  /**
+   * What the model was last told, so each turn appends only the delta.
+   * Plain JSON (element id -> "kind · name") so a saved conversation can
+   * carry the session as-is.
+   */
+  announced: {
+    permissions: Permissions;
+    elements: Record<string, string>;
+  };
+}
+
+export function startSession(
+  campaign: CampaignMeta,
+  elements: ElementSummary[],
+  permissions: Permissions,
+): AgentSession {
+  return {
+    campaignId: campaign.id,
+    system: buildSystem(campaign, elements, permissions),
+    tools: AGENT_TOOLS.map((t) => t.definition),
+    announced: {
+      permissions: { ...permissions },
+      elements: indexLabels(elements),
+    },
+  };
+}
+
+/**
+ * Appends a mid-conversation system message describing what changed since
+ * the model was last told: abilities toggled, elements added or removed.
+ * Must follow the user message it belongs to, so call it right after pushing
+ * one. Returns true when something was appended.
+ */
+export function announceChanges(
+  session: AgentSession,
+  history: Anthropic.Beta.BetaMessageParam[],
+  permissions: Permissions,
+  elements: ElementSummary[],
+): boolean {
+  const lines: string[] = [];
+  const { announced } = session;
+
+  const same = PERMISSIONS.every(
+    (p) => announced.permissions[p.id] === permissions[p.id],
+  );
+  if (!same) {
+    lines.push(`Your abilities are now: ${describeAbilities(permissions)}.`);
+    announced.permissions = { ...permissions };
+  }
+
+  const current = indexLabels(elements);
+  const added: string[] = [];
+  for (const [id, label] of Object.entries(current)) {
+    if (!(id in announced.elements)) added.push(`- ${label} · ${id}`);
+  }
+  const removed: string[] = [];
+  for (const id of Object.keys(announced.elements)) {
+    if (!(id in current)) removed.push(id);
+  }
+  if (added.length > 0) {
+    lines.push("Elements added since the index:");
+    lines.push(...added.slice(0, MAX_DELTA_ENTRIES));
+    if (added.length > MAX_DELTA_ENTRIES) {
+      lines.push(`…and ${added.length - MAX_DELTA_ENTRIES} more.`);
+    }
+  }
+  if (removed.length > 0) {
+    const more =
+      removed.length > MAX_DELTA_ENTRIES
+        ? ` and ${removed.length - MAX_DELTA_ENTRIES} more`
+        : "";
+    lines.push(
+      `Elements removed: ${removed.slice(0, MAX_DELTA_ENTRIES).join(", ")}${more}.`,
+    );
+  }
+  announced.elements = current;
+
+  if (lines.length === 0) return false;
+  history.push({ role: "system", content: lines.join("\n") });
+  return true;
+}
+
+function indexLabels(elements: ElementSummary[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const e of elements) out[e.id] = `${e.type} · ${e.name}`;
+  return out;
+}
+
+function describeAbilities(permissions: Permissions): string {
+  const abilities = enabledPermissions(permissions).map(
+    (id) => PERMISSIONS.find((p) => p.id === id)?.label.toLowerCase() ?? id,
+  );
+  return abilities.length ? abilities.join(", ") : "none";
 }
 
 export function createClient(apiKey: string): Anthropic {
@@ -96,13 +207,15 @@ export function createClient(apiKey: string): Anthropic {
 
 /** One user turn: streams text, runs tools, and settles when the model stops. */
 export async function runTurn(opts: RunTurnOptions): Promise<void> {
-  const { history, onEvent, signal, permissions } = opts;
+  const { history, onEvent, signal, permissions, session } = opts;
   const client = createClient(opts.apiKey);
-  const tools = toolsFor(permissions).map((t) => t.definition);
-  const system = buildSystem(opts.campaign, opts.elements, permissions);
   // Haiku has no server-side fallback model; sending the parameter there is
   // pointless. Everywhere else, a safety-classifier decline reroutes.
   const supportsFallback = !opts.model.includes("haiku");
+  const betas: Anthropic.AnthropicBeta[] = [
+    "thinking-binding-controls-2026-08-01",
+  ];
+  if (supportsFallback) betas.push("server-side-fallback-2026-07-01");
 
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
     let message: Anthropic.Beta.BetaMessage;
@@ -112,15 +225,18 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
           model: opts.model,
           max_tokens: MAX_TOKENS,
           output_config: { effort: opts.effort },
-          system,
-          ...(tools.length > 0 ? { tools } : {}),
+          // The prefix is append-only (see AgentSession). Should a replayed
+          // thinking block still fail the conversation check, drop it and
+          // carry on rather than fail the turn with a 400.
+          thinking: {
+            type: "adaptive",
+            block_binding: { prefix_mismatch_behavior: "drop_block" },
+          },
+          system: session.system,
+          tools: session.tools,
           messages: withCacheBreakpoint(history),
-          ...(supportsFallback
-            ? {
-                betas: ["server-side-fallback-2026-07-01"],
-                fallbacks: "default" as const,
-              }
-            : {}),
+          betas,
+          ...(supportsFallback ? { fallbacks: "default" as const } : {}),
         },
         { signal },
       );
@@ -134,6 +250,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
 
     history.push({ role: "assistant", content: message.content });
     onEvent({ type: "usage", usage: usageOf(message) });
+    reportDroppedThinking(message, onEvent);
 
     if (message.stop_reason === "refusal") {
       onEvent({
@@ -149,7 +266,19 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
       (b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use",
     );
     // A tool input cut off at max_tokens can still parse; never run it.
+    // Answer each call anyway: a tool call left without a result makes the
+    // API reject the next message in this conversation.
     if (message.stop_reason === "max_tokens" && toolUses.length > 0) {
+      history.push({
+        role: "user",
+        content: toolUses.map((use) => ({
+          type: "tool_result" as const,
+          tool_use_id: use.id,
+          content:
+            "Not run: the reply was cut off before this call was complete.",
+          is_error: true,
+        })),
+      });
       onEvent({
         type: "error",
         message:
@@ -200,6 +329,32 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   });
 }
 
+/**
+ * With `drop_block`, a thinking block that failed the conversation check is
+ * removed instead of failing the request. That should not happen now that
+ * the prefix is frozen per conversation, so say so when it does: the model
+ * answered without its earlier reasoning.
+ */
+function reportDroppedThinking(
+  message: Anthropic.Beta.BetaMessage,
+  onEvent: (event: AgentEvent) => void,
+): void {
+  const dropped = (message.input_transformations ?? []).filter(
+    (t) => t.type === "thinking_dropped",
+  );
+  if (dropped.length === 0) return;
+  console.warn("Anthropic dropped thinking blocks", dropped);
+  const switchedModel = dropped.some(
+    (t) => t.reason === "model_binding_mismatch",
+  );
+  onEvent({
+    type: "notice",
+    message: switchedModel
+      ? "Earlier reasoning came from a different model and was set aside for this reply."
+      : "Earlier reasoning no longer matched this conversation and was set aside for this reply.",
+  });
+}
+
 async function executeTool(
   name: string,
   input: unknown,
@@ -229,16 +384,13 @@ function buildSystem(
   elements: ElementSummary[],
   permissions: Permissions,
 ): Anthropic.Beta.BetaTextBlockParam[] {
-  const abilities = enabledPermissions(permissions).map(
-    (id) => PERMISSIONS.find((p) => p.id === id)?.label.toLowerCase() ?? id,
-  );
   const lines = [
     `## This campaign`,
     `Name: ${campaign.name}${campaign.system ? ` · System: ${campaign.system}` : ""}`,
     `Elements: ${elements.length}`,
-    `Your abilities this turn: ${abilities.length ? abilities.join(", ") : "none (no tools)"}`,
+    `Your abilities: ${describeAbilities(permissions)}.`,
     "",
-    "Index (kind · name · id):",
+    "Index when this conversation started (kind · name · id); later additions and removals arrive as system messages:",
   ];
   const shown = elements.slice(0, MAX_INDEX_ENTRIES);
   for (const e of shown) lines.push(`- ${e.type} · ${e.name} · ${e.id}`);
@@ -265,10 +417,12 @@ function buildSystem(
 function withCacheBreakpoint(
   history: Anthropic.Beta.BetaMessageParam[],
 ): Anthropic.Beta.BetaMessageParam[] {
-  const last = history[history.length - 1];
   // Only user/assistant turns carry content blocks we can mark; a
-  // mid-conversation system message has a different shape and we never
-  // append one, so leave the history untouched in that case.
+  // mid-conversation system message (an abilities or index update) has a
+  // different shape, so mark the last turn before it instead.
+  let at = history.length - 1;
+  while (at >= 0 && history[at]?.role === "system") at--;
+  const last = history[at];
   if (!last || last.role === "system") return history;
   const content: Anthropic.Beta.BetaContentBlockParam[] =
     typeof last.content === "string"
@@ -283,7 +437,7 @@ function withCacheBreakpoint(
     cache_control: { type: "ephemeral" },
   } as Anthropic.Beta.BetaContentBlockParam;
   const marked: Anthropic.Beta.BetaMessageParam = { role: last.role, content };
-  return [...history.slice(0, -1), marked];
+  return [...history.slice(0, at), marked, ...history.slice(at + 1)];
 }
 
 function truncateToolResult(text: string): string {

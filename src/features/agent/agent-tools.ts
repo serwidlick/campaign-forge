@@ -21,7 +21,7 @@ import {
 } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 
-import type { Permission, Permissions } from "./agent-settings";
+import type { Permission } from "./agent-settings";
 
 export interface AgentTool {
   permission: Permission;
@@ -189,6 +189,73 @@ const readElement: AgentTool = {
       .filter(Boolean)
       .join("\n");
     return `${header}\n\n---\n\n${e.body.trim() || "(empty body)"}`;
+  },
+};
+
+const ReadDocumentInput = z
+  .object({
+    id: z.string().min(1),
+    from: z.number().int().min(1).optional(),
+    to: z.number().int().min(1).optional(),
+  })
+  .refine((v) => v.from === undefined || v.to === undefined || v.to >= v.from, {
+    message: "to must not be before from",
+  });
+
+/** Pages per read_document call; a tool result is cut at ~8 KB anyway, and
+ *  a dense rulebook page is 3-4 KB. */
+const MAX_DOCUMENT_PAGES = 4;
+
+const readDocument: AgentTool = {
+  permission: "read",
+  definition: {
+    name: "read_document",
+    description:
+      "Read the text of a Document element's PDF, a few pages at a time (at most 4 per call). Use it when the GM asks about a rulebook, module or handout they attached. Start with the first pages or the ones the GM named, then ask for more. Pages without text (scans, art) come back empty.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The document element's id." },
+        from: {
+          type: "integer",
+          description: "First page, 1-based. Default 1.",
+        },
+        to: {
+          type: "integer",
+          description: "Last page, inclusive. Default: from + 3.",
+        },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  async run(raw) {
+    const parsed = ReadDocumentInput.safeParse(raw);
+    if (!parsed.success) return invalid(parsed.error);
+    const e = await storage.readElement(parsed.data.id);
+    const file = typeof e.file === "string" ? e.file : null;
+    if (e.type !== "document" || !file) {
+      return `INVALID_INPUT: "${e.name}" is not a document with a PDF attached.`;
+    }
+    const from = parsed.data.from ?? 1;
+    const to = Math.min(
+      parsed.data.to ?? from + MAX_DOCUMENT_PAGES - 1,
+      from + MAX_DOCUMENT_PAGES - 1,
+    );
+    const text = await storage.readDocumentText(file, from, to);
+    const lines = [
+      `# ${e.name} · pages ${text.firstPage}–${text.firstPage + text.pages.length - 1} of ${text.pageCount}`,
+    ];
+    text.pages.forEach((page, i) => {
+      lines.push("", `[Page ${text.firstPage + i}]`, page || "(no text)");
+    });
+    if (text.firstPage + text.pages.length - 1 < text.pageCount) {
+      lines.push(
+        "",
+        `(${text.pageCount - (text.firstPage + text.pages.length - 1)} more pages follow; call read_document again with a later range.)`,
+      );
+    }
+    return lines.join("\n");
   },
 };
 
@@ -362,15 +429,11 @@ export const AGENT_TOOLS: AgentTool[] = [
   searchCampaign,
   listElements,
   readElement,
+  readDocument,
   createElement,
   updateElement,
   deleteElement,
 ];
-
-/** The tools the model is shown for a turn, by the permissions in force. */
-export function toolsFor(permissions: Permissions): AgentTool[] {
-  return AGENT_TOOLS.filter((t) => permissions[t.permission]);
-}
 
 export function findTool(name: string): AgentTool | undefined {
   return AGENT_TOOLS.find((t) => t.definition.name === name);

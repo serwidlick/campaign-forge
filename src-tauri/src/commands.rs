@@ -1,14 +1,19 @@
 //! Tauri commands exposed to the frontend. Each one is a thin wrapper over
 //! the storage layer; keep logic out of here so it stays testable in Rust.
 
-use base64::prelude::*;
-use tauri::State;
+use std::path::Path;
 
+use base64::prelude::*;
+use tauri::{AppHandle, State};
+
+use crate::pdf::{self, PdfText};
 use crate::storage::{
-    AppState, CampaignMeta, Element, ElementSummary, Extra, ImportedDocument, ImportedImage,
-    MAX_IMAGE_BYTES, SaveElementInput, SearchHit, StorageError,
+    AppState, CampaignMeta, Conversation, ConversationSummary, Element, ElementSummary, Extra,
+    ImportedDocument, ImportedImage, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES, SaveElementInput,
+    SearchHit, StorageError,
 };
 use crate::table::share;
+use crate::watcher::FolderWatch;
 
 type CommandResult<T> = Result<T, String>;
 
@@ -18,19 +23,40 @@ fn to_command_error(err: StorageError) -> String {
 
 #[tauri::command]
 pub fn create_campaign(
+    app: AppHandle,
     state: State<'_, AppState>,
+    watch: State<'_, FolderWatch>,
     path: String,
     name: String,
     system: Option<String>,
 ) -> CommandResult<CampaignMeta> {
-    state
+    let meta = state
         .create_campaign(path, name, system)
-        .map_err(to_command_error)
+        .map_err(to_command_error)?;
+    watch.start(&app, Path::new(&meta.path));
+    Ok(meta)
 }
 
 #[tauri::command]
-pub fn open_campaign(state: State<'_, AppState>, path: String) -> CommandResult<CampaignMeta> {
-    state.open_campaign(path).map_err(to_command_error)
+pub fn open_campaign(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    watch: State<'_, FolderWatch>,
+    path: String,
+) -> CommandResult<CampaignMeta> {
+    let meta = state.open_campaign(path).map_err(to_command_error)?;
+    watch.start(&app, Path::new(&meta.path));
+    Ok(meta)
+}
+
+/// For each path, whether a campaign still lives there. Aligned with the
+/// input so the welcome screen can flag moved or deleted folders.
+#[tauri::command]
+pub fn probe_campaigns(paths: Vec<String>) -> Vec<bool> {
+    paths
+        .iter()
+        .map(|p| crate::storage::campaign_exists(p))
+        .collect()
 }
 
 #[tauri::command]
@@ -66,6 +92,31 @@ pub fn list_elements(state: State<'_, AppState>) -> CommandResult<Vec<ElementSum
 #[tauri::command]
 pub fn read_element(state: State<'_, AppState>, id: String) -> CommandResult<Element> {
     state.read_element(&id).map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn list_conversations(state: State<'_, AppState>) -> CommandResult<Vec<ConversationSummary>> {
+    state.list_conversations().map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn read_conversation(state: State<'_, AppState>, id: String) -> CommandResult<Conversation> {
+    state.read_conversation(&id).map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn save_conversation(
+    state: State<'_, AppState>,
+    conversation: Conversation,
+) -> CommandResult<ConversationSummary> {
+    state
+        .save_conversation(conversation)
+        .map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn delete_conversation(state: State<'_, AppState>, id: String) -> CommandResult<()> {
+    state.delete_conversation(&id).map_err(to_command_error)
 }
 
 #[tauri::command]
@@ -132,6 +183,60 @@ pub fn import_document(
     source: String,
 ) -> CommandResult<ImportedDocument> {
     state.import_document(&source).map_err(to_command_error)
+}
+
+/// Text of a PDF or plain-text file anywhere on disk, page by page, for the
+/// import wizard. A text file is cut into pseudo-pages. Nothing is copied
+/// into the campaign; `import_document` does that.
+#[tauri::command]
+pub async fn extract_document_text(
+    source: String,
+    from: Option<usize>,
+    to: Option<usize>,
+) -> CommandResult<PdfText> {
+    let path = std::path::PathBuf::from(source);
+    let meta = std::fs::metadata(&path).map_err(|e| format!("could not read the file: {e}"))?;
+    if meta.len() > MAX_DOCUMENT_BYTES {
+        return Err(format!(
+            "document is too large ({} MB; limit is {} MB)",
+            meta.len() / (1024 * 1024),
+            MAX_DOCUMENT_BYTES / (1024 * 1024)
+        ));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("could not read the file: {e}"))?;
+    let is_text = matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
+        Some("txt" | "text" | "md" | "markdown")
+    );
+    tauri::async_runtime::spawn_blocking(move || {
+        if bytes.starts_with(b"%PDF-") {
+            pdf::extract(&bytes, from, to)
+        } else if is_text {
+            pdf::paginate_text(&String::from_utf8_lossy(&bytes), from, to)
+        } else {
+            Err("choose a PDF or a plain-text (.txt, .md) file".into())
+        }
+    })
+    .await
+    .map_err(|e| format!("extraction was interrupted: {e}"))?
+}
+
+/// Text of a PDF already in the campaign (`assets/docs/...`), for the
+/// assistant's `read_document` tool.
+#[tauri::command]
+pub async fn read_document_text(
+    state: State<'_, AppState>,
+    path: String,
+    from: Option<usize>,
+    to: Option<usize>,
+) -> CommandResult<PdfText> {
+    let bytes = state.read_asset(&path).map_err(to_command_error)?;
+    tauri::async_runtime::spawn_blocking(move || pdf::extract(&bytes, from, to))
+        .await
+        .map_err(|e| format!("extraction was interrupted: {e}"))?
 }
 
 #[tauri::command]

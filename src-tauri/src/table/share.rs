@@ -149,12 +149,13 @@ pub fn update_sheet(
     }
     let mut extra = element.meta.extra.clone();
     extra.insert("sheet".to_owned(), sheet);
-    let saved = state.save_element(SaveElementInput {
+    let saved = state.save_element_unseen(SaveElementInput {
         id: element.meta.id.clone(),
         name: element.meta.name.clone(),
         tags: element.meta.tags.clone(),
         body: element.body.clone(),
         extra: Some(extra),
+        base_version: Some(element.version.clone()),
     })?;
     let all = state.list_elements()?;
     let visible = shared_ids(&all, Some(viewer));

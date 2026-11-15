@@ -1,12 +1,15 @@
 mod commands;
 mod identity;
+mod pdf;
 mod secrets;
 mod storage;
 mod table;
+mod watcher;
 
 use storage::AppState;
 use table::TableState;
 use tauri::Manager;
+use watcher::FolderWatch;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,9 +22,11 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(AppState::default())
         .manage(TableState::default())
+        .manage(FolderWatch::default())
         .invoke_handler(tauri::generate_handler![
             commands::create_campaign,
             commands::open_campaign,
+            commands::probe_campaigns,
             commands::get_campaign,
             commands::update_campaign,
             commands::list_elements,
@@ -36,7 +41,13 @@ pub fn run() {
             commands::import_element_image,
             commands::import_element_image_bytes,
             commands::import_document,
+            commands::extract_document_text,
+            commands::read_document_text,
             commands::search_elements,
+            commands::list_conversations,
+            commands::read_conversation,
+            commands::save_conversation,
+            commands::delete_conversation,
             commands::list_shared_elements,
             commands::read_shared_element,
             table::table_start_hosting,

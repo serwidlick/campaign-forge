@@ -21,6 +21,8 @@ my-campaign/
     maps/sword-coast.png      map images
     images/ivel.png           element pictures
     docs/players-handbook.pdf documents
+  conversations/
+    3f2b…e91.json             saved assistant conversations
 ```
 
 File names come from the element's name when it is created and do not change on rename; links use the id, not the name, so nothing breaks.
@@ -69,6 +71,10 @@ Links in bodies look like `[Name](cf://element/<id>)`. The id is the target's `i
 ## Campaign settings
 
 `campaign.json` holds the campaign's name, system, creation dates and settings: `rules` (`dnd5e` or `generic`), the `calendar` (months, weekdays, eras, today) and `travel` (hours per day and the list of paces).
+
+## Assistant conversations
+
+`conversations/` holds one JSON file per [assistant](assistant.md) conversation: its title and dates, the chat as you saw it, and the exact transcript sent to Anthropic, which the app replays when you reopen it. They are GM-only and never shown to players. Deleting a file removes that conversation from the list; the rest of the campaign does not depend on them. If you keep the campaign in git and do not want them tracked, add `conversations/` to your `.gitignore`.
 
 ## Backups and cloud drives
 

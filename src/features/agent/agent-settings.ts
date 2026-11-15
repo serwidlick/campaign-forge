@@ -40,7 +40,9 @@ export const EFFORTS: { id: Effort; label: string }[] = [
 
 /**
  * What the assistant is allowed to do to the campaign. Each permission gates
- * a set of tools; a tool the model cannot see, it cannot call.
+ * a set of tools. The model sees every tool (the tool list is part of the
+ * conversation's frozen prefix and cannot change mid-chat); a call outside
+ * the enabled abilities is refused by the app with PERMISSION_DENIED.
  */
 export type Permission = "read" | "create" | "update" | "delete";
 
