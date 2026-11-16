@@ -1,17 +1,25 @@
 import { create } from "zustand";
 
-import { errorMessage, table } from "@/lib/tauri";
+import { inTauri } from "@/lib/platform";
+import {
+  errorMessage,
+  notifyFilesChanged,
+  setRemoteGm,
+  table,
+} from "@/lib/tauri";
 import type {
   ElementSummary,
   FoundTable,
   HostStatus,
   TableSession,
 } from "@/lib/types";
+import { useCampaignStore } from "@/stores/campaign-store";
 
 type Connection = "connected" | "reconnecting";
 
 interface TableState {
   // ---- GM side ----
+  /** The table this machine hosts, or, as a GM at someone's table, theirs. */
   hosting: HostStatus | null;
   hostBusy: boolean;
 
@@ -60,6 +68,8 @@ const RETRY_MS = 3000;
 /** Error text the Rust client uses when the GM ended the table. */
 const CLOSED_ERROR = "TABLE_CLOSED";
 const CLOSED_NOTICE = "The GM ended the table.";
+const REVOKED_NOTICE =
+  "The GM took back this browser's GM standing. Ask them to press Make GM again, then try again.";
 
 /** Bumped to cancel the running sync loop. */
 let loopGeneration = 0;
@@ -70,8 +80,30 @@ function sleep(ms: number): Promise<void> {
 
 export const useTableStore = create<TableState>((set, get) => {
   /**
-   * Keeps `elements` current: fetch, then wait for the GM's version to move,
-   * then fetch again. On any failure, back off and retry until we leave.
+   * A GM's device: route the campaign's commands to the host and load its
+   * campaign into the GM screen, as if it had just been opened here.
+   */
+  async function enterGm() {
+    setRemoteGm(true);
+    const campaign = useCampaignStore.getState();
+    campaign.closeCampaign();
+    await campaign.restore();
+    await get().refreshHost();
+  }
+
+  /** Back to this machine's own files (and no campaign open). */
+  function exitGm() {
+    setRemoteGm(false);
+    useCampaignStore.getState().closeCampaign();
+    set({ hosting: null });
+  }
+
+  /**
+   * Keeps us current with the host: a player fetches the shared list, then
+   * waits for the GM's version to move, then fetches again. A GM's device
+   * is told what changed instead and reloads just that, the way the host's
+   * own window follows an edit from another program. On any failure, back
+   * off and retry until we leave.
    */
   async function runSyncLoop(generation: number, startVersion: number) {
     let version = startVersion;
@@ -79,7 +111,8 @@ export const useTableStore = create<TableState>((set, get) => {
     let needFetch = true;
     while (generation === loopGeneration) {
       try {
-        if (needFetch) {
+        const gm = get().session?.gm ?? false;
+        if (needFetch && !gm) {
           const elements = await table.fetchElements();
           if (generation !== loopGeneration) return;
           set({ elements, version, connection: "connected" });
@@ -91,15 +124,37 @@ export const useTableStore = create<TableState>((set, get) => {
           await detach(CLOSED_NOTICE);
           return;
         }
+        set({ connection: "connected" });
+        const session = get().session;
+        if (session && next.gm !== session.gm) {
+          // The host granted or revoked GM standing while we are connected.
+          if (!next.gm && !inTauri) {
+            // The browser's GM page has no player view to fall back to.
+            await detach(REVOKED_NOTICE);
+            return;
+          }
+          set({ session: { ...session, gm: next.gm } });
+          if (next.gm) await enterGm();
+          else exitGm();
+          if (generation !== loopGeneration) return;
+          needFetch = true;
+        }
         if (next.spotlightSeq > event) {
           event = next.spotlightSeq;
-          if (next.spotlight) {
+          if (next.gm) {
+            void get().refreshHost();
+          } else if (next.spotlight) {
             set({ spotlight: { id: next.spotlight, seq: next.spotlightSeq } });
           }
         }
         if (next.version > version) {
           version = next.version;
-          needFetch = true;
+          set({ version });
+          if (next.gm) {
+            if (next.changes) notifyFilesChanged(next.changes);
+          } else {
+            needFetch = true;
+          }
         }
       } catch (err) {
         if (generation !== loopGeneration) return;
@@ -117,6 +172,7 @@ export const useTableStore = create<TableState>((set, get) => {
   /** Leaves the table; with a notice, the welcome screen says why. */
   async function detach(notice: string | null) {
     loopGeneration += 1;
+    if (get().session?.gm) exitGm();
     set({ session: null, elements: [], version: 0, notice, spotlight: null });
     try {
       await table.leave();
@@ -125,7 +181,7 @@ export const useTableStore = create<TableState>((set, get) => {
     }
   }
 
-  function attach(session: TableSession) {
+  async function attach(session: TableSession) {
     loopGeneration += 1;
     set({
       session,
@@ -134,6 +190,7 @@ export const useTableStore = create<TableState>((set, get) => {
       connection: "connected",
       error: null,
     });
+    if (session.gm) await enterGm();
     // Start one version behind so the first wait returns at once if the GM
     // changed something between join and now.
     void runSyncLoop(loopGeneration, Math.max(0, session.info.version - 1));
@@ -159,7 +216,7 @@ export const useTableStore = create<TableState>((set, get) => {
           table.session(),
         ]);
         set({ hosting });
-        if (session && !get().session) attach(session);
+        if (session && !get().session) await attach(session);
       } catch {
         /* not running inside Tauri */
       }
@@ -178,7 +235,7 @@ export const useTableStore = create<TableState>((set, get) => {
     },
 
     async stopHosting() {
-      if (!get().hosting) return;
+      if (!get().hosting || get().session?.gm) return;
       set({ hostBusy: true });
       try {
         await table.stopHosting();
@@ -239,7 +296,7 @@ export const useTableStore = create<TableState>((set, get) => {
       try {
         const session = await table.join(address, name, code);
         set({ notice: null });
-        attach(session);
+        await attach(session);
         void get().stopDiscovery();
         return true;
       } catch (err) {

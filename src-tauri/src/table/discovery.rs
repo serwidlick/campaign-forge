@@ -13,6 +13,13 @@ use serde::Serialize;
 
 pub const SERVICE_TYPE: &str = "_campaignforge._tcp.local.";
 
+/// The name a hosting machine answers to on the LAN, the same for every GM
+/// so the phone address is always `http://forge.local/`. The daemon answers
+/// A queries for it (RFC 6762 host records) and probes before announcing;
+/// if another GM on the same network already holds it, mDNS renames ours
+/// and players fall back to the IP addresses, which are always shown too.
+pub const HOST_NAME: &str = "forge.local";
+
 /// A table seen on the network.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,7 +65,7 @@ pub fn register(
     } else {
         instance
     };
-    let host = format!("{}.local.", host_label());
+    let host = format!("{HOST_NAME}.");
     let mut props: Vec<(&str, String)> = vec![("campaign", campaign.to_owned())];
     if let Some(system) = system {
         props.push(("system", system.to_owned()));
@@ -161,28 +168,6 @@ fn instance_of(fullname: &str) -> String {
 }
 
 /// A DNS-safe label for this machine.
-fn host_label() -> String {
-    let raw = std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .unwrap_or_else(|_| "campaign-forge".to_owned());
-    let label: String = raw
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let label = label.trim_matches('-');
-    if label.is_empty() {
-        "campaign-forge".to_owned()
-    } else {
-        label.to_owned()
-    }
-}
-
 /// This machine's LAN IPv4 addresses, most useful first: home-network
 /// ranges on physical adapters before VPN tunnels and virtual switches, so
 /// the address players are told (and the QR code) points at the Wi-Fi

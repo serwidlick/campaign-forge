@@ -25,7 +25,7 @@ mod model;
 mod search;
 mod slug;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
@@ -56,9 +56,11 @@ struct OpenCampaign {
     seen: HashMap<PathBuf, String>,
 }
 
-/// What [`AppState::apply_disk_changes`] found in a batch of changed paths.
-#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+/// What changed in the campaign, as a window that did not make the change
+/// needs to hear it: what [`AppState::apply_disk_changes`] found in a batch
+/// of changed paths, and what each bump of the change counter was about.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct DiskChanges {
     /// Elements whose file changed (or appeared) outside this window.
     pub element_ids: Vec<String>,
@@ -66,13 +68,64 @@ pub struct DiskChanges {
     pub list_changed: bool,
     /// `campaign.json` changed outside this window.
     pub campaign_changed: bool,
+    /// The file version each changed element now has, by id. A reader that
+    /// already shows that version (it made the change) can skip the reload.
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub versions: HashMap<String, String>,
 }
 
 impl DiskChanges {
     pub fn is_empty(&self) -> bool {
         self.element_ids.is_empty() && !self.list_changed && !self.campaign_changed
     }
+
+    pub fn element(id: &str, version: &str) -> Self {
+        DiskChanges {
+            element_ids: vec![id.to_owned()],
+            versions: HashMap::from([(id.to_owned(), version.to_owned())]),
+            ..Default::default()
+        }
+    }
+
+    pub fn list() -> Self {
+        DiskChanges {
+            list_changed: true,
+            ..Default::default()
+        }
+    }
+
+    pub fn campaign() -> Self {
+        DiskChanges {
+            campaign_changed: true,
+            ..Default::default()
+        }
+    }
+
+    /// Everything may have changed: rescan the list and re-read the metadata.
+    pub fn everything() -> Self {
+        DiskChanges {
+            list_changed: true,
+            campaign_changed: true,
+            ..Default::default()
+        }
+    }
+
+    pub fn merge(&mut self, other: &DiskChanges) {
+        for id in &other.element_ids {
+            if !self.element_ids.contains(id) {
+                self.element_ids.push(id.clone());
+            }
+        }
+        for (id, version) in &other.versions {
+            self.versions.insert(id.clone(), version.clone());
+        }
+        self.list_changed |= other.list_changed;
+        self.campaign_changed |= other.campaign_changed;
+    }
 }
+
+/// How many change notes are kept for readers catching up by version.
+const CHANGE_LOG_LEN: usize = 512;
 
 /// Tauri-managed application state.
 pub struct AppState {
@@ -80,6 +133,9 @@ pub struct AppState {
     /// Bumped after every write so long-lived readers (the table server) can
     /// wait for "something changed" instead of polling the disk.
     changes: watch::Sender<u64>,
+    /// What each recent bump was about, oldest first, so a GM working from
+    /// another machine can ask "what changed since version N".
+    log: Mutex<VecDeque<(u64, DiskChanges)>>,
 }
 
 impl Default for AppState {
@@ -87,6 +143,7 @@ impl Default for AppState {
         Self {
             inner: Mutex::new(None),
             changes: watch::channel(0).0,
+            log: Mutex::new(VecDeque::new()),
         }
     }
 }
@@ -102,8 +159,40 @@ impl AppState {
         self.changes.subscribe()
     }
 
+    /// A change nobody's window needs to be told about (an asset import).
     fn bump(&self) {
-        self.changes.send_modify(|v| *v += 1);
+        self.bump_with(DiskChanges::default());
+    }
+
+    /// Bumps the counter and remembers what the bump was about.
+    fn bump_with(&self, note: DiskChanges) {
+        self.changes.send_modify(|v| {
+            *v += 1;
+            if let Ok(mut log) = self.log.lock() {
+                log.push_back((*v, note));
+                while log.len() > CHANGE_LOG_LEN {
+                    log.pop_front();
+                }
+            }
+        });
+    }
+
+    /// Everything that changed after version `after`, merged. When the log
+    /// no longer reaches back that far, the caller is told to rescan.
+    pub fn changes_since(&self, after: u64) -> DiskChanges {
+        let Ok(log) = self.log.lock() else {
+            return DiskChanges::everything();
+        };
+        let mut out = DiskChanges::default();
+        if let Some((oldest, _)) = log.front()
+            && *oldest > after + 1
+        {
+            out = DiskChanges::everything();
+        }
+        for (_, note) in log.iter().filter(|(v, _)| *v > after) {
+            out.merge(note);
+        }
+        out
     }
 
     pub fn current_campaign(&self) -> Option<CampaignMeta> {
@@ -151,7 +240,7 @@ impl AppState {
         )?;
         open.meta = meta.clone();
         drop(guard);
-        self.bump();
+        self.bump_with(DiskChanges::campaign());
         Ok(meta)
     }
 
@@ -186,7 +275,9 @@ impl AppState {
         open.seen.insert(path.clone(), element.version.clone());
         open.index.insert(element.meta.id.clone(), path);
         drop(guard);
-        self.bump();
+        let mut note = DiskChanges::element(&element.meta.id, &element.version);
+        note.list_changed = true;
+        self.bump_with(note);
         Ok(element)
     }
 
@@ -219,7 +310,7 @@ impl AppState {
             open.seen.insert(path, saved.version.clone());
         }
         drop(guard);
-        self.bump();
+        self.bump_with(DiskChanges::element(&saved.meta.id, &saved.version));
         Ok(saved)
     }
 
@@ -233,7 +324,7 @@ impl AppState {
         open.seen.remove(&path);
         elements::delete(&path)?;
         drop(guard);
-        self.bump();
+        self.bump_with(DiskChanges::list());
         Ok(())
     }
 
@@ -312,6 +403,22 @@ impl AppState {
         Ok(imported)
     }
 
+    /// Same as [`Self::import_document`] from bytes already in memory (a PDF
+    /// uploaded by a GM working from another machine). `name` is the source
+    /// file's name without extension.
+    pub fn import_document_bytes(
+        &self,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<ImportedDocument, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        let imported = assets::import_document_bytes(&open.root, "docs", name, bytes)?;
+        drop(guard);
+        self.bump();
+        Ok(imported)
+    }
+
     /// Case-insensitive text search over names, tags and bodies.
     pub fn search_elements(
         &self,
@@ -361,7 +468,7 @@ impl AppState {
             seen: HashMap::new(),
         });
         drop(guard);
-        self.bump();
+        self.bump_with(DiskChanges::everything());
         Ok(())
     }
 
@@ -417,6 +524,7 @@ impl AppState {
             }
             open.seen.insert(path.clone(), element.version.clone());
             let id = element.meta.id;
+            changes.versions.insert(id.clone(), element.version.clone());
             match open.index.get(&id) {
                 Some(known) if known == path => {}
                 // The id already lives in another file that still exists (a
@@ -436,7 +544,7 @@ impl AppState {
         }
         drop(guard);
         if !changes.is_empty() {
-            self.bump();
+            self.bump_with(changes.clone());
         }
         Ok(changes)
     }

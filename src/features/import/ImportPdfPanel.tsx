@@ -18,6 +18,7 @@ import {
   formatUsd,
   loadAgentSettings,
 } from "@/features/agent/agent-settings";
+import { inTauri } from "@/lib/platform";
 import { kindById } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 import { useImportStore } from "@/stores/import-store";
@@ -120,6 +121,18 @@ function ChooseStep() {
   }
 
   const busy = stage === "extracting";
+  if (!inTauri) {
+    return (
+      <section className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-ink-700 bg-ink-900/60 px-8 py-12 text-center">
+        <FileText size={32} className="text-ink-600" />
+        <p className="max-w-md text-sm text-ink-400">
+          Building elements from a book reads the file page by page on the
+          machine that holds the campaign. Run this import in the Campaign Forge
+          app there; everything it makes shows up here as it lands.
+        </p>
+      </section>
+    );
+  }
   return (
     <section className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-ink-700 bg-ink-900/60 px-8 py-12 text-center">
       <FileText size={32} className="text-ink-600" />

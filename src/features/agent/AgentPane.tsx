@@ -1,4 +1,4 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openExternal as openUrl } from "@/lib/platform";
 import {
   ChevronLeft,
   History,

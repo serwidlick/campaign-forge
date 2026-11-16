@@ -88,6 +88,9 @@ export function BibleScreen() {
   >("elements");
   const hosting = useTableStore((s) => s.hosting);
   const stopHosting = useTableStore((s) => s.stopHosting);
+  // A GM working from a second machine: the table is hosted elsewhere.
+  const remoteGm = useTableStore((s) => s.session?.gm === true);
+  const leaveTable = useTableStore((s) => s.leave);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [playerPreview, setPlayerPreview] = useState(false);
   const [previewAs, setPreviewAs] = useState<string | null>(null);
@@ -111,8 +114,8 @@ export function BibleScreen() {
     };
   }, [playerPreview, elements, previewPlayer?.id]);
   const previewSource = useMemo(
-    () => localPreviewSource(sharedElements, previewPlayer),
-    [sharedElements, previewPlayer],
+    () => localPreviewSource(sharedElements, previewPlayer, registry),
+    [sharedElements, previewPlayer, registry],
   );
   const calendar = useMemo(() => calendarOf(campaign), [campaign]);
   const sharedCount = useMemo(
@@ -284,12 +287,16 @@ export function BibleScreen() {
             <button
               type="button"
               onClick={() => {
+                if (remoteGm) {
+                  void leaveTable();
+                  return;
+                }
                 void stopHosting();
                 closeCampaign();
               }}
               className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink-200"
             >
-              <ChevronLeft size={14} /> Campaigns
+              <ChevronLeft size={14} /> {remoteGm ? "Leave table" : "Campaigns"}
             </button>
             <h1 className="mt-1 truncate font-serif text-lg font-semibold">
               {campaign.name}
@@ -379,9 +386,11 @@ export function BibleScreen() {
               label="Table"
               icon={<Radio size={16} />}
               title={
-                hosting
-                  ? `Hosting a table · code ${hosting.code}`
-                  : "Host a table"
+                remoteGm
+                  ? "The table, hosted by the other machine"
+                  : hosting
+                    ? `Hosting a table · code ${hosting.code}`
+                    : "Host a table"
               }
               pressed={view === "table"}
               tone={hosting ? "live" : "default"}

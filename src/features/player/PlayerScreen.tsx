@@ -1,10 +1,10 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, Eye, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/Button";
+import { ThemePicker } from "@/components/ThemePicker";
 import {
   formatIsoDate,
   readJournal,
@@ -32,10 +32,12 @@ import {
   roleById,
   type Element,
   type ElementSummary,
+  type PlayerName,
 } from "@/lib/types";
 
 import { Portrait } from "@/features/images/Portrait";
 import { portraitOf } from "@/features/images/portrait-model";
+import { openExternal } from "@/lib/platform";
 
 import { documentFileOf } from "@/features/documents/document-model";
 import { readSheet5e, sheetSummary } from "@/features/templates/dnd5e-model";
@@ -46,7 +48,7 @@ import { readStatBlock5e } from "@/features/templates/dnd5e-statblock";
 import { StatBlockView } from "@/features/templates/StatBlockView";
 
 import { PlayerMap } from "./PlayerMap";
-import { ownsCharacter } from "./player-model";
+import { ownerLabel, ownsCharacter } from "./player-model";
 import type { PlayerSource } from "./player-model";
 
 interface Props {
@@ -152,6 +154,7 @@ export function PlayerScreen({
           <Eye size={13} />
           <span className="flex-1">{banner}</span>
           {bannerExtra}
+          <ThemePicker variant="icon" placement="below-end" />
           <Button size="sm" variant="ghost" onClick={onExit}>
             <ArrowLeft size={13} /> {exitLabel}
           </Button>
@@ -225,12 +228,13 @@ export function PlayerScreen({
             })}
           </nav>
           {!banner && (
-            <div className="border-t border-ink-800 p-2">
+            <div className="flex items-center gap-1 border-t border-ink-800 p-2">
+              <ThemePicker variant="icon" placement="above-start" />
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={onExit}
-                className="w-full"
+                className="flex-1"
               >
                 <ArrowLeft size={13} /> {exitLabel}
               </Button>
@@ -381,10 +385,10 @@ function PlayerElementView({
     () => elements.filter((e) => e.links.includes(element.id)),
     [elements, element.id],
   );
-  const details = detailsFor(element, byId, calendar);
+  const details = detailsFor(element, byId, calendar, source.players ?? []);
   const map = element.type === "map" ? readMap(element) : null;
   const pdf = element.type === "document" ? documentFileOf(element) : null;
-  const mine = ownsCharacter(element, source.playerName);
+  const mine = ownsCharacter(element, source.playerName, source.playerId);
   const statblock =
     element.type === "creature" ? readStatBlock5e(element.statblock) : null;
   const saveSheet = source.updateSheet;
@@ -526,7 +530,7 @@ function PlayerElementView({
                         href={href}
                         onClick={(e) => {
                           e.preventDefault();
-                          if (href) void openUrl(href);
+                          if (href) openExternal(href);
                         }}
                       >
                         {children}
@@ -581,6 +585,7 @@ function detailsFor(
   element: Element,
   byId: Map<string, ElementSummary>,
   calendar: Calendar,
+  players: PlayerName[],
 ): Detail[] {
   const out: Detail[] = [];
   switch (element.type) {
@@ -612,7 +617,12 @@ function detailsFor(
       });
       const sheet = readSheet5e(element.sheet);
       if (!sheet) break;
-      if (sheet.owner) out.push({ label: "Played by", value: sheet.owner });
+      if (sheet.owner) {
+        out.push({
+          label: "Played by",
+          value: ownerLabel(sheet.owner, players),
+        });
+      }
       const summary = sheetSummary(sheet);
       if (summary) out.push({ label: "Sheet", value: summary });
       if (sheet.ac !== null) out.push({ label: "AC", value: String(sheet.ac) });

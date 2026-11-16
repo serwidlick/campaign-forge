@@ -11,6 +11,7 @@
 //!         label: MIRA-LAPTOP
 //!         addedAt: 2026-11-04T20:00:00Z
 //!     lastSeen: 2026-11-04T20:05:00Z
+//!     gm: false              true hands their devices the GM view over the table
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,11 @@ pub struct PlayerRecord {
     pub devices: Vec<PlayerDevice>,
     #[serde(default)]
     pub last_seen: Option<String>,
+    /// A second GM: their devices get the whole campaign, editable, over
+    /// the table instead of the player view (the GM's own laptop downstairs
+    /// while the desktop upstairs holds the files).
+    #[serde(default)]
+    pub gm: bool,
 }
 
 /// The registry of the open campaign; empty when none is open.
@@ -112,6 +118,7 @@ pub fn bind_device(
                 name: name.to_owned(),
                 devices: vec![device],
                 last_seen: Some(now()),
+                gm: false,
             };
             players.push(record.clone());
             record

@@ -9,6 +9,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
 
+import { inTauri } from "@/lib/platform";
+
 export type UpdatePhase =
   "idle" | "checking" | "available" | "downloading" | "ready" | "error";
 
@@ -40,8 +42,9 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   upToDate: false,
 
   async check(opts) {
-    // The dev build has no signed package to compare against.
-    if (import.meta.env.DEV) {
+    // The dev build has no signed package to compare against, and a browser
+    // showing the table's /gm page has nothing to update.
+    if (import.meta.env.DEV || !inTauri) {
       set({ checkedAt: Date.now(), upToDate: true });
       return;
     }

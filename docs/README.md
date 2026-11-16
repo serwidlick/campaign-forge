@@ -11,7 +11,7 @@ This guide covers what the app can do and how to do it. Pages are short and task
 3. [Maps](maps.md): images, pins, routes, territories, scale and travel time, nested maps.
 4. [Arcs, sessions and journals](sessions-and-journals.md): planning play and writing it up.
 5. [Timeline and calendar](timeline-and-calendar.md): your own months and eras, events, in-world dates.
-6. [Playing at the table](playing-at-the-table.md): sharing with players, the player view, hosting over the network, showing things to everyone.
+6. [Playing at the table](playing-at-the-table.md): sharing with players, the player view, hosting over the network, running the table from a second machine, showing things to everyone.
 7. [The assistant](assistant.md): an optional AI helper with your own API key and permissions you control.
 8. [Importing a PDF](importing-a-pdf.md): build a campaign's elements from a module, a setting guide or your own notes.
 9. [Your files](your-files.md): the folder layout, frontmatter keys, backups and cloud drives.

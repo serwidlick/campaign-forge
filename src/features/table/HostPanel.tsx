@@ -40,15 +40,29 @@ export function HostPanel({
   const showToPlayers = useTableStore((s) => s.showToPlayers);
   const navigate = useCampaignStore((s) => s.navigate);
   const clearError = useTableStore((s) => s.clearError);
+  // This machine is a GM's second device: the table is hosted elsewhere and
+  // what we show here is its status, read over the network.
+  const remote = useTableStore((s) => s.session?.gm === true);
+  const hostAddress = useTableStore((s) => s.session?.address ?? "");
 
   const sharedCount = elements.filter(isShared).length;
 
-  // A QR for phones: the most likely address, or the one the GM picks.
-  const [qrAddress, setQrAddress] = useState<string | null>(null);
-  const addresses = hosting?.addresses ?? [];
-  const chosenAddress =
-    qrAddress && addresses.includes(qrAddress) ? qrAddress : addresses[0];
-  const browserUrl = chosenAddress ? `http://${chosenAddress}/` : null;
+  // A QR for phones: the mDNS name when the table is announced (the same on
+  // every network, and the same origin next week so phones stay paired),
+  // else the most likely IP; or whichever the GM picks.
+  const [qrChoice, setQrChoice] = useState<string | null>(null);
+  const port = hosting?.port ?? 0;
+  const nameUrl = hosting?.hostName
+    ? browserUrlOf(hosting.hostName, port)
+    : null;
+  const ipUrls = (hosting?.addresses ?? []).map((a) =>
+    browserUrlOf(a.split(":")[0] ?? a, port),
+  );
+  const browserUrls = nameUrl ? [nameUrl, ...ipUrls] : ipUrls;
+  const browserUrl =
+    qrChoice && browserUrls.includes(qrChoice)
+      ? qrChoice
+      : (browserUrls[0] ?? null);
   const [qr, setQr] = useState<{ url: string; data: string } | null>(null);
   useEffect(() => {
     if (!browserUrl) return;
@@ -87,11 +101,16 @@ export function HostPanel({
             Table
           </div>
           <h2 className="mt-0.5 font-serif text-2xl font-semibold text-ink-100">
-            {hosting ? "Hosting a table" : "Host a table"}
+            {remote
+              ? "At the table as GM"
+              : hosting
+                ? "Hosting a table"
+                : "Host a table"}
           </h2>
           <p className="mt-1 text-xs text-ink-400">
-            Players on the same network join from their own Campaign Forge and
-            see what you have shared, live.
+            {remote
+              ? `The table is hosted by the machine at ${hostAddress}, which keeps the files. You run it from here.`
+              : "Players on the same network join from their own Campaign Forge and see what you have shared, live."}
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
@@ -116,24 +135,35 @@ export function HostPanel({
 
         {!hosting ? (
           <section className="space-y-4">
+            {remote && (
+              <p className="text-sm text-amber-200/90">
+                The hosting machine has not answered with the table's status
+                yet. If it stopped hosting, this device is back to the welcome
+                screen in a moment.
+              </p>
+            )}
             <p className="text-sm text-ink-300">
               {sharedCount === 0
                 ? "Nothing is shared yet. Players would join an empty table; mark some elements as Shared first."
                 : `${sharedCount} shared ${sharedCount === 1 ? "element" : "elements"} will be visible to players.`}
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => void startHosting()} disabled={hostBusy}>
-                <Radio size={16} /> {hostBusy ? "Starting…" : "Start hosting"}
-              </Button>
+              {!remote && (
+                <Button onClick={() => void startHosting()} disabled={hostBusy}>
+                  <Radio size={16} /> {hostBusy ? "Starting…" : "Start hosting"}
+                </Button>
+              )}
               <Button variant="ghost" onClick={onPreview}>
                 <Eye size={16} /> Preview as a player
               </Button>
             </div>
-            <p className="text-xs text-ink-500">
-              Windows may ask whether to allow Campaign Forge on private
-              networks the first time. Say yes, or players cannot reach you.
-              Nothing leaves your network.
-            </p>
+            {!remote && (
+              <p className="text-xs text-ink-500">
+                Windows may ask whether to allow Campaign Forge on private
+                networks the first time. Say yes, or players cannot reach you.
+                Nothing leaves your network.
+              </p>
+            )}
           </section>
         ) : (
           <>
@@ -201,18 +231,19 @@ export function HostPanel({
                     <p className="mt-2 font-mono text-lg text-ink-100">
                       {browserUrl}
                     </p>
-                    {addresses.length > 1 && (
+                    {browserUrls.length > 1 && (
                       <label className="mt-2 block text-xs text-ink-400">
-                        This machine has several addresses. If the code does not
-                        open, try another:
+                        {nameUrl
+                          ? "The name is the same every session. If a phone cannot open it (older Android, guest Wi-Fi), use an address instead:"
+                          : "This machine has several addresses. If the code does not open, try another:"}
                         <select
-                          value={chosenAddress}
-                          onChange={(e) => setQrAddress(e.target.value)}
+                          value={browserUrl ?? ""}
+                          onChange={(e) => setQrChoice(e.target.value)}
                           className="mt-1 block rounded-md border border-ink-700 bg-ink-900 px-2 py-1 font-mono text-sm text-ink-100 outline-none"
                         >
-                          {addresses.map((a) => (
-                            <option key={a} value={a}>
-                              {a}
+                          {browserUrls.map((u) => (
+                            <option key={u} value={u}>
+                              {u}
                             </option>
                           ))}
                         </select>
@@ -222,6 +253,17 @@ export function HostPanel({
                       The page reads what is shared, opens maps, pictures and
                       PDFs, and follows Show to players. Editing a character
                       needs the app.
+                    </p>
+                    <p className="mt-2 text-xs text-ink-400">
+                      Your own laptop, with no install: sit down from its
+                      browser on the address above, pair it and press Make GM
+                      below, then open{" "}
+                      <span className="font-mono text-ink-200">
+                        {browserUrl}gm
+                      </span>{" "}
+                      in the same browser. That page is the whole GM view,
+                      working on this machine's files, and turns every other
+                      device away.
                     </p>
                   </div>
                 </div>
@@ -296,6 +338,13 @@ export function HostPanel({
 
             <PlayersSection
               players={registry}
+              onSetGm={(id, gm) =>
+                void updateCampaignSettings({
+                  players: registry.map((p) =>
+                    p.id === id ? { ...p, gm } : p,
+                  ),
+                })
+              }
               onRemovePlayer={(id) =>
                 void updateCampaignSettings({
                   players: registry.filter((p) => p.id !== id),
@@ -328,14 +377,23 @@ export function HostPanel({
                 <Button variant="ghost" onClick={onPreview}>
                   <Eye size={16} /> Preview as a player
                 </Button>
-                <Button
-                  variant="danger"
-                  onClick={() => void stopHosting()}
-                  disabled={hostBusy}
-                >
-                  <Square size={14} /> Stop hosting
-                </Button>
+                {!remote && (
+                  <Button
+                    variant="danger"
+                    onClick={() => void stopHosting()}
+                    disabled={hostBusy}
+                  >
+                    <Square size={14} /> Stop hosting
+                  </Button>
+                )}
               </div>
+              {remote && (
+                <p className="mt-3 text-xs text-ink-500">
+                  Only the hosting machine can stop the table. Leave table at
+                  the top of the sidebar takes this device back to its own
+                  campaigns.
+                </p>
+              )}
             </section>
           </>
         )}
@@ -385,8 +443,14 @@ function ConnectionRow({
         {isRecent(p.lastSeen) ? "connected" : `last seen ${ago(p.lastSeen)}`}
       </span>
       {paired ? (
-        <span className="rounded-full border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-[11px] text-green-200">
-          paired · {paired.name}
+        <span
+          className={`rounded-full border px-2 py-0.5 text-[11px] ${
+            paired.gm
+              ? "border-ember-500/40 bg-ember-500/10 text-ember-200"
+              : "border-green-500/40 bg-green-500/10 text-green-200"
+          }`}
+        >
+          {paired.gm ? "GM" : "paired"} · {paired.name}
         </span>
       ) : p.device ? (
         <span className="flex items-center gap-1.5">
@@ -418,7 +482,12 @@ function ConnectionRow({
           )}
         </span>
       ) : (
-        <span className="text-[11px] text-ink-600">guest</span>
+        <span
+          className="text-[11px] text-ink-600"
+          title="This browser could not make a device key, so it cannot be paired"
+        >
+          guest
+        </span>
       )}
     </li>
   );
@@ -427,10 +496,12 @@ function ConnectionRow({
 /** Every paired player of the campaign and their devices. */
 function PlayersSection({
   players,
+  onSetGm,
   onRemovePlayer,
   onRemoveDevice,
 }: {
   players: PlayerRecord[];
+  onSetGm: (id: string, gm: boolean) => void;
   onRemovePlayer: (id: string) => void;
   onRemoveDevice: (id: string, fingerprint: string) => void;
 }) {
@@ -444,22 +515,48 @@ function PlayersSection({
       </SectionTitle>
       {players.length === 0 ? (
         <p className="text-sm text-ink-500">
-          Nobody paired yet. When someone joins from the app, press{" "}
+          Nobody paired yet. When someone joins, press{" "}
           <span className="text-ink-300">Pair as new player</span> on their row
-          above. Paired devices never need the code again, and you can assign
-          pages and characters to them.
+          above. Paired devices and browsers never need the code again, and you
+          can assign pages and characters to them. Pair your own laptop the same
+          way and press <span className="text-ink-300">Make GM</span> to run the
+          table from it.
         </p>
       ) : (
         <ul className="divide-y divide-ink-800 rounded-md border border-ink-800 bg-ink-900">
           {players.map((p) => (
             <li key={p.id} className="px-3 py-2 text-sm">
               <div className="flex items-center gap-3">
-                <span className="flex-1 text-ink-100">{p.name}</span>
+                <span className="flex-1 text-ink-100">
+                  {p.name}
+                  {p.gm && (
+                    <span className="ml-2 rounded-full border border-ember-500/40 bg-ember-500/10 px-1.5 py-px text-[10px] text-ember-200">
+                      GM
+                    </span>
+                  )}
+                </span>
                 {p.lastSeen && (
                   <span className="text-xs text-ink-500">
                     last at the table {ago(p.lastSeen)}
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={() => onSetGm(p.id, !p.gm)}
+                  aria-pressed={p.gm}
+                  className={`text-xs ${
+                    p.gm
+                      ? "text-ember-300 hover:text-ink-300"
+                      : "text-ink-500 hover:text-ember-300"
+                  }`}
+                  title={
+                    p.gm
+                      ? "Their devices go back to the player view the moment you click"
+                      : "Their devices get your whole campaign, editable, at the table: for your own laptop while this machine keeps the files"
+                  }
+                >
+                  {p.gm ? "Revoke GM" : "Make GM"}
+                </button>
                 <button
                   type="button"
                   onClick={() => onRemovePlayer(p.id)}
@@ -503,6 +600,11 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 /** Players poll every few seconds; anything older than a minute is gone. */
+/** The phone page's address for a host name or IP; port 80 is left off. */
+function browserUrlOf(host: string, port: number): string {
+  return port === 80 ? `http://${host}/` : `http://${host}:${port}/`;
+}
+
 function isRecent(iso: string): boolean {
   return Date.now() - Date.parse(iso) < 60_000;
 }

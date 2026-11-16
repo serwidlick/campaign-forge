@@ -5,10 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Campaign Forge table</title>
     <link rel="icon" href="/icon.png" />
+    <meta name="theme-color" content="#15171d" />
+    <script>
+      // The saved theme before first paint, so the page never flashes the
+      // default. The main script validates it and keeps it up to date.
+      try {
+        var savedTheme = localStorage.getItem("cf.theme");
+        if (savedTheme) {
+          document.documentElement.setAttribute("data-theme", savedTheme);
+        }
+      } catch (e) {}
+    </script>
     <script src="/marked.umd.js"></script>
+    <script src="/nacl-fast.min.js"></script>
     <style>
+      /* ---- Themes ------------------------------------------------------
+         The same eight themes as the app, with the same values: every colour
+         on this page is an ink (neutral) or ember (accent) token, so a theme
+         is a different set of values for them. The defaults below are Ember;
+         the others apply to whatever carries data-theme, normally <html>,
+         set from the menu in the header. Light themes invert the ink scale,
+         so ink-950 stays "the page" and ink-100 stays "the text". */
       :root {
+        color-scheme: dark;
         --ink-950: #0e0f13;
+        --ink-950-rgb: 14, 15, 19;
         --ink-900: #15171d;
         --ink-850: #1b1e26;
         --ink-800: #22262f;
@@ -17,8 +38,141 @@
         --ink-400: #a3abba;
         --ink-200: #cfd4de;
         --ink-100: #eceef2;
-        --ember-300: #f0b47d;
         --ember-500: #d9833b;
+        --ember-rgb: 217, 131, 59;
+        --ember-300: #f0b47d;
+        --ember-200: #f6cda6;
+        --red-rgb: 239, 68, 68;
+        --red-text: #fecaca;
+      }
+      /* Moonstone: Cool slate with a lavender accent. */
+      [data-theme="moonstone"] {
+        color-scheme: dark;
+        --ink-950: #0b0d14;
+        --ink-950-rgb: 11, 13, 20;
+        --ink-900: #11141e;
+        --ink-850: #161a27;
+        --ink-800: #1d2232;
+        --ink-700: #293042;
+        --ink-500: #7a849c;
+        --ink-400: #a1aac0;
+        --ink-200: #cdd3e2;
+        --ink-100: #ebeef6;
+        --ember-500: #8b7cf6;
+        --ember-rgb: 139, 124, 246;
+        --ember-300: #b9b0fa;
+        --ember-200: #d2ccfc;
+      }
+      /* Greenwood: Deep forest with a gold accent. */
+      [data-theme="greenwood"] {
+        color-scheme: dark;
+        --ink-950: #0b100d;
+        --ink-950-rgb: 11, 16, 13;
+        --ink-900: #111813;
+        --ink-850: #161e19;
+        --ink-800: #1c261f;
+        --ink-700: #27332b;
+        --ink-500: #76897c;
+        --ink-400: #9eaea3;
+        --ink-200: #cbd5ce;
+        --ink-100: #eaefeb;
+        --ember-500: #c9a227;
+        --ember-rgb: 201, 162, 39;
+        --ember-300: #e4c86b;
+        --ember-200: #eedb98;
+      }
+      /* Obsidian: Near-black neutral with an ice-blue accent. */
+      [data-theme="obsidian"] {
+        color-scheme: dark;
+        --ink-950: #070809;
+        --ink-950-rgb: 7, 8, 9;
+        --ink-900: #0d0e10;
+        --ink-850: #121316;
+        --ink-800: #191b1f;
+        --ink-700: #24272d;
+        --ink-500: #737983;
+        --ink-400: #9ca2ab;
+        --ink-200: #cbd0d6;
+        --ink-100: #edeff2;
+        --ember-500: #4fb3e6;
+        --ember-rgb: 79, 179, 230;
+        --ember-300: #93d1f1;
+        --ember-200: #b7e0f6;
+      }
+      /* Dusk: Deep plum with a rose accent. */
+      [data-theme="dusk"] {
+        color-scheme: dark;
+        --ink-950: #130d14;
+        --ink-950-rgb: 19, 13, 20;
+        --ink-900: #1a121c;
+        --ink-850: #201723;
+        --ink-800: #291e2d;
+        --ink-700: #36293b;
+        --ink-500: #8a7890;
+        --ink-400: #ada0b2;
+        --ink-200: #d3cad6;
+        --ink-100: #efeaf0;
+        --ember-500: #e0707f;
+        --ember-rgb: 224, 112, 127;
+        --ember-300: #efa8b1;
+        --ember-200: #f5c5cb;
+      }
+      /* Parchment: Warm paper with a sealing-wax red accent. Light. */
+      [data-theme="parchment"] {
+        color-scheme: light;
+        --ink-950: #f6f0e4;
+        --ink-950-rgb: 246, 240, 228;
+        --ink-900: #efe7d7;
+        --ink-850: #e8dfcc;
+        --ink-800: #dfd4bf;
+        --ink-700: #cdc0a8;
+        --ink-500: #6b5e4a;
+        --ink-400: #4f4537;
+        --ink-200: #36302a;
+        --ink-100: #1f1b17;
+        --ember-500: #9b3131;
+        --ember-rgb: 155, 49, 49;
+        --ember-300: #7f2727;
+        --ember-200: #671f1f;
+        --red-text: #991b1b;
+      }
+      /* Daylight: Cool neutral with a teal accent. Light. */
+      [data-theme="daylight"] {
+        color-scheme: light;
+        --ink-950: #f7f8fa;
+        --ink-950-rgb: 247, 248, 250;
+        --ink-900: #eff1f5;
+        --ink-850: #e7eaf0;
+        --ink-800: #dde1e8;
+        --ink-700: #c8cdd7;
+        --ink-500: #626a78;
+        --ink-400: #474e5a;
+        --ink-200: #30353e;
+        --ink-100: #171a20;
+        --ember-500: #0f766e;
+        --ember-rgb: 15, 118, 110;
+        --ember-300: #0c5f59;
+        --ember-200: #094d48;
+        --red-text: #991b1b;
+      }
+      /* Sage: Soft green-grey paper with a terracotta accent. Light. */
+      [data-theme="sage"] {
+        color-scheme: light;
+        --ink-950: #f3f5f0;
+        --ink-950-rgb: 243, 245, 240;
+        --ink-900: #eaeee6;
+        --ink-850: #e1e6db;
+        --ink-800: #d5dccd;
+        --ink-700: #c0c9b6;
+        --ink-500: #5c6653;
+        --ink-400: #434b3c;
+        --ink-200: #2e3429;
+        --ink-100: #171a14;
+        --ember-500: #b5553a;
+        --ember-rgb: 181, 85, 58;
+        --ember-300: #944431;
+        --ember-200: #773627;
+        --red-text: #991b1b;
       }
       * {
         box-sizing: border-box;
@@ -51,9 +205,25 @@
       }
       /* Join */
       #join {
+        position: relative;
         padding: 48px 20px;
         max-width: 420px;
         margin: 0 auto;
+      }
+      #join .theme-btn {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--ink-700);
+        background: transparent;
+        color: var(--ink-200);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 13px;
+        cursor: pointer;
       }
       #join h1 {
         font-family: Georgia, serif;
@@ -104,10 +274,10 @@
       .error {
         margin-top: 14px;
         padding: 10px 12px;
-        border: 1px solid rgba(239, 68, 68, 0.4);
-        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(var(--red-rgb), 0.4);
+        background: rgba(var(--red-rgb), 0.1);
         border-radius: 8px;
-        color: #fecaca;
+        color: var(--red-text);
         font-size: 14px;
       }
       /* Table */
@@ -147,9 +317,9 @@
       }
       .notice {
         padding: 8px 14px;
-        background: rgba(217, 131, 59, 0.12);
-        border-bottom: 1px solid rgba(217, 131, 59, 0.4);
-        color: #fbd5b5;
+        background: rgba(var(--ember-rgb), 0.12);
+        border-bottom: 1px solid rgba(var(--ember-rgb), 0.4);
+        color: var(--ember-200);
         font-size: 13px;
       }
       .notice button.mini {
@@ -165,8 +335,8 @@
       }
       .notice button.mini.ghost {
         background: transparent;
-        border: 1px solid rgba(217, 131, 59, 0.5);
-        color: #fbd5b5;
+        border: 1px solid rgba(var(--ember-rgb), 0.5);
+        color: var(--ember-200);
         font-weight: 500;
       }
       .filters {
@@ -189,7 +359,7 @@
       .filters button.active {
         border-color: var(--ember-500);
         color: var(--ember-300);
-        background: rgba(217, 131, 59, 0.12);
+        background: rgba(var(--ember-rgb), 0.12);
       }
       #search {
         margin: 8px 14px 6px;
@@ -326,7 +496,7 @@
         margin: -7px 0 0 -7px;
         border-radius: 999px;
         border: 2px solid var(--ink-950);
-        box-shadow: 0 0 0 2px rgba(217, 131, 59, 0.45);
+        box-shadow: 0 0 0 2px rgba(var(--ember-rgb), 0.45);
         cursor: pointer;
       }
       .map .pin-label {
@@ -334,7 +504,7 @@
         transform: translate(-50%, -140%);
         padding: 1px 6px;
         border-radius: 5px;
-        background: rgba(14, 15, 19, 0.85);
+        background: rgba(var(--ink-950-rgb), 0.85);
         border: 1px solid var(--ink-700);
         font-size: 11px;
         white-space: nowrap;
@@ -375,10 +545,321 @@
       .back {
         margin: 10px 14px 0;
       }
+      /* Theme menu: one row per theme with a swatch that carries its own
+         data-theme, so the stylesheet paints the preview colours itself. */
+      .theme-btn svg {
+        display: block;
+        width: 16px;
+        height: 16px;
+      }
+      header.bar .theme-btn {
+        display: inline-flex;
+        padding: 6px 8px;
+      }
+      .theme-menu {
+        position: fixed;
+        top: 54px;
+        right: 10px;
+        z-index: 5;
+        width: min(280px, calc(100vw - 20px));
+        padding: 4px;
+        border: 1px solid var(--ink-700);
+        border-radius: 10px;
+        background: var(--ink-850);
+        box-shadow: 0 12px 32px rgba(var(--ink-950-rgb), 0.6);
+      }
+      .theme-menu button {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 8px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink-100);
+        text-align: left;
+        cursor: pointer;
+      }
+      .theme-menu button[aria-checked="true"] {
+        background: var(--ink-700);
+      }
+      .theme-menu .swatch {
+        display: flex;
+        flex: 0 0 auto;
+        width: 40px;
+        height: 28px;
+        overflow: hidden;
+        border: 1px solid var(--ink-700);
+        border-radius: 5px;
+        background: var(--ink-950);
+      }
+      .theme-menu .swatch .side {
+        width: 33%;
+        background: var(--ink-900);
+      }
+      .theme-menu .swatch .lines {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+        padding: 0 4px;
+      }
+      .theme-menu .swatch .lines::before,
+      .theme-menu .swatch .lines::after {
+        content: "";
+        height: 4px;
+        border-radius: 999px;
+        background: var(--ink-400);
+      }
+      .theme-menu .swatch .lines::after {
+        width: 66%;
+        background: var(--ember-500);
+      }
+      .theme-menu .text {
+        flex: 1;
+        min-width: 0;
+      }
+      .theme-menu .label {
+        display: block;
+        font-size: 14px;
+      }
+      .theme-menu .desc {
+        display: block;
+        font-size: 12px;
+        color: var(--ink-500);
+      }
+      /* Your character: the at-the-table fields of a sheet you own */
+      .sheet {
+        display: grid;
+        gap: 12px;
+        margin-top: 18px;
+      }
+      .sheet-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 13px;
+        color: var(--ember-300);
+      }
+      .save-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 20px;
+        font-size: 12px;
+        color: var(--ink-500);
+      }
+      .save-state.err {
+        color: var(--red-text);
+      }
+      .save-state button,
+      .card h3 button {
+        border: 1px solid var(--ink-700);
+        background: transparent;
+        color: var(--ink-200);
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: normal;
+        text-transform: none;
+        cursor: pointer;
+      }
+      .card {
+        padding: 12px 14px;
+        border: 1px solid var(--ink-800);
+        border-radius: 12px;
+        background: var(--ink-900);
+      }
+      .card h3 {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0 0 10px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-500);
+      }
+      .fields {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 22px;
+      }
+      .field {
+        font-size: 12px;
+        color: var(--ink-400);
+      }
+      .field .of {
+        margin-left: 8px;
+        font-size: 14px;
+        color: var(--ink-500);
+      }
+      .stepper {
+        display: inline-flex;
+        align-items: center;
+        margin-top: 4px;
+        border: 1px solid var(--ink-700);
+        border-radius: 10px;
+        background: var(--ink-850);
+        overflow: hidden;
+        vertical-align: middle;
+      }
+      .stepper button {
+        width: 44px;
+        height: 44px;
+        border: 0;
+        background: transparent;
+        color: var(--ink-100);
+        font-size: 22px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .stepper button:disabled {
+        opacity: 0.3;
+      }
+      .stepper input {
+        width: 56px;
+        height: 44px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        text-align: center;
+        font-size: 18px;
+        font-weight: 600;
+        -moz-appearance: textfield;
+        appearance: textfield;
+      }
+      .stepper input::-webkit-inner-spin-button,
+      .stepper input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      .pips {
+        display: inline-flex;
+        gap: 10px;
+        margin-top: 6px;
+      }
+      .pips button {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        border: 2px solid var(--ink-700);
+        border-radius: 999px;
+        background: transparent;
+        cursor: pointer;
+      }
+      .pips button.on {
+        border-color: var(--ember-500);
+        background: var(--ember-500);
+      }
+      .pips.bad button.on {
+        border-color: #ef4444;
+        background: #ef4444;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .chips button {
+        border: 1px solid var(--ink-700);
+        border-radius: 999px;
+        background: var(--ink-850);
+        color: var(--ink-400);
+        padding: 9px 14px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .chips button.on {
+        border-color: var(--ember-500);
+        color: var(--ember-300);
+        background: rgba(var(--ember-rgb), 0.12);
+      }
+      .rows > div {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 6px 0;
+      }
+      .rows > div + div {
+        border-top: 1px solid var(--ink-800);
+      }
+      .rows .row-name {
+        flex: 1;
+        min-width: 0;
+        font-size: 15px;
+        color: var(--ink-100);
+      }
+      .rows .row-note {
+        font-size: 12px;
+        color: var(--ink-500);
+      }
+      .coins {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 8px;
+      }
+      .coins label {
+        margin: 0;
+        text-align: center;
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+      .coins input {
+        padding: 10px 4px;
+        text-align: center;
+        font-size: 16px;
+        -moz-appearance: textfield;
+        appearance: textfield;
+      }
+      .coins input::-webkit-inner-spin-button,
+      .coins input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      .sheet-note {
+        margin-top: 14px;
+        font-size: 13px;
+        color: var(--ink-400);
+      }
     </style>
   </head>
   <body>
     <section id="join" class="screen active">
+      <button
+        class="theme-btn"
+        type="button"
+        aria-haspopup="menu"
+        aria-controls="theme-menu"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
+          <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+          <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
+          <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+          <path
+            d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"
+          />
+        </svg>
+        Theme
+      </button>
       <h1>Join the table</h1>
       <p id="join-sub">Give your name and the code the GM reads out.</p>
       <label
@@ -396,7 +877,7 @@
           inputmode="numeric"
           pattern="[0-9]*"
           maxlength="6"
-          placeholder="6 digits"
+          placeholder="6 digits (not needed once the GM has paired this browser)"
         />
       </label>
       <div id="join-error" class="error" hidden></div>
@@ -410,6 +891,32 @@
           <span id="campaign-name"></span>
           <span class="sub" id="player-name"></span>
         </div>
+        <button
+          class="theme-btn"
+          type="button"
+          title="Theme"
+          aria-label="Theme"
+          aria-haspopup="menu"
+          aria-controls="theme-menu"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
+            <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+            <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
+            <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+            <path
+              d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"
+            />
+          </svg>
+        </button>
         <button id="leave" type="button">Leave</button>
       </header>
       <div id="notice" class="notice" hidden></div>
@@ -420,6 +927,14 @@
       </div>
       <article id="reader" hidden></article>
     </section>
+
+    <div
+      id="theme-menu"
+      class="theme-menu"
+      role="menu"
+      aria-label="Theme"
+      hidden
+    ></div>
 
     <script>
       (function () {
@@ -448,6 +963,8 @@
         var state = {
           token: null,
           name: "",
+          /** The paired player's id, when the GM has paired this browser. */
+          playerId: null,
           info: null,
           elements: [],
           filter: null,
@@ -477,6 +994,7 @@
             method: opts.method || "GET",
             headers: headers,
             body: opts.body,
+            keepalive: !!opts.keepalive,
           });
         }
 
@@ -500,6 +1018,103 @@
           });
         }
 
+        // ---- Theme -------------------------------------------------------
+        // The same themes as the app, chosen per browser and kept in its
+        // storage; the stylesheet does the rest from data-theme on <html>.
+        var THEMES = [
+          ["ember", "Ember", "Charcoal and firelight. The default."],
+          ["moonstone", "Moonstone", "Cool slate with a lavender glow."],
+          ["greenwood", "Greenwood", "Deep forest with gold leaf."],
+          ["obsidian", "Obsidian", "Near-black glass with an ice-blue edge."],
+          ["dusk", "Dusk", "Deep plum with a rose accent."],
+          ["parchment", "Parchment", "Warm paper and sealing wax. Light."],
+          ["daylight", "Daylight", "Clean neutrals with a teal accent. Light."],
+          ["sage", "Sage", "Soft green-grey paper with terracotta. Light."],
+        ];
+        var THEME_KEY = "cf.theme";
+        var themeMenu = $("theme-menu");
+
+        function isTheme(id) {
+          return THEMES.some(function (t) {
+            return t[0] === id;
+          });
+        }
+
+        function savedTheme() {
+          try {
+            var stored = localStorage.getItem(THEME_KEY);
+            if (isTheme(stored)) return stored;
+          } catch (e) {}
+          return "ember";
+        }
+
+        function applyTheme(id) {
+          if (!isTheme(id)) id = "ember";
+          document.documentElement.setAttribute("data-theme", id);
+          // A phone's browser chrome follows the page's header colour.
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) {
+            meta.setAttribute(
+              "content",
+              getComputedStyle(document.documentElement)
+                .getPropertyValue("--ink-900")
+                .trim(),
+            );
+          }
+          themeMenu.querySelectorAll("button").forEach(function (b) {
+            b.setAttribute("aria-checked", String(b.dataset.id === id));
+          });
+          try {
+            localStorage.setItem(THEME_KEY, id);
+          } catch (e) {}
+        }
+
+        THEMES.forEach(function (t) {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.setAttribute("role", "menuitemradio");
+          b.dataset.id = t[0];
+          var swatch = document.createElement("span");
+          swatch.className = "swatch";
+          swatch.setAttribute("data-theme", t[0]);
+          swatch.setAttribute("aria-hidden", "true");
+          swatch.innerHTML =
+            '<span class="side"></span><span class="lines"></span>';
+          var text = document.createElement("span");
+          text.className = "text";
+          var label = document.createElement("span");
+          label.className = "label";
+          label.textContent = t[1];
+          var desc = document.createElement("span");
+          desc.className = "desc";
+          desc.textContent = t[2];
+          text.appendChild(label);
+          text.appendChild(desc);
+          b.appendChild(swatch);
+          b.appendChild(text);
+          b.addEventListener("click", function () {
+            applyTheme(t[0]);
+            themeMenu.hidden = true;
+          });
+          themeMenu.appendChild(b);
+        });
+        document.querySelectorAll(".theme-btn").forEach(function (btn) {
+          btn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            themeMenu.hidden = !themeMenu.hidden;
+          });
+        });
+        // Close on a tap elsewhere or Escape.
+        document.addEventListener("click", function (e) {
+          if (!themeMenu.hidden && !themeMenu.contains(e.target)) {
+            themeMenu.hidden = true;
+          }
+        });
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape") themeMenu.hidden = true;
+        });
+        applyTheme(savedTheme());
+
         // ---- Join --------------------------------------------------------
         try {
           $("name").value = localStorage.getItem("cf.playerName") || "";
@@ -514,26 +1129,134 @@
               "This is " +
               info.name +
               (info.system ? " (" + info.system + ")" : "") +
-              ". Give your name and the code the GM reads out.";
+              ". Give your name and the code the GM reads out; once the GM" +
+              " has paired this browser, your name alone will do.";
           })
           .catch(function () {});
+
+        // ---- Device key --------------------------------------------------
+        // An Ed25519 key made once and kept in this browser's storage. The
+        // page signs the table's one-time challenge with it, exactly as the
+        // app does, so the GM can pair this browser with a player; from then
+        // on it joins without the code. Storage is per origin (address and
+        // port), so the table keeps a fixed port where it can.
+        var SEED_KEY = "cf.deviceSeed";
+
+        function bytesToB64(bytes) {
+          var s = "";
+          for (var i = 0; i < bytes.length; i++) {
+            s += String.fromCharCode(bytes[i]);
+          }
+          return btoa(s);
+        }
+
+        function b64ToBytes(b64) {
+          var s = atob(b64);
+          var out = new Uint8Array(s.length);
+          for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+          return out;
+        }
+
+        function asciiBytes(text) {
+          var out = new Uint8Array(text.length);
+          for (var i = 0; i < text.length; i++) {
+            out[i] = text.charCodeAt(i) & 0xff;
+          }
+          return out;
+        }
+
+        /** This browser's key pair, or null when it cannot have one. */
+        function deviceKey() {
+          if (
+            typeof nacl === "undefined" ||
+            !window.crypto ||
+            !window.crypto.getRandomValues
+          ) {
+            return null;
+          }
+          try {
+            var stored = localStorage.getItem(SEED_KEY);
+            var seed = stored ? b64ToBytes(stored) : null;
+            if (!seed || seed.length !== 32) {
+              seed = nacl.randomBytes(32);
+              localStorage.setItem(SEED_KEY, bytesToB64(seed));
+            }
+            return nacl.sign.keyPair.fromSeed(seed);
+          } catch (e) {
+            return null;
+          }
+        }
+
+        /** "Phone (Android)", "Tablet (iOS)", "Browser (Windows)"... */
+        function deviceLabel() {
+          var ua = navigator.userAgent || "";
+          var kind = /iPad|Tablet/i.test(ua)
+            ? "Tablet"
+            : /iPhone|Mobile/i.test(ua)
+              ? "Phone"
+              : "Browser";
+          var os = /iPhone|iPad/i.test(ua)
+            ? "iOS"
+            : /Android/i.test(ua)
+              ? "Android"
+              : /Windows/i.test(ua)
+                ? "Windows"
+                : /Mac/i.test(ua)
+                  ? "Mac"
+                  : /Linux/i.test(ua)
+                    ? "Linux"
+                    : "";
+          return os ? kind + " (" + os + ")" : kind;
+        }
+
+        /** The signed challenge the join carries; null to join as a guest. */
+        function deviceProof() {
+          var key = deviceKey();
+          if (!key) return Promise.resolve(null);
+          return fetch("/api/challenge")
+            .then(function (r) {
+              return r.json();
+            })
+            .then(function (c) {
+              return {
+                publicKey: bytesToB64(key.publicKey),
+                label: deviceLabel(),
+                nonce: c.nonce,
+                signature: bytesToB64(
+                  nacl.sign.detached(asciiBytes(c.nonce), key.secretKey),
+                ),
+              };
+            })
+            .catch(function () {
+              return null;
+            });
+        }
 
         $("join-btn").addEventListener("click", function () {
           var name = $("name").value.trim();
           var code = $("code").value.trim();
           var err = $("join-error");
           err.hidden = true;
-          if (!name || !code) {
-            err.textContent = "Both your name and the code are needed.";
+          if (!name) {
+            err.textContent = "Your name is needed.";
             err.hidden = false;
             return;
           }
           $("join-btn").disabled = true;
-          fetch("/api/join", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: name, code: code }),
-          })
+          deviceProof()
+            .then(function (device) {
+              if (!code && !device) {
+                throw new Error("The code the GM reads out is needed.");
+              }
+              var body = { name: name };
+              if (code) body.code = code;
+              if (device) body.device = device;
+              return fetch("/api/join", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              });
+            })
             .then(function (r) {
               return r.json().then(function (b) {
                 if (!r.ok) throw new Error(b.error || "Could not join");
@@ -541,14 +1264,22 @@
               });
             })
             .then(function (joined) {
+              // A paired browser takes the name the GM gave the player.
+              var who = joined.name || name;
               state.token = joined.token;
-              state.name = name;
+              state.name = who;
+              state.playerId = joined.playerId || null;
               state.info = joined.info;
               state.version = joined.info.version;
               try {
-                localStorage.setItem("cf.playerName", name);
+                localStorage.setItem("cf.playerName", who);
                 sessionStorage.setItem("cf.token", joined.token);
-                sessionStorage.setItem("cf.name", name);
+                sessionStorage.setItem("cf.name", who);
+                if (state.playerId) {
+                  sessionStorage.setItem("cf.playerId", state.playerId);
+                } else {
+                  sessionStorage.removeItem("cf.playerId");
+                }
               } catch (e) {}
               enter();
             })
@@ -568,13 +1299,20 @@
           if (t && n) {
             state.token = t;
             state.name = n;
-            json("/api/table")
+            state.playerId = sessionStorage.getItem("cf.playerId") || null;
+            // The table may have been restarted since: prove the token with
+            // a call that needs it before sitting back down, or the page
+            // would show an empty table instead of the join screen.
+            json("/api/elements")
+              .then(function () {
+                return json("/api/table");
+              })
               .then(function (info) {
                 state.info = info;
                 enter();
               })
               .catch(function () {
-                state.token = null;
+                leave();
               });
           }
         } catch (e) {}
@@ -589,11 +1327,15 @@
         }
 
         function leave(message) {
+          flushDraft();
           state.stopped = true;
           state.token = null;
+          state.playerId = null;
+          draft.denied = {};
           try {
             sessionStorage.removeItem("cf.token");
             sessionStorage.removeItem("cf.name");
+            sessionStorage.removeItem("cf.playerId");
           } catch (e) {}
           show("join");
           var err = $("join-error");
@@ -809,6 +1551,7 @@
         };
 
         $("back").addEventListener("click", function () {
+          flushDraft();
           state.openId = null;
           $("reader").hidden = true;
           $("list-view").hidden = false;
@@ -839,7 +1582,7 @@
             .replace(/"/g, "&quot;");
         }
 
-        function facts(el) {
+        function facts(el, mine) {
           var out = [];
           var sh = el.sheet;
           if (el.type === "character" && sh && typeof sh === "object") {
@@ -850,13 +1593,15 @@
             ].filter(Boolean);
             if (parts.length) out.push(["Sheet", parts.join(" ")]);
             if (sh.ac != null) out.push(["AC", String(sh.ac)]);
-            if (sh.hp && sh.hp.max != null)
+            // Your own hit points live in the editor below instead.
+            if (!mine && sh.hp && sh.hp.max != null)
               out.push([
                 "HP",
                 (sh.hp.current != null ? sh.hp.current + " / " : "") +
                   sh.hp.max,
               ]);
-            if (sh.owner) out.push(["Played by", sh.owner]);
+            if (mine) out.push(["Played by", "you"]);
+            else if (sh.owner) out.push(["Played by", ownerLabel(sh.owner)]);
           }
           if (el.type === "session") {
             if (el.number != null) out.push(["Session", String(el.number)]);
@@ -887,6 +1632,9 @@
 
         function renderElement(el) {
           var r = $("reader");
+          // A refresh while you type must not steal the field you are in.
+          var focused = focusKey(r);
+          var mine = ownsSheet(el);
           r.innerHTML = "";
           var kind = document.createElement("div");
           kind.className = "kind";
@@ -910,7 +1658,7 @@
             tg.textContent = el.tags.join(", ");
             r.appendChild(tg);
           }
-          var fx = facts(el);
+          var fx = facts(el, mine);
           if (fx.length) {
             var p = document.createElement("p");
             p.className = "facts";
@@ -920,6 +1668,17 @@
               })
               .join(" · ");
             r.appendChild(p);
+          }
+          if (mine) {
+            r.appendChild(renderSheet(el));
+            restoreFocus(r, focused);
+          } else if (el.type === "character" && draft.denied[el.id]) {
+            var note = document.createElement("p");
+            note.className = "sheet-note";
+            note.textContent =
+              "The GM has not handed this character to you, so it is" +
+              " read-only here.";
+            r.appendChild(note);
           }
           if (el.type === "document" && el.file) {
             var a = document.createElement("a");
@@ -985,6 +1744,652 @@
             r.appendChild(m);
           }
         }
+
+        // ---- Your character -------------------------------------------------
+        // A paired player who owns a character edits its at-the-table fields
+        // here: hit points, hit dice, death saves, inspiration, conditions,
+        // exhaustion, spell slots, item counts and coins. The whole sheet goes
+        // back with PUT, as the app does, and the GM's copy returns through
+        // the version loop; everything else on the sheet stays as the GM set
+        // it.
+        var CONDITIONS = [
+          "Blinded",
+          "Charmed",
+          "Deafened",
+          "Frightened",
+          "Grappled",
+          "Incapacitated",
+          "Invisible",
+          "Paralyzed",
+          "Petrified",
+          "Poisoned",
+          "Prone",
+          "Restrained",
+          "Stunned",
+          "Unconscious",
+        ];
+        var COINS = ["cp", "sp", "ep", "gp", "pp"];
+        var SAVE_DELAY_MS = 400;
+
+        var draft = {
+          id: null,
+          sheet: null,
+          dirty: false,
+          saving: false,
+          timer: null,
+          failed: false,
+          error: "",
+          savedAt: 0,
+          /** Characters the table refused to let this player edit. */
+          denied: {},
+        };
+
+        /** A sheet owner as a name: the paired player's, or the stored text. */
+        function ownerLabel(owner) {
+          var players = (state.info && state.info.players) || [];
+          for (var i = 0; i < players.length; i++) {
+            if (players[i].id === owner) return players[i].name;
+          }
+          return /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(owner)
+            ? "another player"
+            : owner;
+        }
+
+        /** Whether the sheet names the joined player as its owner. */
+        function ownsSheet(el) {
+          if (el.type !== "character" || draft.denied[el.id]) return false;
+          var sh = el.sheet;
+          if (!sh || typeof sh !== "object" || typeof sh.owner !== "string") {
+            return false;
+          }
+          var owner = sh.owner.trim();
+          if (!owner) return false;
+          if (state.playerId && owner === state.playerId) return true;
+          // Sheets from before pairing name the player instead.
+          return owner.toLowerCase() === state.name.trim().toLowerCase();
+        }
+
+        function clone(v) {
+          return JSON.parse(JSON.stringify(v));
+        }
+
+        function num(v, fallback) {
+          var n = typeof v === "number" ? v : parseInt(v, 10);
+          return isFinite(n) ? Math.round(n) : fallback;
+        }
+
+        function clamp(n, lo, hi) {
+          return Math.max(lo, Math.min(hi, n));
+        }
+
+        function isObj(v) {
+          return !!v && typeof v === "object" && !Array.isArray(v);
+        }
+
+        /** The nested parts an edit writes into, added when a file lacks them. */
+        function sheetParts(sh) {
+          if (!isObj(sh)) sh = {};
+          if (!isObj(sh.hp)) sh.hp = {};
+          if (!isObj(sh.status)) sh.status = {};
+          if (!isObj(sh.status.deathSaves)) sh.status.deathSaves = {};
+          if (!Array.isArray(sh.status.conditions)) sh.status.conditions = [];
+          if (!isObj(sh.spellcasting)) sh.spellcasting = {};
+          if (!isObj(sh.spellcasting.slots)) sh.spellcasting.slots = {};
+          if (!Array.isArray(sh.inventory)) sh.inventory = [];
+          if (!isObj(sh.currency)) sh.currency = {};
+          return sh;
+        }
+
+        /** The data-key of the focused field inside root, if any. */
+        function focusKey(root) {
+          var a = document.activeElement;
+          return a && root.contains(a) ? a.getAttribute("data-key") : null;
+        }
+
+        function restoreFocus(root, key) {
+          if (!key) return;
+          var el = root.querySelector('[data-key="' + key + '"]');
+          if (!el) return;
+          el.focus();
+          if (el.tagName === "INPUT" && el.type !== "number") {
+            var end = el.value.length;
+            try {
+              el.setSelectionRange(end, end);
+            } catch (e) {}
+          }
+        }
+
+        function renderSheet(el) {
+          if (draft.id !== el.id) {
+            flushDraft();
+            draft.id = el.id;
+            draft.sheet = sheetParts(clone(el.sheet));
+            draft.dirty = false;
+            draft.saving = false;
+            draft.failed = false;
+            draft.savedAt = 0;
+          } else if (!draft.dirty && !draft.saving) {
+            // Nothing of ours in flight: the GM's copy is the newer one.
+            draft.sheet = sheetParts(clone(el.sheet));
+          }
+          var box = document.createElement("section");
+          box.className = "sheet";
+          box.id = "sheet";
+          paintSheet(box);
+          return box;
+        }
+
+        function h(tag, cls, text) {
+          var n = document.createElement(tag);
+          if (cls) n.className = cls;
+          if (text != null) n.textContent = text;
+          return n;
+        }
+
+        function button(cls, text, onclick) {
+          var b = h("button", cls, text);
+          b.type = "button";
+          b.onclick = onclick;
+          return b;
+        }
+
+        function card(title, right) {
+          var c = h("div", "card");
+          var head = h("h3", null, title);
+          if (right) head.appendChild(right);
+          c.appendChild(head);
+          return c;
+        }
+
+        /**
+         * Applies an edit to the draft and schedules the save. Buttons
+         * repaint at once; a field being typed in is left alone so the
+         * keyboard stays where it is.
+         */
+        function edit(fn, repaint) {
+          fn(draft.sheet);
+          draft.dirty = true;
+          scheduleSave();
+          if (repaint !== false) paintSheet();
+        }
+
+        /** A − / number / + control; `get` reads and `set` writes the value. */
+        function stepper(key, lo, hi, get, set, allowEmpty) {
+          var wrap = h("div", "stepper");
+          var value = get();
+          // Clicks read the value as it is now: a number typed just before
+          // the tap did not repaint.
+          var minus = button(null, "−", function () {
+            var v = get();
+            set(clamp((v == null ? 0 : v) - 1, lo, hi));
+          });
+          minus.setAttribute("aria-label", "Less");
+          minus.disabled = value != null && value <= lo;
+          var input = document.createElement("input");
+          input.type = "number";
+          input.inputMode = "numeric";
+          input.min = String(lo);
+          if (hi !== Infinity) input.max = String(hi);
+          input.value = value == null ? "" : String(value);
+          input.setAttribute("data-key", key);
+          input.oninput = function () {
+            if (input.value === "" && allowEmpty) {
+              set(null, false);
+              return;
+            }
+            var n = num(input.value, null);
+            if (n !== null) set(clamp(n, lo, hi), false);
+          };
+          // Leaving the field shows the value as it was kept; buttons are
+          // not rebuilt here so a tap on one still lands.
+          input.onblur = function () {
+            var v = get();
+            input.value = v == null ? "" : String(v);
+            minus.disabled = v != null && v <= lo;
+            plus.disabled = v != null && v >= hi;
+          };
+          var plus = button(null, "+", function () {
+            var v = get();
+            set(clamp((v == null ? 0 : v) + 1, lo, hi));
+          });
+          plus.setAttribute("aria-label", "More");
+          plus.disabled = value != null && value >= hi;
+          wrap.appendChild(minus);
+          wrap.appendChild(input);
+          wrap.appendChild(plus);
+          return wrap;
+        }
+
+        /** `max` round toggles, the first `count` of them on. */
+        function pips(cls, count, max, set, label) {
+          var wrap = h("div", "pips" + (cls ? " " + cls : ""));
+          for (var i = 1; i <= max; i++) {
+            (function (n) {
+              var b = button(n <= count ? "on" : "", "", function () {
+                set(n === count ? n - 1 : n);
+              });
+              b.setAttribute("aria-label", label + " " + n);
+              wrap.appendChild(b);
+            })(i);
+          }
+          return wrap;
+        }
+
+        function field(label, control, of) {
+          var f = h("div", "field");
+          f.appendChild(document.createTextNode(label));
+          var line = h("div");
+          line.appendChild(control);
+          if (of) line.appendChild(h("span", "of", of));
+          f.appendChild(line);
+          return f;
+        }
+
+        function ordinal(l) {
+          return (
+            l + (l === "1" ? "st" : l === "2" ? "nd" : l === "3" ? "rd" : "th")
+          );
+        }
+
+        function paintSheet(box) {
+          box = box || $("sheet");
+          if (!box) return;
+          var focused = focusKey(box);
+          box.innerHTML = "";
+          var sh = draft.sheet;
+          var st = sh.status;
+          var level = clamp(num(sh.level, 1), 1, 20);
+
+          var head = h("div", "sheet-head");
+          head.appendChild(
+            h("span", null, "Your character. Edits go to the GM's copy."),
+          );
+          head.appendChild(h("span", "save-state"));
+          box.appendChild(head);
+
+          // Hit points and hit dice.
+          var hp = card("Hit points");
+          var hpFields = h("div", "fields");
+          hpFields.appendChild(
+            field(
+              "Current",
+              stepper(
+                "hp.current",
+                0,
+                Infinity,
+                function () {
+                  return num(sh.hp.current, null);
+                },
+                function (v, repaint) {
+                  edit(function (s) {
+                    s.hp.current = v;
+                  }, repaint);
+                },
+                true,
+              ),
+              sh.hp.max != null ? "of " + sh.hp.max : null,
+            ),
+          );
+          hpFields.appendChild(
+            field(
+              "Temporary",
+              stepper(
+                "hp.temp",
+                0,
+                Infinity,
+                function () {
+                  return num(sh.hp.temp, null);
+                },
+                function (v, repaint) {
+                  edit(function (s) {
+                    s.hp.temp = v;
+                  }, repaint);
+                },
+                true,
+              ),
+            ),
+          );
+          hpFields.appendChild(
+            field(
+              "Hit dice used",
+              stepper(
+                "status.hitDiceUsed",
+                0,
+                level,
+                function () {
+                  return clamp(num(st.hitDiceUsed, 0), 0, level);
+                },
+                function (v, repaint) {
+                  edit(function (s) {
+                    s.status.hitDiceUsed = v;
+                  }, repaint);
+                },
+              ),
+              "of " + level,
+            ),
+          );
+          hp.appendChild(hpFields);
+          box.appendChild(hp);
+
+          // Death saves, inspiration, exhaustion.
+          var ds = st.deathSaves;
+          var successes = clamp(num(ds.successes, 0), 0, 3);
+          var failures = clamp(num(ds.failures, 0), 0, 3);
+          var status = card(
+            "Status",
+            successes || failures
+              ? button(null, "Stable: clear saves", function () {
+                  edit(function (s) {
+                    s.status.deathSaves = { successes: 0, failures: 0 };
+                  });
+                })
+              : null,
+          );
+          var stFields = h("div", "fields");
+          stFields.appendChild(
+            field(
+              "Death save successes",
+              pips(
+                "",
+                successes,
+                3,
+                function (v) {
+                  edit(function (s) {
+                    s.status.deathSaves.successes = v;
+                  });
+                },
+                "Success",
+              ),
+            ),
+          );
+          stFields.appendChild(
+            field(
+              "Death save failures",
+              pips(
+                "bad",
+                failures,
+                3,
+                function (v) {
+                  edit(function (s) {
+                    s.status.deathSaves.failures = v;
+                  });
+                },
+                "Failure",
+              ),
+            ),
+          );
+          stFields.appendChild(
+            field(
+              "Exhaustion",
+              stepper(
+                "status.exhaustion",
+                0,
+                6,
+                function () {
+                  return clamp(num(st.exhaustion, 0), 0, 6);
+                },
+                function (v, repaint) {
+                  edit(function (s) {
+                    s.status.exhaustion = v;
+                  }, repaint);
+                },
+              ),
+              "of 6",
+            ),
+          );
+          var insp = h("div", "chips");
+          insp.style.marginTop = "6px";
+          insp.appendChild(
+            button(
+              st.inspiration === true ? "on" : "",
+              st.inspiration === true ? "Inspired" : "Inspiration",
+              function () {
+                edit(function (s) {
+                  s.status.inspiration = s.status.inspiration !== true;
+                });
+              },
+            ),
+          );
+          stFields.appendChild(field("Inspiration", insp));
+          status.appendChild(stFields);
+          box.appendChild(status);
+
+          // Conditions: the standard list plus any the GM typed in.
+          var conditions = card("Conditions");
+          var chips = h("div", "chips");
+          var known = CONDITIONS.slice();
+          st.conditions.forEach(function (c) {
+            if (typeof c === "string" && known.indexOf(c) < 0) known.push(c);
+          });
+          known.forEach(function (c) {
+            var on = st.conditions.indexOf(c) >= 0;
+            chips.appendChild(
+              button(on ? "on" : "", c, function () {
+                edit(function (s) {
+                  s.status.conditions = on
+                    ? s.status.conditions.filter(function (x) {
+                        return x !== c;
+                      })
+                    : s.status.conditions.concat([c]);
+                });
+              }),
+            );
+          });
+          conditions.appendChild(chips);
+          box.appendChild(conditions);
+
+          // Spell slots, when the sheet has any.
+          var slots = sh.spellcasting.slots;
+          var levels = [];
+          for (var l = 1; l <= 9; l++) {
+            var row = slots[String(l)];
+            if (isObj(row) && num(row.max, 0) > 0) levels.push(String(l));
+          }
+          if (levels.length) {
+            var spells = card(
+              "Spell slots used",
+              button(null, "Long rest: restore", function () {
+                edit(function (s) {
+                  levels.forEach(function (lv) {
+                    s.spellcasting.slots[lv].used = 0;
+                  });
+                });
+              }),
+            );
+            var rows = h("div", "rows");
+            levels.forEach(function (lv) {
+              var r = slots[lv];
+              var max = num(r.max, 0);
+              var used = clamp(num(r.used, 0), 0, max);
+              var line = h("div");
+              line.appendChild(h("span", "row-name", ordinal(lv)));
+              line.appendChild(
+                pips(
+                  "",
+                  used,
+                  max,
+                  function (v) {
+                    edit(function (s) {
+                      s.spellcasting.slots[lv].used = v;
+                    });
+                  },
+                  "Level " + lv + " slot",
+                ),
+              );
+              rows.appendChild(line);
+            });
+            spells.appendChild(rows);
+            box.appendChild(spells);
+          }
+
+          // Inventory counts.
+          if (sh.inventory.length) {
+            var inv = card("Inventory");
+            var items = h("div", "rows");
+            sh.inventory.forEach(function (item, i) {
+              if (!isObj(item)) return;
+              var line = h("div");
+              var name = h("div", "row-name", item.name || "Item");
+              if (item.notes)
+                name.appendChild(h("div", "row-note", item.notes));
+              line.appendChild(name);
+              line.appendChild(
+                stepper(
+                  "inventory." + (item.id || i),
+                  0,
+                  Infinity,
+                  function () {
+                    return Math.max(0, num(item.qty, 1));
+                  },
+                  function (v, repaint) {
+                    edit(function (s) {
+                      s.inventory[i].qty = v;
+                    }, repaint);
+                  },
+                ),
+              );
+              items.appendChild(line);
+            });
+            inv.appendChild(items);
+            box.appendChild(inv);
+          }
+
+          // Coins.
+          var money = card("Coins");
+          var coins = h("div", "coins");
+          COINS.forEach(function (k) {
+            var lab = h("label", null, k);
+            var input = document.createElement("input");
+            input.type = "number";
+            input.inputMode = "numeric";
+            input.min = "0";
+            input.value = String(Math.max(0, num(sh.currency[k], 0)));
+            input.setAttribute("data-key", "currency." + k);
+            input.oninput = function () {
+              var n = num(input.value, null);
+              if (n === null) return;
+              edit(function (s) {
+                s.currency[k] = Math.max(0, n);
+              }, false);
+            };
+            input.onblur = function () {
+              input.value = String(Math.max(0, num(sh.currency[k], 0)));
+            };
+            lab.appendChild(input);
+            coins.appendChild(lab);
+          });
+          money.appendChild(coins);
+          box.appendChild(money);
+
+          paintSaveState(box);
+          restoreFocus(box, focused);
+        }
+
+        var saveStateTimer = null;
+
+        /** `root` is the box while it is being built and not yet attached. */
+        function paintSaveState(root) {
+          var el = root
+            ? root.querySelector(".save-state")
+            : document.querySelector("#sheet .save-state");
+          if (!el) return;
+          el.innerHTML = "";
+          el.classList.toggle("err", draft.failed);
+          if (draft.failed) {
+            el.appendChild(document.createTextNode(draft.error || "Not saved"));
+            el.appendChild(button(null, "Retry", flushDraft));
+          } else if (draft.saving || draft.dirty) {
+            el.textContent = "Saving…";
+          } else if (draft.savedAt) {
+            el.textContent = "Saved";
+            if (saveStateTimer) clearTimeout(saveStateTimer);
+            saveStateTimer = setTimeout(function () {
+              draft.savedAt = 0;
+              if (!draft.saving && !draft.dirty && !draft.failed) {
+                paintSaveState();
+              }
+            }, 2000);
+          }
+        }
+
+        function scheduleSave() {
+          if (draft.timer) clearTimeout(draft.timer);
+          draft.timer = setTimeout(flushDraft, SAVE_DELAY_MS);
+          paintSaveState();
+        }
+
+        /** Sends the draft now, as the app does after its own short pause. */
+        function flushDraft(keepalive) {
+          if (draft.timer) {
+            clearTimeout(draft.timer);
+            draft.timer = null;
+          }
+          if (!draft.dirty || !draft.id || !state.token) return;
+          // One save at a time; the next goes once this one has answered.
+          if (draft.saving) return;
+          var id = draft.id;
+          draft.dirty = false;
+          draft.saving = true;
+          draft.failed = false;
+          paintSaveState();
+          api("/api/elements/" + id + "/sheet", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(draft.sheet),
+            keepalive: keepalive === true,
+          })
+            .then(function (r) {
+              if (r.status === 403) throw new Error("DENIED");
+              if (!r.ok) {
+                return r.json().then(
+                  function (b) {
+                    throw new Error(
+                      (b && b.error) || "The table answered " + r.status,
+                    );
+                  },
+                  function () {
+                    throw new Error("The table answered " + r.status);
+                  },
+                );
+              }
+              return r.json();
+            })
+            .then(function () {
+              // The GM's copy comes back through the version loop and is
+              // adopted at the next repaint; swapping the draft here would
+              // leave the painted fields reading a stale object.
+              if (draft.id !== id) return;
+              draft.saving = false;
+              draft.savedAt = Date.now();
+              if (draft.dirty) flushDraft();
+              else paintSaveState();
+            })
+            .catch(function (e) {
+              if (draft.id !== id) return;
+              draft.saving = false;
+              if (e.message === "DENIED") {
+                // Not ours after all: fall back to the read-only view.
+                draft.denied[id] = true;
+                draft.dirty = false;
+                if (state.openId === id) openElement(id, true);
+                return;
+              }
+              draft.dirty = true;
+              draft.failed = true;
+              draft.error =
+                "Could not save: " +
+                (e.message === "Failed to fetch" ? "lost the GM" : e.message);
+              paintSaveState();
+            });
+        }
+
+        // Switching apps or closing the tab sends whatever is still pending.
+        document.addEventListener("visibilitychange", function () {
+          if (document.visibilityState === "hidden") flushDraft(true);
+        });
+        window.addEventListener("pagehide", function () {
+          flushDraft(true);
+        });
 
         function renderMap(el) {
           var wrap = document.createElement("div");

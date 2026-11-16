@@ -120,6 +120,9 @@ export interface DiskChanges {
   elementIds: string[];
   listChanged: boolean;
   campaignChanged: boolean;
+  /** The file version each changed element now has. A window already
+   *  showing that version made the change itself and need not reload. */
+  versions?: Record<string, string>;
 }
 
 /** Whether an error from a save is a version conflict. */
@@ -344,6 +347,8 @@ export interface TablePlayer {
   device: { fingerprint: string; publicKey: string; label: string } | null;
   /** Set once the device is paired with a player. */
   playerId: string | null;
+  /** The paired player is a GM: this connection runs the GM view. */
+  gm: boolean;
 }
 
 export interface PlayerDevice {
@@ -359,6 +364,9 @@ export interface PlayerRecord {
   name: string;
   devices: PlayerDevice[];
   lastSeen: string | null;
+  /** A second GM: their devices get the whole campaign, editable, at the
+   *  table (the GM's own laptop while the desktop holds the files). */
+  gm: boolean;
 }
 
 export interface DeviceIdentity {
@@ -371,6 +379,8 @@ export interface HostStatus {
   code: string;
   /** `ip:port` pairs players can type if discovery fails. */
   addresses: string[];
+  /** mDNS name browsers can open instead of an IP, when announced. */
+  hostName: string | null;
   players: TablePlayer[];
   announceError: string | null;
   /** Element currently shown to everyone, if any. */
@@ -389,6 +399,13 @@ export interface TableInfo {
   system: string | null;
   calendar: unknown;
   version: number;
+  /** The campaign's paired players by id, for naming a sheet's owner. */
+  players: PlayerName[];
+}
+
+export interface PlayerName {
+  id: string;
+  name: string;
 }
 
 /** Answer to a version long-poll. */
@@ -400,6 +417,11 @@ export interface TableChange {
   spotlight: string | null;
   /** Grows on every spotlight change. */
   spotlightSeq: number;
+  /** Whether this device counts as a GM right now; the host can grant or
+   *  revoke that while we are connected. */
+  gm: boolean;
+  /** For a GM's device: what changed on the host since our version. */
+  changes: DiskChanges | null;
 }
 
 export interface TableSession {
@@ -409,5 +431,7 @@ export interface TableSession {
   playerId: string | null;
   /** True when no code was needed because the device was known. */
   recognized: boolean;
+  /** This device belongs to a GM: the GM screen, fed from the table. */
+  gm: boolean;
   info: TableInfo;
 }

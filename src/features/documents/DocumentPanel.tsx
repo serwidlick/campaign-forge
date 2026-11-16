@@ -1,8 +1,8 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { FileText, FileUp, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/Button";
+import { pickFile } from "@/lib/platform";
 import { errorMessage, storage } from "@/lib/tauri";
 import type { Element } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
@@ -27,13 +27,12 @@ export function DocumentPanel({ element }: { element: Element }) {
     typeof element.fileBytes === "number" ? element.fileBytes : null;
 
   async function choose() {
-    const picked = await open({
-      multiple: false,
-      directory: false,
+    const picked = await pickFile({
       title: "Choose a PDF",
-      filters: [{ name: "PDF", extensions: ["pdf"] }],
+      name: "PDF",
+      extensions: ["pdf"],
     });
-    if (typeof picked !== "string") return;
+    if (!picked) return;
     setBusy(true);
     try {
       const doc = await storage.importDocument(picked);

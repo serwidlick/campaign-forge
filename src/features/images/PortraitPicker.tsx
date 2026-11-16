@@ -1,7 +1,7 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { ImagePlus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
+import { pickFile } from "@/lib/platform";
 import { errorMessage, storage } from "@/lib/tauri";
 import type { Element } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
@@ -23,15 +23,12 @@ export function PortraitPicker({ element }: { element: Element }) {
   const path = portraitOf(element);
 
   async function pick() {
-    const picked = await open({
-      multiple: false,
-      directory: false,
+    const picked = await pickFile({
       title: `Choose a picture for ${element.name}`,
-      filters: [
-        { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] },
-      ],
+      name: "Images",
+      extensions: ["png", "jpg", "jpeg", "webp", "gif"],
     });
-    if (typeof picked !== "string") return;
+    if (!picked) return;
     setBusy(true);
     try {
       const img = await storage.importElementImage(element.id, picked);

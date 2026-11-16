@@ -1,10 +1,23 @@
 /**
  * Typed wrappers around the Rust commands in `src-tauri/src/commands.rs`.
  * This is the only module in the frontend that calls `invoke`.
+ *
+ * Every command here can also run on another machine: when this app sits at
+ * a table as a GM (`setRemoteGm`), the campaign's commands are sent to the
+ * hosting machine over the table (`table_gm_call`) and run against its
+ * files, so the whole GM screen works unchanged from a second device. The
+ * few commands that only make sense locally, such as opening a campaign
+ * folder or reading a file from this disk, stay local.
+ *
+ * The frontend also runs in a plain browser, as the `/gm` page a hosting
+ * machine serves. There is no Rust side then: the table commands go through
+ * `web-table.ts` over `fetch`, and the campaign's commands go the same way
+ * once the GM has made that browser a GM.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import { inTauri, type PickedFile } from "./platform";
 import type {
   CampaignMeta,
   ConversationSummary,
@@ -24,10 +37,147 @@ import type {
   TableChange,
   TableSession,
 } from "./types";
+import { deviceLabel, web } from "./web-table";
+
+// ---- Where commands run ------------------------------------------------------
+
+let remoteGm = false;
+
+/**
+ * Routes the campaign's commands to the hosting machine (true) or to this
+ * one (false). Set by the table store when a GM's device joins a table.
+ */
+export function setRemoteGm(on: boolean): void {
+  remoteGm = on;
+}
+
+/** Commands about this machine, never sent over the table. */
+const LOCAL_ONLY = new Set([
+  "create_campaign",
+  "open_campaign",
+  "probe_campaigns",
+  "extract_document_text",
+]);
+
+/** Browser storage for the API key when there is no credential store. */
+const WEB_API_KEY = "cf.apiKey";
+
+/**
+ * A Rust command, or what a browser can do in its place: the table over
+ * `fetch`, and a few things that are simply not there (hosting, this
+ * machine's folders).
+ */
+function ipc<T>(
+  command: string,
+  args: Record<string, unknown> = {},
+): Promise<T> {
+  if (inTauri) return invoke<T>(command, args);
+  return webCommand(command, args) as Promise<T>;
+}
+
+async function webCommand(
+  command: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  switch (command) {
+    case "table_join":
+      return web.join(args.name as string);
+    case "table_leave":
+      web.leave();
+      return;
+    case "table_session":
+      return web.session();
+    case "table_fetch_elements":
+      return web.fetchElements();
+    case "table_fetch_element":
+      return web.fetchElement(args.id as string);
+    case "table_fetch_asset":
+      return web.fetchAsset(args.path as string);
+    case "table_update_sheet":
+      return web.updateSheet(args.id as string, args.sheet);
+    case "table_wait_for_change":
+      return web.waitForChange(args.after as number, args.event as number);
+    case "table_gm_call":
+      return web.gmCall(args.command as string, args.args);
+    case "table_gm_asset":
+      return web.gmAsset(args.path as string);
+    case "table_host_status":
+      // Not a GM yet: this browser hosts nothing. (As a GM the call is
+      // routed to the hosting machine before it gets here.)
+      return null;
+    case "table_discover":
+      return [];
+    case "table_discover_stop":
+      return;
+    case "device_identity":
+      return {
+        fingerprint: "",
+        label: deviceLabel(),
+      } satisfies DeviceIdentity;
+    case "get_api_key":
+      return localStorage.getItem(WEB_API_KEY);
+    case "set_api_key":
+      localStorage.setItem(WEB_API_KEY, String(args.key).trim());
+      return;
+    case "clear_api_key":
+      localStorage.removeItem(WEB_API_KEY);
+      return;
+    default:
+      throw `${command.replaceAll("_", " ")} is only available in the Campaign Forge app`;
+  }
+}
+
+/** Runs a campaign command here, or on the hosting machine as a GM. */
+function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (remoteGm && !LOCAL_ONLY.has(command)) {
+    return ipc<T>("table_gm_call", { command, args: args ?? {} });
+  }
+  return ipc<T>(command, args);
+}
+
+/**
+ * Imports a file the user picked. Locally the Rust side reads the path; at
+ * a table as a GM, this machine reads it and sends the bytes to the host;
+ * in a browser the File's bytes go straight to the host.
+ */
+function importFile<T>(
+  command: string,
+  kind: "map" | "image" | "document",
+  id: string | null,
+  source: PickedFile,
+): Promise<T> {
+  if (typeof source !== "string") {
+    if (!inTauri) return web.upload<T>(kind, id, source);
+    return Promise.reject(
+      new Error("a File can only be imported from a browser"),
+    );
+  }
+  if (remoteGm) {
+    return ipc<T>("table_gm_import", { kind, id, source });
+  }
+  const args =
+    kind === "map"
+      ? { mapId: id, source }
+      : kind === "image"
+        ? { elementId: id, source }
+        : { source };
+  return ipc<T>(command, args);
+}
+
+/** Handlers for changes to the open campaign's files, wherever they live. */
+const changeHandlers = new Set<(changes: DiskChanges) => void>();
+
+/**
+ * Called by the table store with what changed on the hosting machine, so a
+ * GM's device reloads exactly what the host's own window would.
+ */
+export function notifyFilesChanged(changes: DiskChanges): void {
+  for (const handler of changeHandlers) handler(changes);
+}
 
 export const storage = {
   createCampaign(path: string, name: string, system?: string) {
-    return invoke<CampaignMeta>("create_campaign", {
+    return call<CampaignMeta>("create_campaign", {
       path,
       name,
       system: system ?? null,
@@ -35,16 +185,16 @@ export const storage = {
   },
 
   openCampaign(path: string) {
-    return invoke<CampaignMeta>("open_campaign", { path });
+    return call<CampaignMeta>("open_campaign", { path });
   },
 
   /** For each path, whether a campaign folder still exists there. */
   probeCampaigns(paths: string[]) {
-    return invoke<boolean[]>("probe_campaigns", { paths });
+    return call<boolean[]>("probe_campaigns", { paths });
   },
 
   getCampaign() {
-    return invoke<CampaignMeta | null>("get_campaign");
+    return call<CampaignMeta | null>("get_campaign");
   },
 
   /** Change name, system and/or settings. `system: null` clears it. */
@@ -53,7 +203,7 @@ export const storage = {
     system?: string | null;
     extra?: Record<string, unknown>;
   }) {
-    return invoke<CampaignMeta>("update_campaign", {
+    return call<CampaignMeta>("update_campaign", {
       name: patch.name ?? null,
       system: patch.system ?? null,
       clearSystem: patch.system === null,
@@ -62,15 +212,15 @@ export const storage = {
   },
 
   listElements() {
-    return invoke<ElementSummary[]>("list_elements");
+    return call<ElementSummary[]>("list_elements");
   },
 
   readElement(id: string) {
-    return invoke<Element>("read_element", { id });
+    return call<Element>("read_element", { id });
   },
 
   createElement(kind: string, name: string, extra?: Record<string, unknown>) {
-    return invoke<Element>("create_element", {
+    return call<Element>("create_element", {
       kind,
       name,
       extra: extra ?? null,
@@ -78,50 +228,68 @@ export const storage = {
   },
 
   saveElement(input: SaveElementInput) {
-    return invoke<Element>("save_element", { input });
+    return call<Element>("save_element", { input });
   },
 
   /** Calls `handler` whenever the open campaign's files change outside this
-   *  window (sync client, another program, a player at the table). */
+   *  window (sync client, another program, a player at the table), or, as a
+   *  GM at someone's table, whenever the hosting machine's files change. */
   onFilesChanged(handler: (changes: DiskChanges) => void): Promise<UnlistenFn> {
-    return listen<DiskChanges>("campaign-files-changed", (event) =>
-      handler(event.payload),
-    );
-  },
-
-  deleteElement(id: string) {
-    return invoke<void>("delete_element", { id });
-  },
-
-  /** Copies an image into the campaign's assets folder for a map element. */
-  importMapImage(mapId: string, source: string) {
-    return invoke<ImportedImage>("import_map_image", { mapId, source });
-  },
-
-  /** Copies a picture into assets/images/ for any element. */
-  importElementImage(elementId: string, source: string) {
-    return invoke<ImportedImage>("import_element_image", {
-      elementId,
-      source,
+    changeHandlers.add(handler);
+    if (!inTauri) {
+      return Promise.resolve(() => changeHandlers.delete(handler));
+    }
+    // The local watcher speaks for this machine's folder, which is not the
+    // campaign on screen while this device works from a table.
+    const local = listen<DiskChanges>("campaign-files-changed", (event) => {
+      if (!remoteGm) handler(event.payload);
+    });
+    return local.then((stop) => () => {
+      changeHandlers.delete(handler);
+      stop();
     });
   },
 
+  deleteElement(id: string) {
+    return call<void>("delete_element", { id });
+  },
+
+  /** Copies an image into the campaign's assets folder for a map element. */
+  importMapImage(mapId: string, source: PickedFile) {
+    return importFile<ImportedImage>("import_map_image", "map", mapId, source);
+  },
+
+  /** Copies a picture into assets/images/ for any element. */
+  importElementImage(elementId: string, source: PickedFile) {
+    return importFile<ImportedImage>(
+      "import_element_image",
+      "image",
+      elementId,
+      source,
+    );
+  },
+
   importElementImageBytes(elementId: string, dataBase64: string) {
-    return invoke<ImportedImage>("import_element_image_bytes", {
+    return call<ImportedImage>("import_element_image_bytes", {
       elementId,
       dataBase64,
     });
   },
 
   /** Copies a PDF into assets/docs/. */
-  importDocument(source: string) {
-    return invoke<ImportedDocument>("import_document", { source });
+  importDocument(source: PickedFile) {
+    return importFile<ImportedDocument>(
+      "import_document",
+      "document",
+      null,
+      source,
+    );
   },
 
   /** Text of a PDF or .txt/.md file anywhere on disk, by page (a text file
    *  is cut into pseudo-pages); nothing is copied. */
   extractDocumentText(source: string, from?: number, to?: number) {
-    return invoke<PdfText>("extract_document_text", {
+    return call<PdfText>("extract_document_text", {
       source,
       from: from ?? null,
       to: to ?? null,
@@ -130,7 +298,7 @@ export const storage = {
 
   /** Text of a PDF under assets/docs/, by page. */
   readDocumentText(path: string, from?: number, to?: number) {
-    return invoke<PdfText>("read_document_text", {
+    return call<PdfText>("read_document_text", {
       path,
       from: from ?? null,
       to: to ?? null,
@@ -139,7 +307,7 @@ export const storage = {
 
   /** Imports image bytes (base64) for a map element. */
   importMapImageBytes(mapId: string, dataBase64: string) {
-    return invoke<ImportedImage>("import_map_image_bytes", {
+    return call<ImportedImage>("import_map_image_bytes", {
       mapId,
       dataBase64,
     });
@@ -147,29 +315,31 @@ export const storage = {
 
   /** Downloads an http(s) image and imports it for a map element. */
   importMapImageFromUrl(mapId: string, url: string) {
-    return invoke<ImportedImage>("import_map_image_from_url", { mapId, url });
+    return call<ImportedImage>("import_map_image_from_url", { mapId, url });
   },
 
   /** Case-insensitive text search over names, tags and bodies. */
   searchElements(query: string, limit = 20) {
-    return invoke<SearchHit[]>("search_elements", { query, limit });
+    return call<SearchHit[]>("search_elements", { query, limit });
   },
 
   /** Raw bytes of an asset by campaign-relative path. */
   readAsset(path: string) {
-    return invoke<ArrayBuffer>("read_asset", { path });
+    return remoteGm
+      ? ipc<ArrayBuffer>("table_gm_asset", { path })
+      : ipc<ArrayBuffer>("read_asset", { path });
   },
 
   /** Shared elements exactly as players receive them; `playerId` previews
    *  one paired player's view, otherwise anyone's. */
   listSharedElements(playerId?: string) {
-    return invoke<ElementSummary[]>("list_shared_elements", {
+    return call<ElementSummary[]>("list_shared_elements", {
       playerId: playerId ?? null,
     });
   },
 
   readSharedElement(id: string, playerId?: string) {
-    return invoke<Element | null>("read_shared_element", {
+    return call<Element | null>("read_shared_element", {
       id,
       playerId: playerId ?? null,
     });
@@ -178,30 +348,34 @@ export const storage = {
 
 /** This device's identity for tables (`src-tauri/src/identity.rs`). */
 export function deviceIdentity() {
-  return invoke<DeviceIdentity>("device_identity");
+  return ipc<DeviceIdentity>("device_identity");
 }
 
-/** Hosting a table and joining one (`src-tauri/src/table`). */
+/**
+ * Hosting a table and joining one (`src-tauri/src/table`). The hosting
+ * controls that read or steer the table (status, spotlight, pairing) also
+ * follow a GM to a second device; starting and stopping the table do not.
+ */
 export const table = {
   startHosting() {
-    return invoke<HostStatus>("table_start_hosting");
+    return ipc<HostStatus>("table_start_hosting");
   },
   stopHosting() {
-    return invoke<void>("table_stop_hosting");
+    return ipc<void>("table_stop_hosting");
   },
   hostStatus() {
-    return invoke<HostStatus | null>("table_host_status");
+    return call<HostStatus | null>("table_host_status");
   },
   /** Starts browsing if needed and returns the tables seen so far. */
   discover() {
-    return invoke<FoundTable[]>("table_discover");
+    return ipc<FoundTable[]>("table_discover");
   },
   discoverStop() {
-    return invoke<void>("table_discover_stop");
+    return ipc<void>("table_discover_stop");
   },
   /** Joins; the code is only needed the first time from a device. */
   join(address: string, name: string, code?: string) {
-    return invoke<TableSession>("table_join", {
+    return ipc<TableSession>("table_join", {
       address,
       name,
       code: code ?? null,
@@ -209,38 +383,38 @@ export const table = {
   },
   /** GM: pair a connected device with an existing player (id) or a new one (name). */
   bindDevice(token: string, playerId: string | null, name: string | null) {
-    return invoke<HostStatus>("table_bind_device", { token, playerId, name });
+    return call<HostStatus>("table_bind_device", { token, playerId, name });
   },
   players() {
-    return invoke<PlayerRecord[]>("table_players");
+    return call<PlayerRecord[]>("table_players");
   },
   leave() {
-    return invoke<void>("table_leave");
+    return ipc<void>("table_leave");
   },
   session() {
-    return invoke<TableSession | null>("table_session");
+    return ipc<TableSession | null>("table_session");
   },
   fetchElements() {
-    return invoke<ElementSummary[]>("table_fetch_elements");
+    return ipc<ElementSummary[]>("table_fetch_elements");
   },
   fetchElement(id: string) {
-    return invoke<Element | null>("table_fetch_element", { id });
+    return ipc<Element | null>("table_fetch_element", { id });
   },
   fetchAsset(path: string) {
-    return invoke<ArrayBuffer>("table_fetch_asset", { path });
+    return ipc<ArrayBuffer>("table_fetch_asset", { path });
   },
   /** Player: save the sheet of the character the GM assigned to you. */
   updateSheet(id: string, sheet: unknown) {
-    return invoke<Element>("table_update_sheet", { id, sheet });
+    return ipc<Element>("table_update_sheet", { id, sheet });
   },
   /** Resolves when the GM's version passes `after`, after ~25 s, or when
    *  the GM stops hosting (`closed`). */
   waitForChange(after: number, event: number) {
-    return invoke<TableChange>("table_wait_for_change", { after, event });
+    return ipc<TableChange>("table_wait_for_change", { after, event });
   },
   /** Show an element on every player's screen; null clears it. */
   spotlight(id: string | null) {
-    return invoke<HostStatus>("table_spotlight", { id });
+    return call<HostStatus>("table_spotlight", { id });
   },
 };
 
@@ -248,17 +422,17 @@ export const table = {
 export const conversations = {
   /** Most recently updated first. */
   list() {
-    return invoke<ConversationSummary[]>("list_conversations");
+    return call<ConversationSummary[]>("list_conversations");
   },
   read(id: string) {
-    return invoke<StoredConversation>("read_conversation", { id });
+    return call<StoredConversation>("read_conversation", { id });
   },
   /** Stamps `updatedAt` (and `createdAt` on first save) and returns the summary. */
   save(conversation: StoredConversation) {
-    return invoke<ConversationSummary>("save_conversation", { conversation });
+    return call<ConversationSummary>("save_conversation", { conversation });
   },
   delete(id: string) {
-    return invoke<void>("delete_conversation", { id });
+    return call<void>("delete_conversation", { id });
   },
 };
 
@@ -269,15 +443,18 @@ export function errorMessage(err: unknown): string {
   return String(err);
 }
 
-/** The user's Anthropic API key, held in the OS credential store. */
+/**
+ * The user's Anthropic API key: in the OS credential store from the app,
+ * in the browser's own storage from the `/gm` page.
+ */
 export const secrets = {
   getApiKey() {
-    return invoke<string | null>("get_api_key");
+    return ipc<string | null>("get_api_key");
   },
   setApiKey(key: string) {
-    return invoke<void>("set_api_key", { key });
+    return ipc<void>("set_api_key", { key });
   },
   clearApiKey() {
-    return invoke<void>("clear_api_key");
+    return ipc<void>("clear_api_key");
   },
 };

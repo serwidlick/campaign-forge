@@ -4,10 +4,12 @@
 //! of the open campaign, announced with mDNS ([`discovery`]). Players join
 //! from their own copy of the app ([`client`]) with the six-digit code the GM
 //! reads out. [`share`] decides what "shared" means, for the server and for
-//! the GM's own preview alike.
+//! the GM's own preview alike. A player the GM has marked as a GM gets the
+//! whole campaign instead ([`gm`]): the GM's own second machine at the table.
 
 mod client;
 mod discovery;
+mod gm;
 pub mod players;
 mod server;
 pub mod share;
@@ -15,6 +17,7 @@ pub mod share;
 use std::sync::Mutex;
 
 use serde::Serialize;
+use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::watch;
 
@@ -36,6 +39,9 @@ struct Host {
     port: u16,
     code: String,
     addresses: Vec<String>,
+    /// `forge.local` while the mDNS announcement is up, so browsers can use
+    /// a name instead of an IP.
+    host_name: Option<String>,
     players: server::Players,
     stop: watch::Sender<bool>,
     spotlight: watch::Sender<server::Spotlight>,
@@ -51,6 +57,8 @@ pub struct HostStatus {
     pub code: String,
     /// `ip:port` pairs players can type if discovery fails.
     pub addresses: Vec<String>,
+    /// mDNS name browsers can open instead of an IP, when announced.
+    pub host_name: Option<String>,
     pub players: Vec<Player>,
     /// Set when the table is up but could not be announced on the network.
     pub announce_error: Option<String>,
@@ -70,6 +78,7 @@ impl Host {
             port: self.port,
             code: self.code.clone(),
             addresses: self.addresses.clone(),
+            host_name: self.host_name.clone(),
             players,
             announce_error: self.announce_error.clone(),
             spotlight: self.spotlight.borrow().element.clone(),
@@ -132,6 +141,9 @@ pub async fn table_start_hosting(
         port: running.port,
         code,
         addresses,
+        host_name: registration
+            .is_some()
+            .then(|| discovery::HOST_NAME.to_owned()),
         players: running.players,
         stop: running.stop,
         spotlight: running.spotlight,
@@ -171,26 +183,84 @@ impl TableState {
     }
 }
 
+impl TableState {
+    pub fn host_status(&self) -> CommandResult<Option<HostStatus>> {
+        Ok(lock(&self.host)?.as_ref().map(Host::status))
+    }
+
+    /// Shows an element on every player's screen (`None` clears it).
+    pub fn set_spotlight(&self, id: Option<String>) -> CommandResult<HostStatus> {
+        let guard = lock(&self.host)?;
+        let host = guard
+            .as_ref()
+            .ok_or_else(|| "not hosting a table".to_owned())?;
+        host.spotlight.send_modify(|s| {
+            s.seq += 1;
+            s.element = id;
+        });
+        Ok(host.status())
+    }
+
+    /// Pairs a connected device with a player: an existing one (`player_id`)
+    /// or a new one named `name`. From then on that device joins without a
+    /// code and counts as that player for audiences and character ownership.
+    pub fn bind_device(
+        &self,
+        app: &AppHandle,
+        token: &str,
+        player_id: Option<&str>,
+        name: Option<&str>,
+    ) -> CommandResult<HostStatus> {
+        let guard = lock(&self.host)?;
+        let host = guard
+            .as_ref()
+            .ok_or_else(|| "not hosting a table".to_owned())?;
+        let (device, join_name) = {
+            let players = host
+                .players
+                .lock()
+                .map_err(|_| "player list poisoned".to_owned())?;
+            let p = players
+                .get(token)
+                .ok_or_else(|| "that connection is gone".to_owned())?;
+            let d = p.device.clone().ok_or_else(|| {
+                "that device cannot be paired (it joined from a browser)".to_owned()
+            })?;
+            (d, p.name.clone())
+        };
+        let state = app.state::<AppState>();
+        let record = players::bind_device(
+            &state,
+            player_id,
+            name.unwrap_or(&join_name),
+            players::PlayerDevice {
+                fingerprint: device.fingerprint,
+                public_key: device.public_key,
+                label: device.label,
+                added_at: String::new(),
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        if let Ok(mut players) = host.players.lock()
+            && let Some(p) = players.get_mut(token)
+        {
+            p.player_id = Some(record.id.clone());
+            p.name = record.name.clone();
+            p.gm = record.gm;
+        }
+        Ok(host.status())
+    }
+}
+
 /// Shows an element on every player's screen (`None` clears the spotlight).
 #[tauri::command]
 pub fn table_spotlight(
     table: State<'_, TableState>,
     id: Option<String>,
 ) -> CommandResult<HostStatus> {
-    let guard = lock(&table.host)?;
-    let host = guard
-        .as_ref()
-        .ok_or_else(|| "not hosting a table".to_owned())?;
-    host.spotlight.send_modify(|s| {
-        s.seq += 1;
-        s.element = id;
-    });
-    Ok(host.status())
+    table.set_spotlight(id)
 }
 
-/// Pairs a connected device with a player: an existing one (`player_id`)
-/// or a new one named `name`. From then on that device joins without a code
-/// and counts as that player for audiences and character ownership.
 #[tauri::command]
 pub fn table_bind_device(
     app: AppHandle,
@@ -199,44 +269,7 @@ pub fn table_bind_device(
     player_id: Option<String>,
     name: Option<String>,
 ) -> CommandResult<HostStatus> {
-    let guard = lock(&table.host)?;
-    let host = guard
-        .as_ref()
-        .ok_or_else(|| "not hosting a table".to_owned())?;
-    let (device, join_name) = {
-        let players = host
-            .players
-            .lock()
-            .map_err(|_| "player list poisoned".to_owned())?;
-        let p = players
-            .get(&token)
-            .ok_or_else(|| "that connection is gone".to_owned())?;
-        let d = p
-            .device
-            .clone()
-            .ok_or_else(|| "that device cannot be paired (it joined from a browser)".to_owned())?;
-        (d, p.name.clone())
-    };
-    let state = app.state::<AppState>();
-    let record = players::bind_device(
-        &state,
-        player_id.as_deref(),
-        name.as_deref().unwrap_or(&join_name),
-        players::PlayerDevice {
-            fingerprint: device.fingerprint,
-            public_key: device.public_key,
-            label: device.label,
-            added_at: String::new(),
-        },
-    )
-    .map_err(|e| e.to_string())?;
-    if let Ok(mut players) = host.players.lock()
-        && let Some(p) = players.get_mut(&token)
-    {
-        p.player_id = Some(record.id.clone());
-        p.name = record.name.clone();
-    }
-    Ok(host.status())
+    table.bind_device(&app, &token, player_id.as_deref(), name.as_deref())
 }
 
 /// The campaign's players and their paired devices.
@@ -247,7 +280,7 @@ pub fn table_players(app: AppHandle) -> CommandResult<Vec<players::PlayerRecord>
 
 #[tauri::command]
 pub fn table_host_status(table: State<'_, TableState>) -> CommandResult<Option<HostStatus>> {
-    Ok(lock(&table.host)?.as_ref().map(Host::status))
+    table.host_status()
 }
 
 // ---- Discovery ------------------------------------------------------------
@@ -340,4 +373,42 @@ pub async fn table_wait_for_change(
     after: u64,
 ) -> CommandResult<VersionResponse> {
     session(&table)?.wait_for_change(after).await
+}
+
+// ---- Working as a GM from another machine ---------------------------------
+
+/// Runs one of the GM's storage or table commands on the hosting machine.
+/// `command` and `args` are exactly what the frontend would hand `invoke`
+/// locally; the answer is the command's result as JSON.
+#[tauri::command]
+pub async fn table_gm_call(
+    table: State<'_, TableState>,
+    command: String,
+    args: Value,
+) -> CommandResult<Value> {
+    session(&table)?.gm_call(&command, args).await
+}
+
+/// Any asset of the hosted campaign, shared or not.
+#[tauri::command]
+pub async fn table_gm_asset(
+    table: State<'_, TableState>,
+    path: String,
+) -> CommandResult<tauri::ipc::Response> {
+    let bytes = session(&table)?.gm_asset(&path).await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Imports a file from this machine's disk into the hosted campaign:
+/// `kind` is `map` or `image` (with the element `id`) or `document`.
+#[tauri::command]
+pub async fn table_gm_import(
+    table: State<'_, TableState>,
+    kind: String,
+    id: Option<String>,
+    source: String,
+) -> CommandResult<Value> {
+    session(&table)?
+        .gm_import(&kind, id.as_deref(), &source)
+        .await
 }

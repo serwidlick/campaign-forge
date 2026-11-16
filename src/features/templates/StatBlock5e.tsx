@@ -45,14 +45,18 @@ export function StatBlock5e({ element }: { element: Element }) {
   const [sb, setSb] = useState<StatBlock5e>(
     () => readStatBlock5e(element.statblock) ?? EMPTY_STATBLOCK,
   );
+  // Kept outside React state so the unmount flush can still save it; a state
+  // update during unmount is ignored (see CharacterSheet5e).
+  const latest = useRef(sb);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
 
   function update(fn: (s: StatBlock5e) => StatBlock5e) {
-    setSb(fn);
+    latest.current = fn(latest.current);
+    setSb(latest.current);
     dirty.current = true;
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(flush, AUTOSAVE_MS);
+    timer.current = setTimeout(() => flushRef.current(), AUTOSAVE_MS);
   }
   function flush() {
     if (timer.current) {
@@ -61,10 +65,7 @@ export function StatBlock5e({ element }: { element: Element }) {
     }
     if (!dirty.current) return;
     dirty.current = false;
-    setSb((s) => {
-      void saveElement(element.id, { statblock: s });
-      return s;
-    });
+    void saveElement(element.id, { statblock: latest.current });
   }
   const flushRef = useRef(flush);
   useEffect(() => {

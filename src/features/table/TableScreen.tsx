@@ -15,8 +15,14 @@ export function TableScreen() {
   const leave = useTableStore((s) => s.leave);
 
   const source = useMemo(
-    () => remoteSource(elements, session?.playerName ?? ""),
-    [elements, session?.playerName],
+    () =>
+      remoteSource(
+        elements,
+        session?.playerName ?? "",
+        session?.playerId ?? null,
+        session?.info.players ?? [],
+      ),
+    [elements, session?.playerName, session?.playerId, session?.info.players],
   );
   const calendar = useMemo(
     () => readCalendar({ calendar: session?.info.calendar ?? undefined }),

@@ -60,11 +60,18 @@ export function CharacterSheet5e({
   const [sheet, setSheet] = useState<Sheet5e>(
     () => readSheet5e(element.sheet) ?? EMPTY_SHEET,
   );
+  // The newest sheet, kept outside React state so a flush can read it at any
+  // moment, including while the component unmounts: a state update there is
+  // ignored, and a save routed through one would be lost. The editor remounts
+  // whenever the file changes outside this window (a player's save at the
+  // table, say), so edits made in the 400 ms before that must still land.
+  const latest = useRef(sheet);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
 
   function update(fn: (s: Sheet5e) => Sheet5e) {
-    setSheet(fn);
+    latest.current = fn(latest.current);
+    setSheet(latest.current);
     dirty.current = true;
     if (timer.current) clearTimeout(timer.current);
     // Through the ref so the save sees the element as it is at flush time.
@@ -78,20 +85,18 @@ export function CharacterSheet5e({
     }
     if (!dirty.current) return;
     dirty.current = false;
-    setSheet((s) => {
-      if (onSave) {
-        void onSave(s);
-      } else {
-        // The role used to live inside the sheet. Writing it at the top level
-        // here means a pre-split character keeps its role once its sheet is
-        // saved without the old nested field.
-        void saveElement(element.id, {
-          sheet: s,
-          role: characterRoleOf(element),
-        });
-      }
-      return s;
-    });
+    const s = latest.current;
+    if (onSave) {
+      void onSave(s);
+    } else {
+      // The role used to live inside the sheet. Writing it at the top level
+      // here means a pre-split character keeps its role once its sheet is
+      // saved without the old nested field.
+      void saveElement(element.id, {
+        sheet: s,
+        role: characterRoleOf(element),
+      });
+    }
   }
 
   const flushRef = useRef(flush);

@@ -33,6 +33,7 @@ export function playersOf(campaign: CampaignMeta | null): PlayerRecord[] {
         name: o.name,
         devices,
         lastSeen: typeof o.lastSeen === "string" ? o.lastSeen : null,
+        gm: o.gm === true,
       },
     ];
   });

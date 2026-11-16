@@ -538,6 +538,9 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
       const { selectedId, paneIds } = get();
       for (const id of changes.elementIds) {
         if (id !== selectedId && !paneIds.includes(id)) continue;
+        // Our own save, echoed back by the host we work from: already shown.
+        const version = changes.versions?.[id];
+        if (version !== undefined && shown(id)?.version === version) continue;
         // Untouched here: show the new version. Being edited here: the next
         // save meets the version check and raises the conflict instead.
         if (!busyWith(id) && !get().conflicts[id])

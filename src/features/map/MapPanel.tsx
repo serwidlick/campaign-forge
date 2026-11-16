@@ -1,4 +1,3 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -22,6 +21,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/Button";
+import { inTauri, pickFile, type PickedFile } from "@/lib/platform";
 import { errorMessage, storage } from "@/lib/tauri";
 import { kindById, type Element, type ElementSummary } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
@@ -389,7 +389,7 @@ export function MapPanel({ element }: { element: Element }) {
 
   // ---- Drag and drop ----------------------------------------------------
   const importFromPath = useCallback(
-    async (path: string) => {
+    async (path: PickedFile) => {
       setImporting(true);
       try {
         const img = await storage.importMapImage(element.id, path);
@@ -403,8 +403,10 @@ export function MapPanel({ element }: { element: Element }) {
     [element.id, persist, setError],
   );
 
-  // Files dragged from the OS arrive through Tauri's native drop events.
+  // Files dragged from the OS arrive through Tauri's native drop events. A
+  // browser has none; its drops come in as HTML5 drops below.
   useEffect(() => {
+    if (!inTauri) return;
     let unlisten: (() => void) | null = null;
     let disposed = false;
     void getCurrentWebview()
@@ -719,15 +721,12 @@ export function MapPanel({ element }: { element: Element }) {
 
   // ---- Actions ----------------------------------------------------------
   async function handleImport() {
-    const picked = await open({
-      multiple: false,
-      directory: false,
+    const picked = await pickFile({
       title: "Choose a map image",
-      filters: [
-        { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] },
-      ],
+      name: "Images",
+      extensions: ["png", "jpg", "jpeg", "webp", "gif"],
     });
-    if (typeof picked === "string") await importFromPath(picked);
+    if (picked) await importFromPath(picked);
   }
 
   function finishRoute(name: string) {

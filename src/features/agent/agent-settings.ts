@@ -3,7 +3,9 @@
  * store. The API key does not: it is in the OS credential store, see
  * `secrets` in tauri.ts.
  */
-import { load, type Store } from "@tauri-apps/plugin-store";
+import { load } from "@tauri-apps/plugin-store";
+
+import { inTauri } from "@/lib/platform";
 
 export interface ModelOption {
   id: string;
@@ -101,10 +103,28 @@ export const DEFAULT_SETTINGS: AgentSettings = {
 
 const KEY = "agent";
 
-let storePromise: Promise<Store> | null = null;
+/** What the settings need from a store; the browser keeps them in its own. */
+interface SettingsStore {
+  get<T>(key: string): Promise<T | undefined>;
+  set(key: string, value: unknown): Promise<void>;
+}
 
-function getStore(): Promise<Store> {
-  storePromise ??= load("settings.json", { autoSave: true });
+const webStore: SettingsStore = {
+  get: async <T>(key: string) => {
+    const raw = localStorage.getItem(`cf.settings.${key}`);
+    return raw ? (JSON.parse(raw) as T) : undefined;
+  },
+  set: async (key, value) => {
+    localStorage.setItem(`cf.settings.${key}`, JSON.stringify(value));
+  },
+};
+
+let storePromise: Promise<SettingsStore> | null = null;
+
+function getStore(): Promise<SettingsStore> {
+  storePromise ??= inTauri
+    ? load("settings.json", { autoSave: true })
+    : Promise.resolve(webStore);
   return storePromise;
 }
 

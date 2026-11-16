@@ -9,6 +9,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
+import { inTauri } from "@/lib/platform";
 import type { CampaignMeta, ElementSummary } from "@/lib/types";
 
 import {
@@ -198,8 +199,10 @@ export function createClient(apiKey: string): Anthropic {
   return new Anthropic({
     apiKey,
     dangerouslyAllowBrowser: true,
-    // Route through Tauri so the request is not subject to webview CORS.
-    fetch: (input, init) => tauriFetch(input, init),
+    // Route through Tauri so the request is not subject to webview CORS. In
+    // a browser (the table's /gm page) the SDK's own fetch is used; the API
+    // allows direct browser calls with the header the SDK sets.
+    fetch: inTauri ? (input, init) => tauriFetch(input, init) : undefined,
     maxRetries: 2,
     timeout: 60_000,
   });

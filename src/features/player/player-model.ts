@@ -11,7 +11,7 @@
  * comes from: the GM's own files (preview) or a GM's machine over the network.
  */
 import { storage, table } from "@/lib/tauri";
-import type { Element, ElementSummary } from "@/lib/types";
+import type { Element, ElementSummary, PlayerName } from "@/lib/types";
 
 export interface PlayerSource {
   /** Shared elements only, already sanitised. */
@@ -22,6 +22,10 @@ export interface PlayerSource {
   readAsset(path: string): Promise<ArrayBuffer>;
   /** The player's table name, when sitting at a table. */
   playerName?: string;
+  /** The player's id once the GM has paired them; sheet owners point at it. */
+  playerId?: string | null;
+  /** The campaign's paired players, for naming a sheet's owner. */
+  players?: PlayerName[];
   /** Saves the sheet of a character this player owns. */
   updateSheet?(id: string, sheet: unknown): Promise<Element>;
 }
@@ -47,13 +51,16 @@ export function hasPlayersSection(body: string): boolean {
 /** The GM's own campaign, seen as a player would see it. */
 export function localPreviewSource(
   sharedElements: ElementSummary[],
-  as?: { id: string; name: string },
+  as?: PlayerName,
+  players: PlayerName[] = [],
 ): PlayerSource {
   return {
     elements: sharedElements,
     readElement: (id) => storage.readSharedElement(id, as?.id),
     readAsset: (path) => storage.readAsset(path),
     playerName: as?.name,
+    playerId: as?.id,
+    players,
   };
 }
 
@@ -61,25 +68,47 @@ export function localPreviewSource(
 export function remoteSource(
   elements: ElementSummary[],
   playerName: string,
+  playerId: string | null = null,
+  players: PlayerName[] = [],
 ): PlayerSource {
   return {
     elements,
     readElement: (id) => table.fetchElement(id),
     readAsset: (path) => table.fetchAsset(path),
     playerName,
+    playerId,
+    players,
     updateSheet: (id, sheet) => table.updateSheet(id, sheet),
   };
 }
 
-/** Whether this player may edit a character: the GM named them as owner. */
+/**
+ * How a sheet's owner reads to a player: the paired player's name, the
+ * stored text for files that still hold a name, or a neutral phrase when
+ * the id is of a player this table has not named.
+ */
+export function ownerLabel(owner: string, players: PlayerName[]): string {
+  const named = players.find((p) => p.id === owner);
+  if (named) return named.name;
+  return /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(owner) ? "another player" : owner;
+}
+
+/**
+ * Whether this player may edit a character: the GM named them as owner.
+ * Owners are player ids since pairing; files from before hold a table
+ * name, matched case-insensitively, as the Rust rule in `share.rs` does.
+ */
 export function ownsCharacter(
   element: Record<string, unknown>,
   playerName: string | undefined,
+  playerId?: string | null,
 ): boolean {
-  if (!playerName || element.type !== "character") return false;
+  if (element.type !== "character") return false;
   const sheet = element.sheet as { owner?: unknown } | undefined;
   const owner = typeof sheet?.owner === "string" ? sheet.owner.trim() : "";
+  if (owner === "") return false;
+  if (playerId && owner === playerId) return true;
   return (
-    owner !== "" && owner.toLowerCase() === playerName.trim().toLowerCase()
+    !!playerName && owner.toLowerCase() === playerName.trim().toLowerCase()
   );
 }

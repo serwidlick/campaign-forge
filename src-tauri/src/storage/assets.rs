@@ -49,21 +49,41 @@ pub fn import_document(
         )));
     }
     let bytes = fs::read(source).map_err(|e| StorageError::io(source, e))?;
+    let name = source
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default();
+    import_document_bytes(root, group, name, &bytes)
+}
+
+/// Stores PDF bytes under `assets/<group>/` as a slug of `name` (the source
+/// file's stem; "document" when empty). See [`import_document`].
+pub fn import_document_bytes(
+    root: &Path,
+    group: &str,
+    name: &str,
+    bytes: &[u8],
+) -> Result<ImportedDocument, StorageError> {
+    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err(StorageError::InvalidInput(format!(
+            "document is too large ({} MB; limit is {} MB)",
+            bytes.len() / (1024 * 1024),
+            MAX_DOCUMENT_BYTES / (1024 * 1024)
+        )));
+    }
     if !bytes.starts_with(b"%PDF-") {
         return Err(StorageError::InvalidInput(
             "that does not look like a PDF file".into(),
         ));
     }
-    let name = source
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or("document")
-        .to_owned();
+    let name = match name.trim() {
+        "" => "document".to_owned(),
+        n => n.to_owned(),
+    };
     let dir = root.join(ASSETS_DIR).join(slugify(group));
     fs::create_dir_all(&dir).map_err(|e| StorageError::io(&dir, e))?;
     let target = unique_path(&dir, &slugify(&name), "pdf");
-    fs::write(&target, &bytes).map_err(|e| StorageError::io(&target, e))?;
+    fs::write(&target, bytes).map_err(|e| StorageError::io(&target, e))?;
     Ok(ImportedDocument {
         path: relative(root, &target),
         bytes: bytes.len() as u64,

@@ -6,3 +6,4 @@ pnpm-lock.yaml
 # vendored by `graphify install --project`, overwritten on upgrade
 .claude/skills/graphify
 src-tauri/web/marked.umd.js
+src-tauri/web/nacl-fast.min.js
