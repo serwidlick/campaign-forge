@@ -56,13 +56,31 @@ export const ALIGNMENTS = [
   "Unaligned",
 ];
 
+/**
+ * How an attack's to-hit is worked out. Empty means the typed bonus is the
+ * whole story; otherwise proficiency plus the kind's ability, and anything
+ * typed in `bonus` is an extra on top (a +1 weapon, say).
+ */
+export type AttackKind =
+  "" | "melee" | "finesse" | "ranged" | "thrown" | "spell";
+
+export const ATTACK_KINDS: { id: AttackKind; label: string }[] = [
+  { id: "", label: "Typed bonus" },
+  { id: "melee", label: "Melee (STR)" },
+  { id: "finesse", label: "Finesse (DEX)" },
+  { id: "ranged", label: "Ranged (DEX)" },
+  { id: "thrown", label: "Thrown (STR)" },
+  { id: "spell", label: "Spell attack" },
+];
+
 export interface Attack {
   id: string;
   name: string;
-  /** "+7", or whatever the table says. */
+  /** "+7", or whatever the table says; an extra when `kind` is set. */
   bonus: string;
   damage: string;
   notes: string;
+  kind: AttackKind;
 }
 
 export interface Feature {
@@ -229,6 +247,10 @@ function isAbility(v: unknown): v is Ability {
   return typeof v === "string" && (ABILITIES as readonly string[]).includes(v);
 }
 
+function isAttackKind(v: unknown): v is AttackKind {
+  return typeof v === "string" && ATTACK_KINDS.some((k) => k.id === v);
+}
+
 /** Reads a sheet defensively; `null` when the element has none. */
 export function readSheet5e(v: unknown): Sheet5e | null {
   if (!v || typeof v !== "object") return null;
@@ -275,6 +297,7 @@ export function readSheet5e(v: unknown): Sheet5e | null {
       bonus: str(r.bonus),
       damage: str(r.damage),
       notes: str(r.notes),
+      kind: isAttackKind(r.kind) ? r.kind : "",
     })),
     features: readList(o.features, (r) => ({
       id: str(r.id) || newId(),
@@ -480,6 +503,141 @@ export function skillBonus(sheet: Sheet5e, skill: Skill): number {
 export function passivePerception(sheet: Sheet5e): number {
   const perception = SKILLS.find((s) => s.id === "perception")!;
   return 10 + skillBonus(sheet, perception);
+}
+
+// ---- What to roll -------------------------------------------------------------
+//
+// Players do not roll in the app. Instead the sheet spells out which dice to
+// pick up and what to add, part by part: "1d20 + 2 (prof) + 2 (dex)".
+
+export interface RollPart {
+  value: number;
+  /** Where the number comes from: "prof", "dex", "expertise"; "" for none. */
+  label: string;
+}
+
+export interface RollFormula {
+  /** "1d20", or a flat base such as "8" for a save DC. */
+  die: string;
+  parts: RollPart[];
+}
+
+/** "1d20 + 2 (prof) + 2 (dex)", or "1d20 - 1 (str)". */
+export function formatRoll(f: RollFormula): string {
+  return f.parts.reduce(
+    (out, p) =>
+      `${out} ${p.value < 0 ? "-" : "+"} ${Math.abs(p.value)}${
+        p.label ? ` (${p.label})` : ""
+      }`,
+    f.die,
+  );
+}
+
+export function rollTotal(f: RollFormula): number {
+  return f.parts.reduce((n, p) => n + p.value, 0);
+}
+
+function abilityPart(sheet: Sheet5e, ability: Ability): RollPart {
+  return { value: modifier(sheet.abilities[ability]), label: ability };
+}
+
+function profPart(sheet: Sheet5e, times = 1): RollPart {
+  return {
+    value: proficiencyBonus(sheet.level) * times,
+    label: times === 2 ? "expertise" : "prof",
+  };
+}
+
+export function abilityCheckRoll(
+  sheet: Sheet5e,
+  ability: Ability,
+): RollFormula {
+  return { die: "1d20", parts: [abilityPart(sheet, ability)] };
+}
+
+export function saveRoll(sheet: Sheet5e, ability: Ability): RollFormula {
+  const parts: RollPart[] = [];
+  if (sheet.saves.includes(ability)) parts.push(profPart(sheet));
+  parts.push(abilityPart(sheet, ability));
+  return { die: "1d20", parts };
+}
+
+export function skillRoll(sheet: Sheet5e, skill: Skill): RollFormula {
+  const parts: RollPart[] = [];
+  if (sheet.expertise.includes(skill.id)) parts.push(profPart(sheet, 2));
+  else if (sheet.skills.includes(skill.id)) parts.push(profPart(sheet));
+  parts.push(abilityPart(sheet, skill.ability));
+  return { die: "1d20", parts };
+}
+
+export function initiativeRoll(sheet: Sheet5e): RollFormula {
+  return abilityCheckRoll(sheet, "dex");
+}
+
+/** `null` until a spellcasting ability is chosen. */
+export function spellAttackRoll(sheet: Sheet5e): RollFormula | null {
+  const ability = sheet.spellcasting.ability;
+  if (!ability) return null;
+  return { die: "1d20", parts: [profPart(sheet), abilityPart(sheet, ability)] };
+}
+
+/** The DC a target must beat: "8 + 2 (prof) + 3 (int)". */
+export function spellSaveDcRoll(sheet: Sheet5e): RollFormula | null {
+  const ability = sheet.spellcasting.ability;
+  if (!ability) return null;
+  return { die: "8", parts: [profPart(sheet), abilityPart(sheet, ability)] };
+}
+
+/**
+ * The ability an attack kind adds to hit; `null` for a typed bonus, or a
+ * spell attack before a casting ability is chosen.
+ */
+export function attackAbility(
+  sheet: Sheet5e,
+  kind: AttackKind,
+): Ability | null {
+  switch (kind) {
+    case "melee":
+    case "thrown":
+      return "str";
+    case "finesse":
+    case "ranged":
+      return "dex";
+    case "spell":
+      return sheet.spellcasting.ability || null;
+    default:
+      return null;
+  }
+}
+
+/** The leading signed integer of "+5", "-1" or "+1 magic"; `null` otherwise. */
+export function parseBonus(text: string): number | null {
+  const m = /^\s*([+-]?)\s*(\d+)/.exec(text);
+  if (!m) return null;
+  const n = Number(m[2]);
+  return m[1] === "-" ? -n : n;
+}
+
+/**
+ * To hit for a listed attack. With a kind: proficiency, the kind's ability,
+ * and whatever extra is typed. Without one: the typed bonus as it stands,
+ * which is nothing at all while the row is blank.
+ */
+export function attackRoll(sheet: Sheet5e, attack: Attack): RollFormula {
+  const extra = parseBonus(attack.bonus);
+  if (!attack.kind) {
+    return {
+      die: "1d20",
+      parts: extra === null ? [] : [{ value: extra, label: "" }],
+    };
+  }
+  const parts: RollPart[] = [profPart(sheet)];
+  const ability = attackAbility(sheet, attack.kind);
+  if (ability) parts.push(abilityPart(sheet, ability));
+  if (extra !== null && extra !== 0) {
+    parts.push({ value: extra, label: "extra" });
+  }
+  return { die: "1d20", parts };
 }
 
 /** "Level 5 Human Fighter (Champion)" or whatever parts are filled in. */

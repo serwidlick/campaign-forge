@@ -34,6 +34,7 @@ import {
   type Ability,
   type Sheet5e,
 } from "./dnd5e-model";
+import { RollGuide } from "./RollGuide";
 import { SheetExtras } from "./SheetExtras";
 
 const FIELD =
@@ -534,6 +535,9 @@ export function CharacterSheet5e({
           value={String(passivePerception(sheet))}
         />
       </div>
+
+      {/* Which dice to pick up, and what to add; open for a player at the table. */}
+      <RollGuide sheet={sheet} open={onSave !== undefined} />
 
       {/* Saves and skills */}
       <div className="grid gap-4 lg:grid-cols-[auto_1fr]">

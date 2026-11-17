@@ -831,6 +831,94 @@
         font-size: 13px;
         color: var(--ink-400);
       }
+      /* What to roll: the die and each bonus, with where it comes from */
+      details.card.rolls {
+        border-color: rgba(var(--ember-rgb), 0.35);
+      }
+      .rolls summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        list-style: none;
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ember-300);
+      }
+      .rolls summary::-webkit-details-marker {
+        display: none;
+      }
+      .rolls summary .hint {
+        font-weight: 400;
+        letter-spacing: normal;
+        text-transform: none;
+        color: var(--ink-500);
+      }
+      .rolls summary .hint::after {
+        content: "Show";
+      }
+      .rolls[open] summary .hint::after {
+        content: "Hide";
+      }
+      .rolls p {
+        margin: 10px 0 0;
+        font-size: 12px;
+        color: var(--ink-500);
+      }
+      .rolls h4 {
+        margin: 14px 0 6px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-500);
+      }
+      .roll-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 2px 10px;
+        padding: 5px 0;
+        border-top: 1px solid var(--ink-800);
+        font-size: 14px;
+      }
+      .roll-line:first-of-type {
+        border-top: 0;
+      }
+      .roll-line .name {
+        flex: 1 0 9em;
+        color: var(--ink-300);
+      }
+      .roll-line .name small {
+        margin-left: 6px;
+        color: var(--ink-600);
+      }
+      .roll-line .name.prof {
+        color: var(--ember-300);
+      }
+      .roll-line .dice {
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        color: var(--ink-100);
+      }
+      .roll-line .sum {
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        color: var(--ink-500);
+      }
+      .roll-line .note {
+        flex-basis: 100%;
+        font-size: 12px;
+        color: var(--ink-500);
+      }
+      @media (max-width: 520px) {
+        /* A phone: the name on its own line, the dice beneath it. */
+        .roll-line .name {
+          flex-basis: 100%;
+          font-size: 13px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -1991,6 +2079,279 @@
           );
         }
 
+        // What to roll. Nobody rolls in here: each line names the die and
+        // lists every bonus with where it comes from, worked out the same way
+        // as the app's sheet (src/features/templates/dnd5e-model.ts).
+        var ABILITIES = ["str", "dex", "con", "int", "wis", "cha"];
+        var ABILITY_NAMES = {
+          str: "Strength",
+          dex: "Dexterity",
+          con: "Constitution",
+          int: "Intelligence",
+          wis: "Wisdom",
+          cha: "Charisma",
+        };
+        var SKILLS = [
+          ["acrobatics", "Acrobatics", "dex"],
+          ["animal-handling", "Animal Handling", "wis"],
+          ["arcana", "Arcana", "int"],
+          ["athletics", "Athletics", "str"],
+          ["deception", "Deception", "cha"],
+          ["history", "History", "int"],
+          ["insight", "Insight", "wis"],
+          ["intimidation", "Intimidation", "cha"],
+          ["investigation", "Investigation", "int"],
+          ["medicine", "Medicine", "wis"],
+          ["nature", "Nature", "int"],
+          ["perception", "Perception", "wis"],
+          ["performance", "Performance", "cha"],
+          ["persuasion", "Persuasion", "cha"],
+          ["religion", "Religion", "int"],
+          ["sleight-of-hand", "Sleight of Hand", "dex"],
+          ["stealth", "Stealth", "dex"],
+          ["survival", "Survival", "wis"],
+        ];
+        /** Open until the player folds it; a repaint must not pop it back. */
+        var rollsOpen = true;
+
+        function has(list, x) {
+          return Array.isArray(list) && list.indexOf(x) >= 0;
+        }
+
+        function modOf(sh, a) {
+          var score = isObj(sh.abilities) ? num(sh.abilities[a], 10) : 10;
+          return Math.floor((clamp(score, 1, 30) - 10) / 2);
+        }
+
+        function profOf(level) {
+          return 2 + Math.floor((level - 1) / 4);
+        }
+
+        function signedNum(n) {
+          return (n >= 0 ? "+" : "") + n;
+        }
+
+        /** "1d20 + 2 (prof) + 2 (dex)" from a die and [value, label] parts. */
+        function formula(die, parts) {
+          var text = die;
+          var total = 0;
+          parts.forEach(function (p) {
+            total += p[0];
+            text +=
+              " " +
+              (p[0] < 0 ? "-" : "+") +
+              " " +
+              Math.abs(p[0]) +
+              (p[1] ? " (" + p[1] + ")" : "");
+          });
+          return { die: die, text: text, total: total, parts: parts.length };
+        }
+
+        /** The leading signed integer of "+5" or "+1 magic"; null otherwise. */
+        function parseBonus(text) {
+          var m = /^\s*([+-]?)\s*(\d+)/.exec(String(text || ""));
+          if (!m) return null;
+          return m[1] === "-" ? -Number(m[2]) : Number(m[2]);
+        }
+
+        function attackAbility(sh, kind) {
+          if (kind === "melee" || kind === "thrown") return "str";
+          if (kind === "finesse" || kind === "ranged") return "dex";
+          if (kind === "spell") {
+            var a = isObj(sh.spellcasting) ? sh.spellcasting.ability : "";
+            return has(ABILITIES, a) ? a : null;
+          }
+          return null;
+        }
+
+        /**
+         * To hit for an attack row. With a kind: proficiency, the kind's
+         * ability and any extra typed in. Without: the typed bonus as is.
+         */
+        function attackFormula(sh, pb, a) {
+          var extra = parseBonus(a.bonus);
+          if (!a.kind) {
+            return formula("1d20", extra === null ? [] : [[extra, ""]]);
+          }
+          var parts = [[pb, "prof"]];
+          var ab = attackAbility(sh, a.kind);
+          if (ab) parts.push([modOf(sh, ab), ab]);
+          if (extra !== null && extra !== 0) parts.push([extra, "extra"]);
+          return formula("1d20", parts);
+        }
+
+        /** One line: name, the dice, the collapsed total, an optional note. */
+        function rollLine(name, sub, f, prof, note, flatTotal) {
+          var line = h("div", "roll-line");
+          var n = h("span", "name" + (prof ? " prof" : ""), name);
+          if (sub) n.appendChild(h("small", null, sub));
+          line.appendChild(n);
+          line.appendChild(h("span", "dice", f.text));
+          if (f.parts > 0) {
+            line.appendChild(
+              h(
+                "span",
+                "sum",
+                flatTotal != null
+                  ? "= " + flatTotal
+                  : "= " + f.die + " " + signedNum(f.total),
+              ),
+            );
+          }
+          if (note) line.appendChild(h("span", "note", note));
+          return line;
+        }
+
+        function rollCard(sh, level) {
+          var pb = profOf(level);
+          var box = document.createElement("details");
+          box.className = "card rolls";
+          box.open = rollsOpen;
+          box.ontoggle = function () {
+            rollsOpen = box.open;
+          };
+          var sum = h("summary", null, "What to roll");
+          sum.appendChild(h("span", "hint"));
+          box.appendChild(sum);
+          box.appendChild(
+            h(
+              "p",
+              null,
+              "Roll the die and add each number. Advantage or disadvantage: " +
+                "roll two d20 and keep the higher or lower.",
+            ),
+          );
+
+          box.appendChild(h("h4", null, "Saving throws"));
+          ABILITIES.forEach(function (a) {
+            var prof = has(sh.saves, a);
+            var parts = prof ? [[pb, "prof"]] : [];
+            parts.push([modOf(sh, a), a]);
+            box.appendChild(
+              rollLine(ABILITY_NAMES[a], null, formula("1d20", parts), prof),
+            );
+          });
+          box.appendChild(
+            rollLine(
+              "Death save",
+              null,
+              formula("1d20", []),
+              false,
+              "10 or more succeeds",
+            ),
+          );
+
+          box.appendChild(h("h4", null, "Ability checks"));
+          ABILITIES.forEach(function (a) {
+            box.appendChild(
+              rollLine(
+                ABILITY_NAMES[a],
+                null,
+                formula("1d20", [[modOf(sh, a), a]]),
+              ),
+            );
+          });
+          box.appendChild(
+            rollLine(
+              "Initiative",
+              null,
+              formula("1d20", [[modOf(sh, "dex"), "dex"]]),
+            ),
+          );
+
+          box.appendChild(h("h4", null, "Skill checks"));
+          SKILLS.forEach(function (sk) {
+            var expert = has(sh.expertise, sk[0]);
+            var prof = expert || has(sh.skills, sk[0]);
+            var parts = [];
+            if (expert) parts.push([pb * 2, "expertise"]);
+            else if (prof) parts.push([pb, "prof"]);
+            parts.push([modOf(sh, sk[2]), sk[2]]);
+            box.appendChild(
+              rollLine(sk[1], sk[2], formula("1d20", parts), prof),
+            );
+          });
+
+          box.appendChild(h("h4", null, "Attacks"));
+          box.appendChild(
+            rollLine(
+              "Melee weapon",
+              null,
+              formula("1d20", [
+                [pb, "prof"],
+                [modOf(sh, "str"), "str"],
+              ]),
+              false,
+              "finesse weapons use DEX instead",
+            ),
+          );
+          box.appendChild(
+            rollLine(
+              "Ranged weapon",
+              null,
+              formula("1d20", [
+                [pb, "prof"],
+                [modOf(sh, "dex"), "dex"],
+              ]),
+              false,
+              "thrown weapons use STR instead",
+            ),
+          );
+          var castAb = attackAbility(sh, "spell");
+          if (castAb) {
+            box.appendChild(
+              rollLine(
+                "Spell attack",
+                null,
+                formula("1d20", [
+                  [pb, "prof"],
+                  [modOf(sh, castAb), castAb],
+                ]),
+              ),
+            );
+            var dc = formula("8", [
+              [pb, "prof"],
+              [modOf(sh, castAb), castAb],
+            ]);
+            box.appendChild(
+              rollLine(
+                "Spell save DC",
+                null,
+                dc,
+                false,
+                "the target rolls against this",
+                8 + dc.total,
+              ),
+            );
+          }
+          box.appendChild(
+            h(
+              "p",
+              null,
+              "Weapon rolls assume you are proficient with the weapon. " +
+                "Damage is the weapon's die plus the same ability.",
+            ),
+          );
+          var attacks = Array.isArray(sh.attacks) ? sh.attacks : [];
+          attacks.forEach(function (a) {
+            if (!isObj(a)) return;
+            var f = attackFormula(sh, pb, a);
+            var note =
+              (a.damage ? "Damage " + a.damage : "") +
+              (a.damage && a.notes ? " · " : "") +
+              (a.notes || "");
+            if (f.parts === 0) {
+              note =
+                (a.bonus ? "To hit " + a.bonus : "no bonus listed") +
+                (note ? " · " + note : "");
+            }
+            box.appendChild(
+              rollLine(a.name || "Unnamed attack", null, f, false, note),
+            );
+          });
+          return box;
+        }
+
         function paintSheet(box) {
           box = box || $("sheet");
           if (!box) return;
@@ -2006,6 +2367,8 @@
           );
           head.appendChild(h("span", "save-state"));
           box.appendChild(head);
+
+          box.appendChild(rollCard(sh, level));
 
           // Hit points and hit dice.
           var hp = card("Hit points");

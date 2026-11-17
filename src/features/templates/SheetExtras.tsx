@@ -2,14 +2,19 @@ import { Plus, X } from "lucide-react";
 
 import {
   ABILITIES,
+  ATTACK_KINDS,
   CONDITIONS,
+  attackRoll,
+  formatRoll,
   modifier,
   newId,
   proficiencyBonus,
+  rollTotal,
   signed,
   spellAttackBonus,
   spellSaveDc,
   type Ability,
+  type AttackKind,
   type Sheet5e,
 } from "./dnd5e-model";
 
@@ -101,8 +106,9 @@ function Attacks({ sheet, update }: { sheet: Sheet5e; update: Update }) {
   return (
     <Section title="Attacks" count={sheet.attacks.length}>
       {sheet.attacks.length > 0 && (
-        <div className="grid grid-cols-[1fr_4rem_8rem_1fr_auto] gap-x-2 gap-y-1 text-[10px] text-ink-500 uppercase">
+        <div className="grid grid-cols-[1fr_7.5rem_4.5rem_8rem_1fr_auto] gap-x-2 gap-y-1 text-[10px] text-ink-500 uppercase">
           <span>Name</span>
+          <span>Kind</span>
           <span>To hit</span>
           <span>Damage</span>
           <span>Notes</span>
@@ -112,7 +118,7 @@ function Attacks({ sheet, update }: { sheet: Sheet5e; update: Update }) {
       {sheet.attacks.map((a) => (
         <div
           key={a.id}
-          className="grid grid-cols-[1fr_4rem_8rem_1fr_auto] items-center gap-x-2"
+          className="grid grid-cols-[1fr_7.5rem_4.5rem_8rem_1fr_auto] items-center gap-x-2"
         >
           <input
             value={a.name}
@@ -120,10 +126,32 @@ function Attacks({ sheet, update }: { sheet: Sheet5e; update: Update }) {
             placeholder="Longsword"
             className={SMALL}
           />
+          <select
+            value={a.kind}
+            onChange={(e) =>
+              // A typed total would double up with the kind's parts, so the
+              // field starts over as an extra when a kind is chosen.
+              set(a.id, { kind: e.target.value as AttackKind, bonus: "" })
+            }
+            aria-label={`${a.name || "Attack"} kind`}
+            title="With a kind, to hit is proficiency plus the kind's ability; anything typed under To hit is added on top"
+            className={SMALL}
+          >
+            {ATTACK_KINDS.map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.label}
+              </option>
+            ))}
+          </select>
           <input
             value={a.bonus}
             onChange={(e) => set(a.id, { bonus: e.target.value })}
-            placeholder="+5"
+            placeholder={a.kind ? "extra" : "+5"}
+            title={
+              a.kind
+                ? `${formatRoll(attackRoll(sheet, a))} = 1d20 ${signed(rollTotal(attackRoll(sheet, a)))}`
+                : "The whole to-hit bonus, or pick a kind to have it worked out"
+            }
             className={`${SMALL} text-center font-mono`}
           />
           <input
@@ -160,7 +188,14 @@ function Attacks({ sheet, update }: { sheet: Sheet5e; update: Update }) {
             ...s,
             attacks: [
               ...s.attacks,
-              { id: newId(), name: "", bonus: "", damage: "", notes: "" },
+              {
+                id: newId(),
+                name: "",
+                bonus: "",
+                damage: "",
+                notes: "",
+                kind: "",
+              },
             ],
           }))
         }
