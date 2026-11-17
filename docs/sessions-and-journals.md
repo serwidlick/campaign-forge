@@ -15,7 +15,7 @@ A session is one evening at the table. Its panel holds:
 - **Date**: the real-world day you play.
 - **Status**: planned or played.
 - **In-world date**: when it happens in your calendar, so it appears on the timeline.
-- **Beats**: the ordered plan for the evening. Add beats, reorder them, mark one as the **main encounter** and one as the **cliffhanger**, tick them off as they happen.
+- **Beats**: the ordered plan for the evening. Add beats, reorder them, mark one as the **main encounter** and one as the **cliffhanger**, tick them off as they happen. A fight you want to run in turns gets its own [encounter](encounters.md) element; link it from the beat with @.
 
 The body is for anything else: the recap you read out, notes, loot, what changed.
 

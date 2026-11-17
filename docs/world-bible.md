@@ -4,16 +4,16 @@ Everything in a campaign is an **element**: one Markdown file with a name, tags,
 
 ## Kinds
 
-| Family   | Kinds                       |
-| -------- | --------------------------- |
-| Play     | Arc, Session, Journal entry |
-| People   | Character, Creature         |
-| Factions | Faction                     |
-| Places   | Location, Map               |
-| Things   | Item, Document              |
-| Story    | Quest, Event, Lore          |
+| Family   | Kinds                                  |
+| -------- | -------------------------------------- |
+| Play     | Arc, Session, Journal entry, Encounter |
+| People   | Character, Creature                    |
+| Factions | Faction                                |
+| Places   | Location, Map                          |
+| Things   | Item, Document                         |
+| Story    | Quest, Event, Lore                     |
 
-Most kinds are just a body. Sessions, arcs, maps, events, journal entries and documents add a panel of fields above the body; those are covered on their own pages.
+Most kinds are just a body. Sessions, arcs, encounters, maps, events, journal entries and documents add a panel of fields above the body; those are covered on their own pages.
 
 ## Creating, naming, tagging, deleting
 

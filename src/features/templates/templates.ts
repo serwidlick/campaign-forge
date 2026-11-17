@@ -68,6 +68,10 @@ const GENERIC: Record<string, ElementTemplate> = {
     body: body("Premise", "Stakes", "Key players", "How it could end"),
     extra: {},
   },
+  encounter: {
+    body: body("Setup", "Tactics", "Terrain and complications", "Aftermath"),
+    extra: {},
+  },
 };
 
 const DND5E: Record<string, ElementTemplate> = {

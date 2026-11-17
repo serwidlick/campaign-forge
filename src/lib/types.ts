@@ -219,6 +219,12 @@ export const ELEMENT_KINDS: ElementKind[] = [
   { id: "session", label: "Session", plural: "Sessions", family: "play" },
   { id: "journal", label: "Journal entry", plural: "Journal", family: "play" },
   {
+    id: "encounter",
+    label: "Encounter",
+    plural: "Encounters",
+    family: "play",
+  },
+  {
     id: "character",
     label: "Character",
     plural: "Characters",

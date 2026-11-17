@@ -59,6 +59,7 @@ The part between the `---` lines is YAML frontmatter. Keys the app knows:
 | `sheet`                                                                     | character | The D&D 5e sheet: role, class, level, abilities, ac, hp, saves, skills.              |
 | `arc`, `number`, `date`, `status`, `beats`, `worldDate`                     | session   | See [sessions](sessions-and-journals.md).                                            |
 | `status`                                                                    | arc       | `active` or `complete`.                                                              |
+| `status`, `round`, `turn`, `combatants`                                     | encounter | See [encounters](encounters.md). Each combatant keeps its own hp, ac and conditions. |
 | `when`, `until`                                                             | event     | In-world dates `{ year, month, day }`.                                               |
 | `date`, `worldDate`, `scope`                                                | journal   | Real date, in-world date, and `{ type, id }` where type is campaign, arc or session. |
 | `image`, `width`, `height`, `fit`, `scale`, `pins`, `routes`, `territories` | map       | See [maps](maps.md). Pins, routes and territories each carry `shared`.               |

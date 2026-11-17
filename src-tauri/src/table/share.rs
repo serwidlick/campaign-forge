@@ -14,6 +14,9 @@
 //! - Sessions lose their prep `beats`; an `arc` link is dropped unless visible.
 //! - Journal entries scoped to a private arc or session fall back to the
 //!   campaign scope.
+//! - Encounters keep their turn order (names, initiative, conditions, who is
+//!   down), but each combatant loses the GM's `notes`, its hit points and
+//!   AC, and its `element` link is dropped unless visible.
 //! - A body may contain a `## Players know` heading. When it does, players
 //!   receive only that section (up to the next heading of the same or a
 //!   higher level); the rest of the body is GM-only. Without the heading the
@@ -268,6 +271,18 @@ fn sanitize_extra(kind: &str, extra: &mut Extra, visible: &HashSet<String>) {
             extra.remove("beats");
             drop_private_ref(extra, "arc", visible);
         }
+        "encounter" => {
+            if let Some(Value::Array(items)) = extra.get_mut("combatants") {
+                for item in items.iter_mut() {
+                    if let Some(obj) = item.as_object_mut() {
+                        for key in ["notes", "hp", "hpMax", "ac"] {
+                            obj.remove(key);
+                        }
+                        drop_private_ref(obj, "element", visible);
+                    }
+                }
+            }
+        }
         "journal" => {
             let private_scope = extra
                 .get("scope")
@@ -430,6 +445,28 @@ mod tests {
         assert!(extra.get("beats").is_none());
         assert!(extra.get("arc").is_none());
         assert_eq!(extra["number"], json!(3));
+    }
+
+    #[test]
+    fn encounters_lose_combatant_notes_and_private_links() {
+        let mut extra: Extra = serde_json::from_value(json!({
+            "status": "running", "round": 2, "turn": 1,
+            "combatants": [
+                { "id": "c1", "element": A, "name": "Ivel", "hp": 12, "notes": "secretly the lich" },
+                { "id": "c2", "element": B, "name": "Goblin", "hp": 7, "notes": "flees at half" },
+                { "id": "c3", "name": "Guard", "hp": 11 }
+            ]
+        }))
+        .unwrap();
+        sanitize_extra("encounter", &mut extra, &visible(&[A]));
+        let combatants = extra["combatants"].as_array().unwrap();
+        assert_eq!(combatants.len(), 3);
+        assert_eq!(combatants[0]["element"], json!(A));
+        assert!(combatants[1].get("element").is_none());
+        assert!(combatants.iter().all(|c| c.get("notes").is_none()));
+        assert!(combatants.iter().all(|c| c.get("hp").is_none()));
+        assert_eq!(combatants[1]["name"], json!("Goblin"));
+        assert_eq!(extra["round"], json!(2));
     }
 
     #[test]

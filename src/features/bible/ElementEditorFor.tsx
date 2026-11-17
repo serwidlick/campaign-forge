@@ -1,4 +1,5 @@
 import { DocumentPanel } from "@/features/documents/DocumentPanel";
+import { EncounterPanel } from "@/features/encounters/EncounterPanel";
 import { MapPanel } from "@/features/map/MapPanel";
 import { ArcPanel } from "@/features/sessions/ArcPanel";
 import { SessionPanel } from "@/features/sessions/SessionPanel";
@@ -54,6 +55,13 @@ export function ElementEditorFor({ element }: { element: Element }) {
         <ElementEditor
           element={element}
           panel={<ArcPanel element={element} />}
+        />
+      );
+    case "encounter":
+      return (
+        <ElementEditor
+          element={element}
+          panel={<EncounterPanel element={element} />}
         />
       );
     case "journal":

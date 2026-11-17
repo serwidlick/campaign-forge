@@ -10,13 +10,14 @@ This guide covers what the app can do and how to do it. Pages are short and task
 2. [The world bible](world-bible.md): elements, links, tags, pictures, documents, search, the wheel, the graph, split screen.
 3. [Maps](maps.md): images, pins, routes, territories, scale and travel time, nested maps.
 4. [Arcs, sessions and journals](sessions-and-journals.md): planning play and writing it up.
-5. [Timeline and calendar](timeline-and-calendar.md): your own months and eras, events, in-world dates.
-6. [Playing at the table](playing-at-the-table.md): sharing with players, the player view, hosting over the network, running the table from a second machine, showing things to everyone.
-7. [The assistant](assistant.md): an optional AI helper with your own API key and permissions you control.
-8. [Importing a PDF](importing-a-pdf.md): build a campaign's elements from a module, a setting guide or your own notes.
-9. [Your files](your-files.md): the folder layout, frontmatter keys, backups and cloud drives.
-10. [Updates and releases](updates.md): how the app updates itself and how a release is made.
-11. [Troubleshooting](troubleshooting.md): firewall prompts, macOS "damaged", tables that do not appear.
+5. [Encounters](encounters.md): build a turn order from your characters and creatures, then run the fight round by round.
+6. [Timeline and calendar](timeline-and-calendar.md): your own months and eras, events, in-world dates.
+7. [Playing at the table](playing-at-the-table.md): sharing with players, the player view, hosting over the network, running the table from a second machine, showing things to everyone.
+8. [The assistant](assistant.md): an optional AI helper with your own API key and permissions you control.
+9. [Importing a PDF](importing-a-pdf.md): build a campaign's elements from a module, a setting guide or your own notes.
+10. [Your files](your-files.md): the folder layout, frontmatter keys, backups and cloud drives.
+11. [Updates and releases](updates.md): how the app updates itself and how a release is made.
+12. [Troubleshooting](troubleshooting.md): firewall prompts, macOS "damaged", tables that do not appear.
 
 ## Ideas in one paragraph
 

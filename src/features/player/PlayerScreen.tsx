@@ -41,6 +41,11 @@ import { openExternal } from "@/lib/platform";
 import { useNarrow } from "@/lib/use-media-query";
 
 import { documentFileOf } from "@/features/documents/document-model";
+import {
+  encounterSummary,
+  readEncounter,
+} from "@/features/encounters/encounter-model";
+import { EncounterOrderView } from "@/features/encounters/EncounterOrderView";
 import { readSheet5e, sheetSummary } from "@/features/templates/dnd5e-model";
 import { PdfViewer } from "@/features/documents/PdfViewer";
 
@@ -527,6 +532,8 @@ function PlayerElementView({
     element.type === "character" ? readSheet5e(element.sheet) : null;
   const statblock =
     element.type === "creature" ? readStatBlock5e(element.statblock) : null;
+  const encounter =
+    element.type === "encounter" ? readEncounter(element) : null;
   const saveSheet = source.updateSheet;
 
   return (
@@ -580,6 +587,9 @@ function PlayerElementView({
       <div className="flex-1 overflow-y-auto px-4 py-5 md:px-8 md:py-6">
         <div className="mx-auto max-w-3xl space-y-6">
           {statblock && <StatBlockView name={element.name} sb={statblock} />}
+          {encounter && (
+            <EncounterOrderView data={encounter} byId={byId} onOpen={onOpen} />
+          )}
 
           {mine && saveSheet ? (
             <>
@@ -759,6 +769,12 @@ function detailsFor(
     }
     case "arc":
       out.push({ label: "Status", value: readArc(element).status });
+      break;
+    case "encounter":
+      out.push({
+        label: "Status",
+        value: encounterSummary(readEncounter(element)),
+      });
       break;
     case "character": {
       out.push({
