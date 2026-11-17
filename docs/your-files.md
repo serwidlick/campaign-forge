@@ -25,7 +25,7 @@ my-campaign/
     3f2b…e91.json             saved assistant conversations
 ```
 
-File names come from the element's name when it is created and do not change on rename; links use the id, not the name, so nothing breaks.
+File names come from the element's name when it is created and do not change on rename; links use the id, not the name, so nothing breaks. The kind comes from the `type` line in the file, not from the folder it sits in: to turn a journal entry into an encounter, change its kind in the app (the kind label above the name), which rewrites `type` and moves the file, or edit the `type` line yourself.
 
 ## An element file
 

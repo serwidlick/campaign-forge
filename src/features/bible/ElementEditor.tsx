@@ -4,6 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import {
   ArrowRight,
   ArrowLeft,
+  ChevronDown,
   Eye,
   EyeOff,
   Presentation,
@@ -13,6 +14,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/Button";
 import {
+  ELEMENT_FAMILIES,
+  ELEMENT_KINDS,
   elementIdFromHref,
   kindById,
   type Element,
@@ -59,6 +62,7 @@ export function ElementEditor({ element, panel }: Props) {
   const conflict = useCampaignStore((s) => s.conflicts[element.id] === true);
   const resolveConflict = useCampaignStore((s) => s.resolveConflict);
   const deleteElement = useCampaignStore((s) => s.deleteElement);
+  const changeElementKind = useCampaignStore((s) => s.changeElementKind);
   const navigate = useCampaignStore((s) => s.navigate);
   const elements = useCampaignStore((s) => s.elements);
   const campaign = useCampaignStore((s) => s.campaign);
@@ -259,9 +263,10 @@ export function ElementEditor({ element, panel }: Props) {
       <header className="flex items-start gap-4 border-b border-ink-800 px-6 py-4">
         <PortraitPicker element={element} />
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
-            {kindById(element.type).label}
-          </div>
+          <KindPicker
+            kind={element.type}
+            onChange={(kind) => void changeElementKind(element.id, kind)}
+          />
           <input
             value={name}
             onChange={(e) => {
@@ -460,6 +465,52 @@ export function ElementEditor({ element, panel }: Props) {
         <MentionPopup state={mention} keyHandlerRef={mentionKeysRef} />
       )}
     </div>
+  );
+}
+
+/**
+ * The small kind label over the name, which is also how an element becomes
+ * another kind: pick one and the file's `type` is rewritten and the file
+ * moved to that kind's folder. The id, body, tags and every other field stay,
+ * so links keep working and a wrong pick is undone by picking again.
+ */
+function KindPicker({
+  kind,
+  onChange,
+}: {
+  kind: string;
+  onChange: (kind: string) => void;
+}) {
+  const known = ELEMENT_KINDS.some((k) => k.id === kind);
+  return (
+    <label
+      className="group inline-flex cursor-pointer items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500 hover:text-ink-300"
+      title="Change what kind of element this is. The file moves to that kind's folder; its id, body and fields stay."
+    >
+      <select
+        value={kind}
+        onChange={(e) => {
+          if (e.target.value !== kind) onChange(e.target.value);
+        }}
+        aria-label="Element kind"
+        className="cursor-pointer appearance-none bg-transparent font-semibold uppercase tracking-wider outline-none focus-visible:text-ember-300"
+      >
+        {!known && <option value={kind}>{kind}</option>}
+        {ELEMENT_FAMILIES.map((family) => (
+          <optgroup key={family.id} label={family.label}>
+            {ELEMENT_KINDS.filter((k) => k.family === family.id).map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <ChevronDown
+        size={11}
+        className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+      />
+    </label>
   );
 }
 

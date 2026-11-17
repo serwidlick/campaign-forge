@@ -20,6 +20,7 @@ Most kinds are just a body. Sessions, arcs, encounters, maps, events, journal en
 - **New** in the list column creates an element of the kind you are looking at. On the Everything view it asks which kind first.
 - The name is the big title at the top of the editor. Change it any time; links keep working because they point at the element's id, not its name.
 - Tags are a comma-separated line under the name. The list search matches names and tags.
+- The small kind label above the name is a dropdown: pick another kind and the element becomes one, keeping its id, name, tags, body and every field. On disk the file's `type` is rewritten and the file moves to that kind's folder, so links to it keep working. Moving a file between folders by hand does not do this; the app reads the kind from the `type` line, not the folder.
 - The red bin button in the header deletes the element and its file: click it once and it asks in place, click **Delete** to confirm or anywhere else to keep it. There is no undo beyond your own backups.
 
 Everything saves itself a moment after you stop typing. The small word next to the bin says Saved, Unsaved or Saving.

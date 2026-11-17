@@ -47,6 +47,7 @@ pub fn run() {
             commands::read_element,
             commands::create_element,
             commands::save_element,
+            commands::change_element_kind,
             commands::delete_element,
             commands::import_map_image,
             commands::import_map_image_bytes,

@@ -80,6 +80,12 @@ struct Save {
 }
 
 #[derive(Deserialize)]
+struct ChangeKind {
+    id: String,
+    kind: String,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ElementImage {
     element_id: String,
@@ -190,6 +196,16 @@ pub async fn call(app: &AppHandle, command: &str, args_json: Value) -> Result<Va
             let saved = state.save_element(a.input).map_err(storage_error)?;
             notify(app, DiskChanges::element(&saved.meta.id, &saved.version));
             ok(saved)
+        }
+        "change_element_kind" => {
+            let a: ChangeKind = args(args_json)?;
+            let changed = state
+                .change_element_kind(&a.id, &a.kind)
+                .map_err(storage_error)?;
+            let mut note = DiskChanges::element(&changed.meta.id, &changed.version);
+            note.list_changed = true;
+            notify(app, note);
+            ok(changed)
         }
         "delete_element" => {
             let a: Id = args(args_json)?;

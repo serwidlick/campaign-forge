@@ -314,6 +314,27 @@ impl AppState {
         Ok(saved)
     }
 
+    /// Changes an element's kind, moving its file to the new kind's folder.
+    pub fn change_element_kind(&self, id: &str, kind: &str) -> Result<Element, StorageError> {
+        let mut guard = self.lock()?;
+        let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
+        let old = open
+            .index
+            .get(id)
+            .ok_or_else(|| StorageError::ElementNotFound(id.to_owned()))?
+            .clone();
+        let changed = elements::change_kind(&open.root, &old, kind)?;
+        let new = open.root.join(&changed.meta.path);
+        open.seen.remove(&old);
+        open.seen.insert(new.clone(), changed.version.clone());
+        open.index.insert(id.to_owned(), new);
+        drop(guard);
+        let mut note = DiskChanges::element(&changed.meta.id, &changed.version);
+        note.list_changed = true;
+        self.bump_with(note);
+        Ok(changed)
+    }
+
     pub fn delete_element(&self, id: &str) -> Result<(), StorageError> {
         let mut guard = self.lock()?;
         let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
@@ -676,6 +697,83 @@ mod tests {
             Err(StorageError::ElementNotFound(_))
         ));
         assert_eq!(fresh.list_elements().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn change_kind_moves_the_file_and_keeps_everything_else() {
+        let root = TempRoot::new("changekind");
+        let state = AppState::default();
+        state
+            .create_campaign(root.path(), "Kinds".into(), None)
+            .unwrap();
+        let extra: Extra = serde_json::from_str(r#"{"date":"2026-11-17","shared":true}"#).unwrap();
+        let entry = state
+            .create_element("journal", "Ambush at the ford", Some(extra))
+            .unwrap();
+        state
+            .save_element(SaveElementInput {
+                id: entry.meta.id.clone(),
+                name: entry.meta.name.clone(),
+                tags: vec!["fight".into()],
+                body: "## Setup\n\nGoblins.\n".into(),
+                extra: None,
+                base_version: None,
+            })
+            .unwrap();
+
+        let changed = state
+            .change_element_kind(&entry.meta.id, "encounter")
+            .unwrap();
+        assert_eq!(changed.meta.id, entry.meta.id);
+        assert_eq!(changed.meta.kind, "encounter");
+        assert_eq!(
+            changed.meta.path,
+            "elements/encounter/ambush-at-the-ford.md"
+        );
+        assert_eq!(changed.meta.tags, vec!["fight".to_owned()]);
+        assert_eq!(changed.meta.extra["date"], "2026-11-17");
+        assert_eq!(changed.meta.extra["shared"], true);
+        assert_eq!(changed.body.trim_start(), "## Setup\n\nGoblins.\n");
+        assert!(!root.0.join(&entry.meta.path).exists());
+        assert!(root.0.join(&changed.meta.path).is_file());
+
+        // The index follows the file: reads and saves find it at the new path.
+        let read = state.read_element(&entry.meta.id).unwrap();
+        assert_eq!(read.meta.kind, "encounter");
+        assert_eq!(read.version, changed.version);
+        let listed = state.list_elements().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].meta.kind, "encounter");
+
+        // Same kind again is a no-op that returns the element as it is.
+        let again = state
+            .change_element_kind(&entry.meta.id, "encounter")
+            .unwrap();
+        assert_eq!(again.version, changed.version);
+
+        // A fresh scan agrees.
+        let fresh = AppState::default();
+        fresh.open_campaign(root.path()).unwrap();
+        assert_eq!(fresh.list_elements().unwrap()[0].meta.kind, "encounter");
+
+        // A file dragged into a kind's folder by hand still says the old
+        // kind. Fixing it keeps the file where it is, under its own name.
+        let dragged = state.create_element("journal", "Dragged", None).unwrap();
+        let from = root.0.join(&dragged.meta.path);
+        let to = root.0.join("elements/encounter/dragged.md");
+        std::fs::rename(&from, &to).unwrap();
+        let rescanned = AppState::default();
+        rescanned.open_campaign(root.path()).unwrap();
+        let fixed = rescanned
+            .change_element_kind(&dragged.meta.id, "encounter")
+            .unwrap();
+        assert_eq!(fixed.meta.kind, "encounter");
+        assert_eq!(fixed.meta.path, "elements/encounter/dragged.md");
+        assert!(!root.0.join("elements/encounter/dragged-2.md").exists());
+        assert_eq!(
+            rescanned.read_element(&dragged.meta.id).unwrap().meta.kind,
+            "encounter"
+        );
     }
 
     #[test]

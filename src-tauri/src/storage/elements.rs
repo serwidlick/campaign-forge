@@ -200,6 +200,56 @@ pub fn delete(path: &Path) -> Result<(), StorageError> {
     fs::remove_file(path).map_err(|e| StorageError::io(path, e))
 }
 
+/// Makes the element at `path` a `kind`: rewrites `type` and moves the file
+/// into that kind's folder, keeping its file name where free. Every other
+/// frontmatter key survives, so nothing is lost if the change is undone.
+/// Returns the element at its new path.
+pub fn change_kind(root: &Path, path: &Path, kind: &str) -> Result<Element, StorageError> {
+    let kind_slug = slugify(kind);
+    if kind_slug.is_empty() {
+        return Err(StorageError::InvalidInput("element kind is empty".into()));
+    }
+    let existing = read(root, path)?;
+    if existing.meta.kind == kind_slug {
+        return Ok(existing);
+    }
+    let dir = root.join(ELEMENTS_DIR).join(&kind_slug);
+    fs::create_dir_all(&dir).map_err(|e| StorageError::io(&dir, e))?;
+    // A file moved into the right folder by hand only needs its `type`
+    // fixed; it keeps its name and stays where it is.
+    let in_place = path.parent() == Some(dir.as_path());
+    let target = if in_place {
+        path.to_path_buf()
+    } else {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(slugify)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| slugify(&existing.meta.name));
+        unique_path(&dir, &stem)
+    };
+
+    let meta = ElementMeta {
+        kind: kind_slug,
+        updated_at: now_rfc3339(),
+        path: relative(root, &target),
+        ..existing.meta
+    };
+    let version = write(&target, &meta, &existing.body)?;
+    // The new file is complete before the old one goes, so a crash in
+    // between leaves a duplicate id (which the scan tolerates), never a loss.
+    if !in_place {
+        delete(path)?;
+    }
+    Ok(Element {
+        meta,
+        links: existing.links,
+        body: existing.body,
+        version,
+    })
+}
+
 /// Writes the element file and returns its new version.
 fn write(path: &Path, meta: &ElementMeta, body: &str) -> Result<String, StorageError> {
     // `path` is runtime-only and skipped when empty; clear it before writing.

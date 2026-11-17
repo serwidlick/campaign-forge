@@ -82,6 +82,8 @@ interface CampaignState {
   /** Shorthand for saving the main column's element. */
   saveSelected: (patch: ElementPatch) => Promise<void>;
   deleteElement: (id: string) => Promise<void>;
+  /** Make an open element another kind; its id, body and fields stay. */
+  changeElementKind: (id: string, kind: string) => Promise<void>;
   /** Re-read an element from disk after an external change. */
   reloadElement: (id: string) => Promise<void>;
   /** An editor has typed changes it has not handed to `saveElement` yet. */
@@ -503,6 +505,39 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
       } catch (err) {
         set({ error: errorMessage(err) });
       }
+    },
+
+    async changeElementKind(id, kind) {
+      set({ error: null });
+      // Queued behind any save in flight for this element, so the move
+      // starts from the version that save wrote and the next save starts
+      // from the version the move wrote.
+      const run = async () => {
+        try {
+          const changed = await storage.changeElementKind(id, kind);
+          const patch = {
+            type: changed.type,
+            path: changed.path,
+            updatedAt: changed.updatedAt,
+            version: changed.version,
+          };
+          set((s) => ({
+            selected:
+              s.selected && s.selected.id === id
+                ? { ...s.selected, ...patch }
+                : s.selected,
+            loaded: s.loaded[id]
+              ? { ...s.loaded, [id]: { ...s.loaded[id]!, ...patch } }
+              : s.loaded,
+          }));
+          await get().refreshElements();
+        } catch (err) {
+          set({ error: errorMessage(err) });
+        }
+      };
+      const next = (saveChains.get(id) ?? Promise.resolve()).then(run);
+      saveChains.set(id, next);
+      await next;
     },
 
     async reloadElement(id) {

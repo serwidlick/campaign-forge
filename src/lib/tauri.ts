@@ -250,6 +250,11 @@ export const storage = {
     });
   },
 
+  /** Rewrites an element's `type` and moves its file to that kind's folder. */
+  changeElementKind(id: string, kind: string) {
+    return call<Element>("change_element_kind", { id, kind });
+  },
+
   deleteElement(id: string) {
     return call<void>("delete_element", { id });
   },

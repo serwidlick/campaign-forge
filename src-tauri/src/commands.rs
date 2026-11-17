@@ -137,6 +137,17 @@ pub fn save_element(state: State<'_, AppState>, input: SaveElementInput) -> Comm
 }
 
 #[tauri::command]
+pub fn change_element_kind(
+    state: State<'_, AppState>,
+    id: String,
+    kind: String,
+) -> CommandResult<Element> {
+    state
+        .change_element_kind(&id, &kind)
+        .map_err(to_command_error)
+}
+
+#[tauri::command]
 pub fn delete_element(state: State<'_, AppState>, id: String) -> CommandResult<()> {
     state.delete_element(&id).map_err(to_command_error)
 }
