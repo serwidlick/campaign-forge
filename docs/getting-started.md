@@ -29,11 +29,17 @@ The main screen has three columns and an optional fourth.
 | Kinds, on the left   | Everything, Timeline, Graph, Journal, then the element kinds grouped by family (Play, People, Factions, Places, Things, Story) with counts. |
 | List                 | The elements of the chosen kind, with search, and the **New** button.                                                                       |
 | Main                 | The selected element's editor, or the overview wheel when nothing is selected.                                                              |
-| Assistant (optional) | The AI helper, toggled with the sparkle button at the top of the sidebar.                                                                   |
+| Assistant (optional) | The AI helper, toggled with the **Assistant** tile at the bottom of the sidebar.                                                            |
 
 Drag the dividers to resize. The layout and open columns are remembered per campaign.
 
-Buttons at the top of the sidebar: **Campaigns** goes back to the welcome screen, the radio icon opens the table hosting panel, the eye opens the player preview, the sparkle toggles the assistant.
+**Campaigns** at the top of the sidebar goes back to the welcome screen. A row of four tiles at the bottom of the sidebar holds **Table** (the hosting panel), **Preview** (the player view, fed from your own files), **Assistant** (toggles the fourth column) and **Theme**.
+
+## Themes
+
+Eight colour themes, five dark and three light: Ember (charcoal and firelight, the default), Moonstone, Greenwood, Obsidian and Dusk, then Parchment, Daylight and Sage. Pick one from the **Theme** tile at the bottom of the sidebar, the **Theme** link in the welcome screen's footer, or the palette button in the player view's banner.
+
+The choice is a preference of the app on this machine, not of the campaign: it is remembered between launches, applies to every campaign you open, and is not written to the campaign folder, so players and other machines keep their own.
 
 ## Keyboard and mouse habits worth learning
 

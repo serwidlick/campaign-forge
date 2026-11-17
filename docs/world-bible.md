@@ -56,6 +56,14 @@ In a D&D 5e campaign every character has a sheet above its body: role (player ch
 
 Below the stats, folding sections hold the rest of a player character: attacks (to hit, damage, notes), features and traits, spellcasting (ability, save DC and attack bonus worked out, slots per level that follow class and level until you edit them, a spell list with prepared ticks, and a long-rest button), inventory with weight and coin, personality traits, ideals, bonds and flaws, and a right-now strip with inspiration, death saves, hit dice, exhaustion and conditions.
 
+### What to roll
+
+Between the derived numbers and the saving throws sits a **What to roll** strip. The app never rolls dice; this strip names the die and lists every bonus with where it comes from, so a player can pick up the right dice and add the right numbers without working anything out. Stealth, say, reads `1d20 + 2 (prof) + 3 (dex)`.
+
+It covers every roll the sheet knows about: an ability check and a saving throw for each of the six abilities, initiative and death saves, every skill, melee and ranged weapon attacks, the spell attack and spell save DC once a spellcasting ability is set, and each attack in the attacks section with its to-hit and damage. Give an attack a **kind** (melee or thrown for Strength, finesse or ranged for Dexterity, or spell attack) and its to-hit is built from proficiency and that ability, with anything typed in the bonus field added as "extra"; choose **Typed bonus** to enter the whole to-hit yourself. The header reminds players that advantage or disadvantage means rolling two d20 and keeping the higher or lower.
+
+On the GM's editor the strip starts folded, since the fields it derives from matter more there. For a player opening their own character at the table, in the app or on the phone page, it starts open.
+
 The sheet is stored in the element's frontmatter as `sheet`, so it travels with the file, and the assistant can fill it in when you ask.
 
 ## Creature stat blocks

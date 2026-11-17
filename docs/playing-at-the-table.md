@@ -20,11 +20,11 @@ Backlinks on the player side are computed from the player-facing part only.
 
 ### Preview as a player
 
-The eye button at the top of the sidebar switches the whole window to the player view, fed from your own files. Use it to check what a handout looks like before the session. **Back to GM view** returns.
+The **Preview** tile (the eye) at the bottom of the sidebar switches the whole window to the player view, fed from your own files. Use it to check what a handout looks like before the session. **Back to GM view** returns.
 
 ## Hosting a table
 
-1. Press the **radio** button at the top of the sidebar and then **Start hosting**.
+1. Press the **Table** tile (the radio) at the bottom of the sidebar and then **Start hosting**.
 2. Windows asks once whether to allow Campaign Forge on private networks. Say yes, or nobody can reach you.
 3. The panel shows a six-digit **join code** and your machine's addresses. Read the code out.
 4. **At the table** lists who has joined, with a green dot while they are connected.

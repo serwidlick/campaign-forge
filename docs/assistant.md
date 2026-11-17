@@ -6,7 +6,7 @@ It is the only part of the app that talks to a server, and only the Anthropic AP
 
 ## Setting it up
 
-1. Press the **sparkle** button at the top of the sidebar to open the assistant, then the gear for its settings.
+1. Press the **Assistant** tile (the sparkle) at the bottom of the sidebar to open the assistant, then the gear for its settings.
 2. Paste an Anthropic API key. It is stored in your operating system's credential store, not in the campaign folder.
 3. Choose a model and an effort level. The strongest model costs the most per answer; the lightest is fine for look-ups.
 
