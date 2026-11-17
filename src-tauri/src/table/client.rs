@@ -301,11 +301,12 @@ impl Session {
         resp.json().await.map_err(|e| e.to_string())
     }
 
-    /// Returns once the GM's campaign has changed past `after`, or after the
-    /// server's long-poll window with the current version.
-    pub async fn wait_for_change(&self, after: u64) -> Result<VersionResponse, String> {
+    /// Returns once the GM's campaign has changed past `after` or the
+    /// spotlight has moved past `event`, or after the server's long-poll
+    /// window with the current version.
+    pub async fn wait_for_change(&self, after: u64, event: u64) -> Result<VersionResponse, String> {
         let resp = self
-            .get(&format!("/api/version?after={after}"))
+            .get(&format!("/api/version?after={after}&event={event}"))
             .send()
             .await
             .map_err(connection_error)?;

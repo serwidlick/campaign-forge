@@ -10,6 +10,12 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
 
+  // Tauri tells the frontend which platform it is being built for
+  // (`TAURI_ENV_PLATFORM`: windows, macos, linux, android, ios), so the
+  // bundle can know at build time that it is the mobile player app. Vite
+  // matches these as plain prefixes, so no wildcard.
+  envPrefix: ["VITE_", "TAURI_ENV_"],
+
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

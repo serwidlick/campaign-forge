@@ -20,9 +20,26 @@ import {
 
 const FIELD =
   "rounded-md border border-ink-700 bg-ink-900 px-2 py-1 text-sm text-ink-100 outline-none placeholder:text-ink-600 focus:border-ember-500";
-const SMALL = `${FIELD} py-0.5 text-xs`;
+const SMALL = `${FIELD} w-full min-w-0 py-0.5 text-xs`;
 const ICON_BTN =
-  "flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-600 hover:bg-ink-800 hover:text-red-300";
+  "flex h-7 w-7 shrink-0 items-center justify-center justify-self-end rounded text-ink-600 hover:bg-ink-800 hover:text-red-300";
+
+// The tables below lay a row out in named columns on a wide screen. On a
+// phone the same cells wrap onto two lines instead, with the free-text cell
+// (notes, description) spanning the second line, and the column headings
+// are left out; the fields' placeholders say what each one is.
+const ROW = "grid items-center gap-x-2 gap-y-1";
+const HEAD = "hidden gap-x-2 text-[10px] text-ink-500 uppercase sm:grid";
+const ATTACK_COLS =
+  "grid-cols-[1fr_7.5rem_4.5rem] sm:grid-cols-[1fr_7.5rem_4.5rem_8rem_1fr_auto]";
+const FEATURE_COLS =
+  "grid-cols-[1fr_1fr_auto] sm:grid-cols-[12rem_8rem_1fr_auto]";
+const SPELL_COLS =
+  "grid-cols-[1fr_6rem_4rem] sm:grid-cols-[1fr_6rem_4rem_1fr_auto]";
+const ITEM_COLS =
+  "grid-cols-[1fr_4rem_5rem] sm:grid-cols-[1fr_4rem_5rem_1fr_auto]";
+/** The free-text cell: the whole line on a phone, one column otherwise. */
+const WIDE_CELL = "col-span-2 sm:col-span-1";
 
 type Update = (fn: (s: Sheet5e) => Sheet5e) => void;
 
@@ -88,6 +105,7 @@ function AddButton({ onClick, label }: { onClick: () => void; label: string }) {
     <button
       type="button"
       onClick={onClick}
+      data-edit-only
       className="inline-flex items-center gap-1 rounded-md border border-ink-700 px-2 py-1 text-xs text-ink-300 hover:bg-ink-800 hover:text-ink-100"
     >
       <Plus size={12} /> {label}
@@ -106,7 +124,7 @@ function Attacks({ sheet, update }: { sheet: Sheet5e; update: Update }) {
   return (
     <Section title="Attacks" count={sheet.attacks.length}>
       {sheet.attacks.length > 0 && (
-        <div className="grid grid-cols-[1fr_7.5rem_4.5rem_8rem_1fr_auto] gap-x-2 gap-y-1 text-[10px] text-ink-500 uppercase">
+        <div className={`${HEAD} ${ATTACK_COLS}`}>
           <span>Name</span>
           <span>Kind</span>
           <span>To hit</span>
@@ -116,10 +134,7 @@ function Attacks({ sheet, update }: { sheet: Sheet5e; update: Update }) {
         </div>
       )}
       {sheet.attacks.map((a) => (
-        <div
-          key={a.id}
-          className="grid grid-cols-[1fr_7.5rem_4.5rem_8rem_1fr_auto] items-center gap-x-2"
-        >
+        <div key={a.id} className={`${ROW} ${ATTACK_COLS}`}>
           <input
             value={a.name}
             onChange={(e) => set(a.id, { name: e.target.value })}
@@ -215,10 +230,7 @@ function Features({ sheet, update }: { sheet: Sheet5e; update: Update }) {
   return (
     <Section title="Features and traits" count={sheet.features.length}>
       {sheet.features.map((f) => (
-        <div
-          key={f.id}
-          className="grid grid-cols-[12rem_8rem_1fr_auto] items-center gap-x-2"
-        >
+        <div key={f.id} className={`${ROW} ${FEATURE_COLS}`}>
           <input
             value={f.name}
             onChange={(e) => set(f.id, { name: e.target.value })}
@@ -235,7 +247,7 @@ function Features({ sheet, update }: { sheet: Sheet5e; update: Update }) {
             value={f.notes}
             onChange={(e) => set(f.id, { notes: e.target.value })}
             placeholder="Bonus action, 1d10 + level, once per short rest"
-            className={SMALL}
+            className={`${SMALL} col-span-3 sm:col-span-1`}
           />
           <button
             type="button"
@@ -246,7 +258,9 @@ function Features({ sheet, update }: { sheet: Sheet5e; update: Update }) {
               }))
             }
             aria-label={`Remove ${f.name || "feature"}`}
-            className={ICON_BTN}
+            // On a phone the description takes the second line, so the
+            // cross stays on the first, after the source.
+            className={`${ICON_BTN} col-start-3 row-start-1 sm:col-start-auto sm:row-start-auto`}
           >
             <X size={13} />
           </button>
@@ -457,7 +471,7 @@ function Spellcasting({ sheet, update }: { sheet: Sheet5e; update: Update }) {
       </div>
 
       {spells.length > 0 && (
-        <div className="grid grid-cols-[1fr_6rem_4rem_1fr_auto] gap-x-2 text-[10px] text-ink-500 uppercase">
+        <div className={`${HEAD} ${SPELL_COLS}`}>
           <span>Spell</span>
           <span>Level</span>
           <span>Prepared</span>
@@ -466,10 +480,7 @@ function Spellcasting({ sheet, update }: { sheet: Sheet5e; update: Update }) {
         </div>
       )}
       {spells.map((sp) => (
-        <div
-          key={sp.id}
-          className="grid grid-cols-[1fr_6rem_4rem_1fr_auto] items-center gap-x-2"
-        >
+        <div key={sp.id} className={`${ROW} ${SPELL_COLS}`}>
           <input
             value={sp.name}
             onChange={(e) => setSpell(sp.id, { name: e.target.value })}
@@ -499,7 +510,7 @@ function Spellcasting({ sheet, update }: { sheet: Sheet5e; update: Update }) {
             value={sp.notes}
             onChange={(e) => setSpell(sp.id, { notes: e.target.value })}
             placeholder="8d6 fire, 20 ft radius, DEX save"
-            className={SMALL}
+            className={`${SMALL} ${WIDE_CELL}`}
           />
           <button
             type="button"
@@ -587,7 +598,7 @@ function Inventory({ sheet, update }: { sheet: Sheet5e; update: Update }) {
         ))}
       </div>
       {sheet.inventory.length > 0 && (
-        <div className="grid grid-cols-[1fr_4rem_5rem_1fr_auto] gap-x-2 text-[10px] text-ink-500 uppercase">
+        <div className={`${HEAD} ${ITEM_COLS}`}>
           <span>Item</span>
           <span>Qty</span>
           <span>Weight</span>
@@ -596,10 +607,7 @@ function Inventory({ sheet, update }: { sheet: Sheet5e; update: Update }) {
         </div>
       )}
       {sheet.inventory.map((i) => (
-        <div
-          key={i.id}
-          className="grid grid-cols-[1fr_4rem_5rem_1fr_auto] items-center gap-x-2"
-        >
+        <div key={i.id} className={`${ROW} ${ITEM_COLS}`}>
           <input
             value={i.name}
             onChange={(e) => set(i.id, { name: e.target.value })}
@@ -627,7 +635,7 @@ function Inventory({ sheet, update }: { sheet: Sheet5e; update: Update }) {
             value={i.notes}
             onChange={(e) => set(i.id, { notes: e.target.value })}
             placeholder=""
-            className={SMALL}
+            className={`${SMALL} ${WIDE_CELL}`}
           />
           <button
             type="button"

@@ -43,6 +43,22 @@ pnpm rust:check        # needs a Rust toolchain
 pnpm tauri:dev         # run the app
 ```
 
+## Android (player app)
+
+The Android build is the player side only: it boots into the join screen (`src/features/table/PlayerWelcomeScreen.tsx`) and shows the player view once seated. No campaign folder, hosting, assistant or updater. The frontend knows it is the mobile build from `isMobile` in `src/lib/platform.ts`, set at build time from Tauri's `TAURI_ENV_PLATFORM`; Rust gates desktop-only plugins and the keyring with `#[cfg(desktop)]`, and the device key lives in the app's private data directory instead (`src-tauri/src/identity.rs`). Capabilities are split by platform: `capabilities/default.json` is desktop, `capabilities/mobile.json` is Android/iOS.
+
+`src-tauri/gen/android/` is the generated Android Studio project and is committed; `MainActivity.kt` holds a Wi-Fi multicast lock so mDNS table discovery works, and the manifest declares the Wi-Fi permissions for it. Re-running `tauri android init` is never needed.
+
+Needs Android Studio's SDK and NDK plus a JDK 17, with `ANDROID_HOME`, `NDK_HOME` and `JAVA_HOME` set.
+
+```bash
+pnpm android:dev                 # run on the connected device or running emulator, with hot reload
+pnpm android:build               # release APK; signed with the keystore if present, else the debug key
+pnpm android:build --debug --target aarch64   # a debug APK for a phone, no keystore needed
+```
+
+The APK lands in `src-tauri/gen/android/app/build/outputs/apk/`. Release builds are signed with the keystore named in `src-tauri/gen/android/keystore.properties` (gitignored; see README.md, "Android signing") and fall back to the debug key without it. The Release workflow builds and attaches an arm64 APK to every GitHub release; the download page lists it for Android visitors.
+
 ## Code graph
 
 [graphify](https://github.com/Graphify-Labs/graphify) turns the repo into a queryable knowledge graph. It is installed as a uv tool and registered project-wide: the `/graphify` skill lives in `.claude/skills/graphify/`, and `.claude/settings.json` has `PreToolUse` hooks that point Claude Code at the graph before raw searches and reads, plus `PostToolUse` (Write/Edit) and `Stop` hooks that run `graphify update . && graphify export wiki` so the graph and `graphify-out/wiki/` are rebuilt after every change. `graphify-out/` is gitignored; rebuild it locally.

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { inTauri } from "@/lib/platform";
+import { inTauri, isMobile } from "@/lib/platform";
 import {
   errorMessage,
   notifyFilesChanged,
@@ -134,8 +134,12 @@ export const useTableStore = create<TableState>((set, get) => {
             return;
           }
           set({ session: { ...session, gm: next.gm } });
-          if (next.gm) await enterGm();
-          else exitGm();
+          // The phone app has no GM screen to load the campaign into.
+          if (next.gm) {
+            if (!isMobile) await enterGm();
+          } else {
+            exitGm();
+          }
           if (generation !== loopGeneration) return;
           needFetch = true;
         }
@@ -190,7 +194,7 @@ export const useTableStore = create<TableState>((set, get) => {
       connection: "connected",
       error: null,
     });
-    if (session.gm) await enterGm();
+    if (session.gm && !isMobile) await enterGm();
     // Start one version behind so the first wait returns at once if the GM
     // changed something between join and now.
     void runSyncLoop(loopGeneration, Math.max(0, session.info.version - 1));

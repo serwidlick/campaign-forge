@@ -9,6 +9,15 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 export const inTauri: boolean =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+/**
+ * The phone and tablet build, decided when the bundle is made. It is the
+ * player app only: it joins a GM's table and shows the player view. There
+ * is no campaign folder to open, no hosting, no assistant and no updater.
+ */
+export const isMobile: boolean =
+  import.meta.env.TAURI_ENV_PLATFORM === "android" ||
+  import.meta.env.TAURI_ENV_PLATFORM === "ios";
+
 /** Opens a link in the user's browser (or a new tab, when we are one). */
 export function openExternal(url: string): void {
   if (inTauri) {

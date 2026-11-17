@@ -79,8 +79,9 @@ Send people to the download page: **https://serwidlick.github.io/campaign-forge/
 - **Windows:** run `Campaign Forge_<version>_x64-setup.exe`. It installs for the current user only, so no admin rights are needed. Windows SmartScreen may warn that the publisher is unknown because the build is not code-signed; choose _More info → Run anyway_.
 - **macOS (Apple Silicon):** open the `.dmg` and drag Campaign Forge to Applications. Releases are signed and notarised when the Apple secrets below are set; an unsigned build makes macOS call the app "damaged", which `xattr -cr "/Applications/Campaign Forge.app"` clears.
 - **Linux:** the `.AppImage` runs on any distribution (`chmod +x` it first); the `.deb` is for Debian and Ubuntu.
+- **Android (players only):** open `Campaign.Forge_<version>_arm64.apk` on the phone and allow installing from that source when Android asks. It is the player side of the app: it joins a table and cannot host one. It is not on the Play Store and does not update itself; install the next version's APK over it.
 
-Players only need the same installer. They do not need a campaign folder; they join a table from the welcome screen.
+Players only need the same installer, or the Android app on a phone. They do not need a campaign folder; they join a table from the welcome screen.
 
 **Guide.** How everything works, task by task, is in [docs/](docs/README.md), also published at https://serwidlick.github.io/campaign-forge/guide/ (the site renders the same Markdown files, so edits to `docs/` go live on push).
 
@@ -88,7 +89,7 @@ Players only need the same installer. They do not need a campaign folder; they j
 
 ### Making a release
 
-Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub Actions for Windows, macOS (Apple Silicon) and Linux. Bump the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit, then tag and push:
+Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub Actions for Windows, macOS (Apple Silicon) and Linux, plus the Android player APK. Bump the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit, then tag and push:
 
 ```bash
 git tag v0.2.0 && git push origin v0.2.0
@@ -113,6 +114,15 @@ Losing the private key means installed copies can never update again; a new key 
 | `APPLE_ID`                   | The Apple ID of the developer account                                                                                                 |
 | `APPLE_PASSWORD`             | An app-specific password for that Apple ID, made at appleid.apple.com                                                                 |
 | `APPLE_TEAM_ID`              | The ten-character team ID from developer.apple.com → Membership                                                                       |
+
+**Android signing.** The APK is signed with a release keystore when these secrets exist. Without them it is signed with a debug key made on the runner: it installs, but a phone will not upgrade from it to a properly signed build without uninstalling first, so set them before the first release you expect players to keep. Make the keystore once with `keytool -genkeypair -v -keystore campaign-forge.jks -alias campaign-forge -keyalg RSA -keysize 4096 -validity 10000` and keep it safe: a lost keystore means every phone must reinstall. For a local signed build, put the same values in `src-tauri/gen/android/keystore.properties` (gitignored; `storeFile` is relative to that folder).
+
+| Secret                      | Value                                                           |
+| --------------------------- | --------------------------------------------------------------- |
+| `ANDROID_KEYSTORE_BASE64`   | The `.jks` file, base64-encoded: `base64 -i campaign-forge.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | The keystore password                                           |
+| `ANDROID_KEY_ALIAS`         | The key's alias, e.g. `campaign-forge`                          |
+| `ANDROID_KEY_PASSWORD`      | The key's password (often the same as the keystore's)           |
 
 The workflow publishes the release with all installers attached, and the download page picks it up by itself. The page lives in `site/` and is deployed to GitHub Pages by the [Pages workflow](.github/workflows/pages.yml) whenever it changes. Both need the repository to be public. To build an installer for the current machine only, run `pnpm tauri:build`; it lands in `src-tauri/target/release/bundle/`.
 

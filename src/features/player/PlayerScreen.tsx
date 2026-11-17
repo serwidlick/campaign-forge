@@ -38,6 +38,7 @@ import {
 import { Portrait } from "@/features/images/Portrait";
 import { portraitOf } from "@/features/images/portrait-model";
 import { openExternal } from "@/lib/platform";
+import { useNarrow } from "@/lib/use-media-query";
 
 import { documentFileOf } from "@/features/documents/document-model";
 import { readSheet5e, sheetSummary } from "@/features/templates/dnd5e-model";
@@ -70,6 +71,10 @@ interface Props {
  * What a player sees: a read-only bible of shared elements. Fed by a
  * `PlayerSource`, so the same screen serves the GM's preview today and a
  * table joined over the network later.
+ *
+ * Wide screens show kinds, list and reader side by side. A phone shows one
+ * at a time: the list with the kinds as a strip of chips above it, and the
+ * reader in its place once something is picked, with a way back.
  */
 export function PlayerScreen({
   source,
@@ -146,18 +151,132 @@ export function PlayerScreen({
   const open = useCallback((id: string) => setSelectedId(id), []);
   const element =
     opened && opened.id === selectedId ? opened.element : undefined;
+  const narrow = useNarrow();
+
+  const exitControls = (
+    <>
+      <ThemePicker
+        variant="icon"
+        placement={narrow || banner ? "below-end" : "above-start"}
+      />
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={onExit}
+        className={narrow || banner ? "" : "flex-1"}
+      >
+        <ArrowLeft size={13} /> {exitLabel}
+      </Button>
+    </>
+  );
+
+  const search = (
+    <div className="flex items-center gap-2 border-b border-ink-800 px-3 py-2">
+      <div className="flex flex-1 items-center gap-2 rounded-md border border-ink-700 bg-ink-900 px-2 py-1">
+        <Search size={13} className="text-ink-500" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search"
+          className="w-full bg-transparent text-sm outline-none placeholder:text-ink-600"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => setQuery("")}
+            aria-label="Clear search"
+            className="text-ink-500 hover:text-ink-200"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  const list = (
+    <ul className="flex-1 overflow-y-auto py-1">
+      {visible.length === 0 && (
+        <li className="px-4 py-6 text-center text-sm text-ink-500">
+          {elements.length === 0
+            ? "Nothing has been shared yet."
+            : "No matches."}
+        </li>
+      )}
+      {visible.map((e) => (
+        <li key={e.id}>
+          <button
+            type="button"
+            onClick={() => open(e.id)}
+            className={`flex w-full items-center gap-3 px-4 py-2 text-left transition-colors ${
+              e.id === selectedId ? "bg-ink-700/60" : "hover:bg-ink-800"
+            }`}
+          >
+            <Portrait
+              path={portraitOf(e)}
+              name={e.name}
+              kind={e.type}
+              size={30}
+              scope="player"
+              load={source.readAsset}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm text-ink-100">
+                {displayName(e)}
+              </div>
+              <div className="truncate text-[11px] text-ink-500">
+                {rowSubtitle(e)}
+              </div>
+            </div>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+
+  const reader = !selectedId ? (
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-ink-500">
+      <Eye size={28} className="text-ink-700" />
+      <p>
+        {elements.length === 0
+          ? "The GM has not shared anything yet."
+          : `${elements.length} shared ${elements.length === 1 ? "thing" : "things"}. Pick one from the list.`}
+      </p>
+    </div>
+  ) : element === undefined ? (
+    <div className="flex flex-1 items-center justify-center text-sm text-ink-600">
+      Loading…
+    </div>
+  ) : element === null ? (
+    <div className="flex flex-1 items-center justify-center text-sm text-ink-500">
+      This is no longer shared.
+    </div>
+  ) : (
+    <PlayerElementView
+      key={element.id}
+      element={element}
+      source={source}
+      calendar={calendar}
+      onOpen={open}
+    />
+  );
+
+  /** The kinds with something in them, for the sidebar or the chip strip. */
+  const families = ELEMENT_FAMILIES.map((family) => ({
+    family,
+    kinds: ELEMENT_KINDS.filter(
+      (k) => k.family === family.id && (counts.get(k.id) ?? 0) > 0,
+    ),
+  })).filter(({ kinds }) => kinds.length > 0);
 
   return (
     <div className="flex h-full flex-col">
       {banner && (
-        <div className="flex items-center gap-3 border-b border-ember-500/40 bg-ember-500/10 px-4 py-1.5 text-xs text-ember-200">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ember-500/40 bg-ember-500/10 px-4 py-1.5 text-xs text-ember-200">
           <Eye size={13} />
-          <span className="flex-1">{banner}</span>
+          <span className="min-w-0 flex-1 basis-40">{banner}</span>
           {bannerExtra}
-          <ThemePicker variant="icon" placement="below-end" />
-          <Button size="sm" variant="ghost" onClick={onExit}>
-            <ArrowLeft size={13} /> {exitLabel}
-          </Button>
+          {exitControls}
         </div>
       )}
       {offer && offered && (
@@ -185,31 +304,88 @@ export function PlayerScreen({
           </Button>
         </div>
       )}
-      <div className="flex min-h-0 flex-1">
-        {/* Kinds */}
-        <aside className="flex w-[220px] shrink-0 flex-col border-r border-ink-800 bg-ink-900">
-          <header className="border-b border-ink-800 px-3 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
-              Player view
+      {narrow ? (
+        selectedId ? (
+          /* Phone, reading: the reader fills the screen, with a way back. */
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-ink-950">
+            <div className="flex items-center gap-2 border-b border-ink-800 bg-ink-900 px-2 py-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedId(null)}
+              >
+                <ArrowLeft size={13} /> Back
+              </Button>
+              <span className="min-w-0 flex-1 truncate text-sm text-ink-400">
+                {title}
+              </span>
             </div>
-            <h1 className="mt-1 truncate font-serif text-lg font-semibold">
-              {title}
-            </h1>
-            {subtitle && <p className="text-xs text-ink-400">{subtitle}</p>}
-          </header>
-          <nav className="flex-1 overflow-y-auto px-2 py-2">
-            <KindRow
-              label="Everything"
-              count={elements.length}
-              active={kindFilter === null}
-              onClick={() => setKindFilter(null)}
-            />
-            {ELEMENT_FAMILIES.map((family) => {
-              const kinds = ELEMENT_KINDS.filter(
-                (k) => k.family === family.id && (counts.get(k.id) ?? 0) > 0,
-              );
-              if (kinds.length === 0) return null;
-              return (
+            {reader}
+          </main>
+        ) : (
+          /* Phone, browsing: title, kind chips, search and the list. */
+          <div className="flex min-h-0 flex-1 flex-col bg-ink-850">
+            <header className="flex items-center gap-2 border-b border-ink-800 bg-ink-900 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+                  Player view
+                </div>
+                <h1 className="truncate font-serif text-lg font-semibold">
+                  {title}
+                </h1>
+                {subtitle && (
+                  <p className="truncate text-xs text-ink-400">{subtitle}</p>
+                )}
+              </div>
+              {!banner && exitControls}
+            </header>
+            <nav
+              aria-label="Kinds"
+              className="flex gap-1.5 overflow-x-auto border-b border-ink-800 bg-ink-900 px-3 py-2"
+            >
+              <KindChip
+                label="Everything"
+                count={elements.length}
+                active={kindFilter === null}
+                onClick={() => setKindFilter(null)}
+              />
+              {families.flatMap(({ kinds }) =>
+                kinds.map((k) => (
+                  <KindChip
+                    key={k.id}
+                    label={k.plural}
+                    count={counts.get(k.id) ?? 0}
+                    active={kindFilter === k.id}
+                    onClick={() => setKindFilter(k.id)}
+                  />
+                )),
+              )}
+            </nav>
+            {search}
+            {list}
+          </div>
+        )
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          {/* Kinds */}
+          <aside className="flex w-[220px] shrink-0 flex-col border-r border-ink-800 bg-ink-900">
+            <header className="border-b border-ink-800 px-3 py-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+                Player view
+              </div>
+              <h1 className="mt-1 truncate font-serif text-lg font-semibold">
+                {title}
+              </h1>
+              {subtitle && <p className="text-xs text-ink-400">{subtitle}</p>}
+            </header>
+            <nav className="flex-1 overflow-y-auto px-2 py-2">
+              <KindRow
+                label="Everything"
+                count={elements.length}
+                active={kindFilter === null}
+                onClick={() => setKindFilter(null)}
+              />
+              {families.map(({ family, kinds }) => (
                 <div key={family.id} className="mt-3">
                   <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-600">
                     {family.label}
@@ -224,118 +400,73 @@ export function PlayerScreen({
                     />
                   ))}
                 </div>
-              );
-            })}
-          </nav>
-          {!banner && (
-            <div className="flex items-center gap-1 border-t border-ink-800 p-2">
-              <ThemePicker variant="icon" placement="above-start" />
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={onExit}
-                className="flex-1"
-              >
-                <ArrowLeft size={13} /> {exitLabel}
-              </Button>
-            </div>
-          )}
-        </aside>
-
-        {/* List */}
-        <section className="flex w-[300px] shrink-0 flex-col border-r border-ink-800 bg-ink-850">
-          <div className="flex items-center gap-2 border-b border-ink-800 px-3 py-2">
-            <div className="flex flex-1 items-center gap-2 rounded-md border border-ink-700 bg-ink-900 px-2 py-1">
-              <Search size={13} className="text-ink-500" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search"
-                className="w-full bg-transparent text-sm outline-none placeholder:text-ink-600"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  aria-label="Clear search"
-                  className="text-ink-500 hover:text-ink-200"
-                >
-                  <X size={13} />
-                </button>
-              )}
-            </div>
-          </div>
-          <ul className="flex-1 overflow-y-auto py-1">
-            {visible.length === 0 && (
-              <li className="px-4 py-6 text-center text-sm text-ink-500">
-                {elements.length === 0
-                  ? "Nothing has been shared yet."
-                  : "No matches."}
-              </li>
+              ))}
+            </nav>
+            {!banner && (
+              <div className="flex items-center gap-1 border-t border-ink-800 p-2">
+                {exitControls}
+              </div>
             )}
-            {visible.map((e) => (
-              <li key={e.id}>
-                <button
-                  type="button"
-                  onClick={() => open(e.id)}
-                  className={`flex w-full items-center gap-3 px-4 py-2 text-left transition-colors ${
-                    e.id === selectedId ? "bg-ink-700/60" : "hover:bg-ink-800"
-                  }`}
-                >
-                  <Portrait
-                    path={portraitOf(e)}
-                    name={e.name}
-                    kind={e.type}
-                    size={30}
-                    scope="player"
-                    load={source.readAsset}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-ink-100">
-                      {displayName(e)}
-                    </div>
-                    <div className="truncate text-[11px] text-ink-500">
-                      {kindById(e.type).label}
-                      {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
-                    </div>
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+          </aside>
 
-        {/* Reader */}
-        <main className="flex min-w-0 flex-1 flex-col bg-ink-950">
-          {!selectedId ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-ink-500">
-              <Eye size={28} className="text-ink-700" />
-              <p>
-                {elements.length === 0
-                  ? "The GM has not shared anything yet."
-                  : `${elements.length} shared ${elements.length === 1 ? "thing" : "things"}. Pick one from the list.`}
-              </p>
-            </div>
-          ) : element === undefined ? (
-            <div className="flex flex-1 items-center justify-center text-sm text-ink-600">
-              Loading…
-            </div>
-          ) : element === null ? (
-            <div className="flex flex-1 items-center justify-center text-sm text-ink-500">
-              This is no longer shared.
-            </div>
-          ) : (
-            <PlayerElementView
-              key={element.id}
-              element={element}
-              source={source}
-              calendar={calendar}
-              onOpen={open}
-            />
-          )}
-        </main>
-      </div>
+          {/* List */}
+          <section className="flex w-[300px] shrink-0 flex-col border-r border-ink-800 bg-ink-850">
+            {search}
+            {list}
+          </section>
+
+          {/* Reader */}
+          <main className="flex min-w-0 flex-1 flex-col bg-ink-950">
+            {reader}
+          </main>
+        </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * The line under a name in the list. A character with a sheet shows what
+ * it is ("Level 3 Half-elf Bard (College of Lore)"), so a change the GM
+ * makes to the sheet is visible without opening it; anything else shows
+ * its kind. Tags follow either.
+ */
+function rowSubtitle(e: ElementSummary): string {
+  const sheet = e.type === "character" ? readSheet5e(e.sheet) : null;
+  const what =
+    sheet && (sheet.class || sheet.species)
+      ? sheetSummary(sheet)
+      : kindById(e.type).label;
+  return e.tags.length > 0 ? `${what} · ${e.tags.join(", ")}` : what;
+}
+
+/** A kind filter in the phone layout's strip: "Characters 4". */
+function KindChip({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs whitespace-nowrap transition-colors ${
+        active
+          ? "border-ember-500/60 bg-ember-500/15 text-ink-100"
+          : "border-ink-700 text-ink-300 hover:bg-ink-800"
+      }`}
+    >
+      <span>{label}</span>
+      <span className={active ? "text-ember-300" : "text-ink-500"}>
+        {count}
+      </span>
+    </button>
   );
 }
 
@@ -389,13 +520,18 @@ function PlayerElementView({
   const map = element.type === "map" ? readMap(element) : null;
   const pdf = element.type === "document" ? documentFileOf(element) : null;
   const mine = ownsCharacter(element, source.playerName, source.playerId);
+  // Every shared player character shows its whole sheet; only your own one
+  // takes edits. NPC sheets stay the GM's business beyond the summary line.
+  const pc = element.type === "character" && characterRoleOf(element) === "pc";
+  const sheet =
+    element.type === "character" ? readSheet5e(element.sheet) : null;
   const statblock =
     element.type === "creature" ? readStatBlock5e(element.statblock) : null;
   const saveSheet = source.updateSheet;
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-start gap-4 border-b border-ink-800 px-6 py-4">
+      <header className="flex items-start gap-4 border-b border-ink-800 px-4 py-4 md:px-6">
         <Portrait
           path={portraitOf(element)}
           name={element.name}
@@ -441,11 +577,11 @@ function PlayerElementView({
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-8 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-5 md:px-8 md:py-6">
         <div className="mx-auto max-w-3xl space-y-6">
           {statblock && <StatBlockView name={element.name} sb={statblock} />}
 
-          {mine && saveSheet && (
+          {mine && saveSheet ? (
             <>
               <p className="text-xs text-ember-300">
                 This is your character. Edits here go to the GM's copy.
@@ -457,6 +593,20 @@ function PlayerElementView({
                 }}
               />
             </>
+          ) : (
+            sheet &&
+            pc && (
+              <>
+                <p className="text-xs text-ink-400">
+                  {sheet.owner
+                    ? `${ownerLabel(sheet.owner, source.players ?? [])}'s character.`
+                    : "A player character."}{" "}
+                  You can read the sheet but not change it; if it is yours, ask
+                  the GM to hand it to you.
+                </p>
+                <CharacterSheet5e element={element} readOnly />
+              </>
+            )
           )}
 
           {pdf && (

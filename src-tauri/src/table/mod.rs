@@ -371,8 +371,9 @@ pub async fn table_fetch_asset(
 pub async fn table_wait_for_change(
     table: State<'_, TableState>,
     after: u64,
+    event: u64,
 ) -> CommandResult<VersionResponse> {
-    session(&table)?.wait_for_change(after).await
+    session(&table)?.wait_for_change(after, event).await
 }
 
 // ---- Working as a GM from another machine ---------------------------------

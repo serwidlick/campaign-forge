@@ -1,18 +1,86 @@
 //! This device's identity: an Ed25519 key pair made on first use and kept in
-//! the operating system's credential store. Joining a table proves the
-//! device by signing a one-time challenge; the GM pairs the device with a
-//! player once and never needs a code from it again. Nothing here touches
+//! the operating system's credential store (on a phone, where there is no
+//! such store, in the app's private data directory). Joining a table proves
+//! the device by signing a one-time challenge; the GM pairs the device with
+//! a player once and never needs a code from it again. Nothing here touches
 //! the network or any server.
 
 use base64::prelude::*;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use keyring::{Entry, Error as KeyringError};
 use rand_core::OsRng;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-const SERVICE: &str = "dev.campaignforge.app";
-const ACCOUNT: &str = "device-key";
+/// Where the key's seed is kept: the OS credential store on desktop.
+#[cfg(desktop)]
+mod store {
+    use keyring::{Entry, Error as KeyringError};
+
+    const SERVICE: &str = "dev.campaignforge.app";
+    const ACCOUNT: &str = "device-key";
+
+    fn entry() -> Result<Entry, String> {
+        Entry::new(SERVICE, ACCOUNT).map_err(|e| format!("credential store unavailable: {e}"))
+    }
+
+    pub fn read() -> Result<Option<String>, String> {
+        match entry()?.get_password() {
+            Ok(stored) => Ok(Some(stored)),
+            Err(KeyringError::NoEntry) => Ok(None),
+            Err(e) => Err(format!("could not read the device key: {e}")),
+        }
+    }
+
+    pub fn write(value: &str) -> Result<(), String> {
+        entry()?
+            .set_password(value)
+            .map_err(|e| format!("could not store the device key: {e}"))
+    }
+}
+
+/// Where the key's seed is kept on a phone: a file in the app's private
+/// data directory, which the OS keeps from other apps. The directory is
+/// handed in at startup, before any table is joined.
+#[cfg(mobile)]
+mod store {
+    use std::path::PathBuf;
+    use std::sync::OnceLock;
+
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+
+    pub fn configure(dir: PathBuf) {
+        let _ = DIR.set(dir);
+    }
+
+    fn file() -> Result<PathBuf, String> {
+        DIR.get()
+            .map(|dir| dir.join("device-key"))
+            .ok_or_else(|| "the device key store is not set up yet".to_owned())
+    }
+
+    pub fn read() -> Result<Option<String>, String> {
+        match std::fs::read_to_string(file()?) {
+            Ok(stored) => Ok(Some(stored)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(format!("could not read the device key: {e}")),
+        }
+    }
+
+    pub fn write(value: &str) -> Result<(), String> {
+        let path = file()?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("could not create the app's data directory: {e}"))?;
+        }
+        std::fs::write(&path, value).map_err(|e| format!("could not store the device key: {e}"))
+    }
+}
+
+/// Mobile: tells the key store where the app's private data directory is.
+#[cfg(mobile)]
+pub fn use_file_store(dir: std::path::PathBuf) {
+    store::configure(dir);
+}
 
 pub struct DeviceKey {
     signing: SigningKey,
@@ -21,10 +89,8 @@ pub struct DeviceKey {
 impl DeviceKey {
     /// The device's key, created and stored on first call.
     pub fn load_or_create() -> Result<DeviceKey, String> {
-        let entry = Entry::new(SERVICE, ACCOUNT)
-            .map_err(|e| format!("credential store unavailable: {e}"))?;
-        match entry.get_password() {
-            Ok(stored) => {
+        match store::read()? {
+            Some(stored) => {
                 let bytes = BASE64_STANDARD
                     .decode(stored.trim())
                     .map_err(|_| "stored device key is not valid base64".to_owned())?;
@@ -35,14 +101,11 @@ impl DeviceKey {
                     signing: SigningKey::from_bytes(&seed),
                 })
             }
-            Err(KeyringError::NoEntry) => {
+            None => {
                 let signing = SigningKey::generate(&mut OsRng);
-                entry
-                    .set_password(&BASE64_STANDARD.encode(signing.to_bytes()))
-                    .map_err(|e| format!("could not store the device key: {e}"))?;
+                store::write(&BASE64_STANDARD.encode(signing.to_bytes()))?;
                 Ok(DeviceKey { signing })
             }
-            Err(e) => Err(format!("could not read the device key: {e}")),
         }
     }
 
@@ -91,12 +154,39 @@ pub fn verify(public_key_b64: &str, message: &[u8], signature_b64: &str) -> Opti
 
 /// A friendly name for this machine, used as the device label.
 pub fn device_label() -> String {
+    #[cfg(target_os = "android")]
+    if let Some(model) = android_model() {
+        return model;
+    }
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .ok()
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "This device".to_owned())
+}
+
+/// The phone's model name ("Pixel 9 Pro"), from Android's system properties.
+#[cfg(target_os = "android")]
+fn android_model() -> Option<String> {
+    use std::ffi::{CStr, CString};
+
+    let name = CString::new("ro.product.model").ok()?;
+    let mut value = [0u8; libc::PROP_VALUE_MAX as usize];
+    // SAFETY: `name` is a valid NUL-terminated string and `value` is a
+    // buffer of PROP_VALUE_MAX bytes, the size the function writes within.
+    let len = unsafe {
+        libc::__system_property_get(name.as_ptr(), value.as_mut_ptr() as *mut libc::c_char)
+    };
+    if len <= 0 {
+        return None;
+    }
+    let model = CStr::from_bytes_until_nul(&value)
+        .ok()?
+        .to_str()
+        .ok()?
+        .trim();
+    (!model.is_empty()).then(|| model.to_owned())
 }
 
 #[derive(Debug, Clone, Serialize)]

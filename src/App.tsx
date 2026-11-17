@@ -2,11 +2,15 @@ import { useEffect } from "react";
 
 import { BibleScreen } from "@/features/bible/BibleScreen";
 import { WelcomeScreen } from "@/features/campaign/WelcomeScreen";
+import {
+  GmOnPhoneScreen,
+  PlayerWelcomeScreen,
+} from "@/features/table/PlayerWelcomeScreen";
 import { RemoteGmScreen } from "@/features/table/RemoteGmScreen";
 import { TableScreen } from "@/features/table/TableScreen";
 import { WebJoinScreen } from "@/features/table/WebJoinScreen";
 import { UpdateBanner } from "@/features/updates/UpdateBanner";
-import { inTauri } from "@/lib/platform";
+import { inTauri, isMobile } from "@/lib/platform";
 import { storage } from "@/lib/tauri";
 import { useCampaignStore } from "@/stores/campaign-store";
 import { useTableStore } from "@/stores/table-store";
@@ -22,7 +26,8 @@ export default function App() {
   // campaign, not whatever this machine has open.
   useEffect(() => {
     void restoreTable().then(() => {
-      if (!useTableStore.getState().session?.gm) void restore();
+      // The phone app has no campaign of its own to pick up.
+      if (!isMobile && !useTableStore.getState().session?.gm) void restore();
     });
   }, [restore, restoreTable]);
 
@@ -35,6 +40,26 @@ export default function App() {
     );
     return () => void unlisten.then((stop) => stop());
   }, []);
+
+  // A phone is a player's seat and nothing else: joined, it shows the
+  // table; otherwise, the way to find one.
+  if (isMobile) {
+    return (
+      <div className="mobile-safe-area flex h-full flex-col">
+        <div className="min-h-0 flex-1">
+          {session ? (
+            session.gm ? (
+              <GmOnPhoneScreen />
+            ) : (
+              <TableScreen />
+            )
+          ) : (
+            <PlayerWelcomeScreen />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const screen = session ? (
     session.gm ? (

@@ -50,10 +50,16 @@ const AUTOSAVE_MS = 400;
 export function CharacterSheet5e({
   element,
   onSave,
+  readOnly = false,
 }: {
   element: Element;
   /** Where edits go; the GM's store by default, the table for a player. */
   onSave?: (sheet: Sheet5e) => Promise<void>;
+  /**
+   * A player looking at a character that is not theirs: the whole sheet,
+   * scores, saves, skills and what to roll, with nothing to change.
+   */
+  readOnly?: boolean;
 }) {
   const saveElement = useCampaignStore((s) => s.saveElement);
   const campaign = useCampaignStore((s) => s.campaign);
@@ -262,10 +268,17 @@ export function CharacterSheet5e({
   };
 
   return (
-    <section className="space-y-4 rounded-lg border border-ink-800 bg-ink-900/60 p-4">
+    // A disabled fieldset switches off every control inside at once; the
+    // `sheet-readonly` styles then show the fields as plain values.
+    <fieldset
+      disabled={readOnly}
+      className={`min-w-0 space-y-4 rounded-lg border border-ink-800 bg-ink-900/60 p-4 ${
+        readOnly ? "sheet-readonly" : ""
+      }`}
+    >
       {/* Identity */}
       <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-        {!onSave && (
+        {!onSave && !readOnly && (
           <label className={LABEL}>
             Player
             <select
@@ -383,6 +396,7 @@ export function CharacterSheet5e({
           <button
             type="button"
             onClick={applyAsi}
+            data-edit-only
             className="rounded border border-ember-500/50 px-2 py-0.5 text-ember-200 hover:bg-ember-500/15"
           >
             Add to scores
@@ -537,13 +551,13 @@ export function CharacterSheet5e({
       </div>
 
       {/* Which dice to pick up, and what to add; open for a player at the table. */}
-      <RollGuide sheet={sheet} open={onSave !== undefined} />
+      <RollGuide sheet={sheet} open={onSave !== undefined || readOnly} />
 
       {/* Saves and skills */}
-      <div className="grid gap-4 lg:grid-cols-[auto_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[17rem_1fr]">
         <div>
           <div className={LABEL}>Saving throws</div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
+          <div className="mt-1.5 grid grid-cols-3 gap-1.5">
             {ABILITIES.map((a) => (
               <Chip
                 key={a}
@@ -552,8 +566,9 @@ export function CharacterSheet5e({
                   update((s) => ({ ...s, saves: toggle(s.saves, a) }))
                 }
                 title={`${ABILITY_NAMES[a]} saving throw`}
+                value={signed(saveBonus(sheet, a))}
               >
-                {a.toUpperCase()} {signed(saveBonus(sheet, a))}
+                {a.toUpperCase()}
               </Chip>
             ))}
           </div>
@@ -566,7 +581,7 @@ export function CharacterSheet5e({
               class skill choice
             </span>
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
+          <div className="mt-1.5 grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-1.5">
             {SKILLS.map((sk) => {
               const expert = sheet.expertise.includes(sk.id);
               const prof = expert || sheet.skills.includes(sk.id);
@@ -591,14 +606,14 @@ export function CharacterSheet5e({
                     })
                   }
                   title={`${sk.name} (${ABILITY_NAMES[sk.ability]})`}
+                  value={signed(skillBonus(sheet, sk))}
                 >
                   {classSkills.includes(sk.id) && (
                     <span className="mr-1 text-ember-400" aria-hidden="true">
                       •
                     </span>
                   )}
-                  {sk.name} <span className="text-ink-500">{sk.ability}</span>{" "}
-                  {signed(skillBonus(sheet, sk))}
+                  {sk.name} <span className="text-ink-500">{sk.ability}</span>
                 </Chip>
               );
             })}
@@ -625,7 +640,7 @@ export function CharacterSheet5e({
       </div>
 
       <SheetExtras sheet={sheet} update={update} />
-    </section>
+    </fieldset>
   );
 }
 
@@ -818,17 +833,24 @@ function Derived({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * One cell of the saves or skills grid: the name on the left, the bonus
+ * pinned to the right, so a column of chips reads like a table however
+ * long the names are.
+ */
 function Chip({
   active,
   strong,
   onClick,
   title,
+  value,
   children,
 }: {
   active: boolean;
   strong?: boolean;
   onClick: () => void;
   title: string;
+  value: string;
   children: React.ReactNode;
 }) {
   return (
@@ -837,7 +859,7 @@ function Chip({
       onClick={onClick}
       title={title}
       aria-pressed={active}
-      className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+      className={`flex min-w-0 items-center justify-between gap-2 rounded-full border px-2.5 py-1 text-left text-[11px] transition-colors ${
         strong
           ? "border-ember-400 bg-ember-500/30 text-ember-100"
           : active
@@ -845,7 +867,8 @@ function Chip({
             : "border-ink-700 text-ink-400 hover:border-ink-500 hover:text-ink-200"
       }`}
     >
-      {children}
+      <span className="min-w-0 truncate">{children}</span>
+      <span className="shrink-0 font-mono">{value}</span>
     </button>
   );
 }

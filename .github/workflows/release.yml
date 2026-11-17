@@ -1,5 +1,5 @@
-# Builds installers for every desktop platform and attaches them to a
-# GitHub release. Trigger by pushing a tag like `v0.2.0`, or by hand from the
+# Builds installers for every desktop platform plus the Android player APK
+# and attaches them to a GitHub release. Trigger by pushing a tag like `v0.2.0`, or by hand from the
 # Actions tab. The release is published as soon as the installers are up, so
 # the download page picks it up without a further step.
 name: Release
@@ -82,6 +82,77 @@ jobs:
             - **Windows:** run the `.exe` installer. It installs for the current user, no admin rights needed. Windows SmartScreen may warn because the build is not code-signed; choose *More info → Run anyway*.
             - **macOS (Apple Silicon):** open the `.dmg` and drag Campaign Forge to Applications. If macOS calls the app damaged, it is an unsigned build: run `xattr -cr "/Applications/Campaign Forge.app"` once and open it again.
             - **Linux:** the `.AppImage` runs anywhere (make it executable first); the `.deb` is for Debian and Ubuntu.
+            - **Android (players only):** open the `.apk` on the phone and allow installing from that source when asked. It joins a table; it cannot host one.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+  # The Android player app, as one arm64 APK. It is uploaded to the release
+  # the desktop jobs created, so it runs after them. Signed with the release
+  # keystore when the ANDROID_KEYSTORE_* secrets are set (see README.md),
+  # otherwise with a throwaway debug key: that APK installs, but a phone will
+  # not upgrade from it to a later, properly signed one without a reinstall.
+  android:
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 27.0.12077973
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ndk;${{ env.NDK_VERSION }} platform-tools
+
+      - name: Point Tauri at the NDK
+        run: echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Release keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/release.jks
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+            echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}"
+            echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}"
+          } > src-tauri/gen/android/keystore.properties
+
+      - run: pnpm tauri android build --apk --target aarch64
+
+      - name: Attach the APK to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="${{ github.ref_type == 'tag' && github.ref_name || '' }}"
+          tag="${tag:-v$version}"
+          apk=$(find src-tauri/gen/android/app/build/outputs/apk -path '*/release/*.apk' | head -n 1)
+          test -n "$apk" || { echo "no release APK found"; exit 1; }
+          cp "$apk" "Campaign.Forge_${version}_arm64.apk"
+          gh release upload "$tag" "Campaign.Forge_${version}_arm64.apk" --clobber

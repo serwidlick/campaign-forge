@@ -59,9 +59,14 @@ export function RollGuide({
                 <div className="text-xs font-semibold text-ink-200">
                   {ABILITY_NAMES[a]}
                 </div>
-                <Line label="Check" roll={abilityCheckRoll(sheet, a)} />
+                <Line
+                  label="Check"
+                  labelWidth="3rem"
+                  roll={abilityCheckRoll(sheet, a)}
+                />
                 <Line
                   label="Save"
+                  labelWidth="3rem"
                   roll={saveRoll(sheet, a)}
                   strong={sheet.saves.includes(a)}
                 />
@@ -143,6 +148,7 @@ export function RollGuide({
                     </div>
                     <Line
                       label="To hit"
+                      labelWidth="3.5rem"
                       roll={roll}
                       note={
                         roll.parts.length === 0
@@ -152,8 +158,8 @@ export function RollGuide({
                           : undefined
                       }
                     />
-                    <div className="flex items-baseline gap-2 text-xs">
-                      <span className="shrink-0 text-ink-500">Damage</span>
+                    <div className="grid grid-cols-[3.5rem_1fr] items-baseline gap-x-2 text-xs">
+                      <span className="text-ink-500">Damage</span>
                       <span className="font-mono text-ink-100">
                         {a.damage.trim() || "—"}
                       </span>
@@ -173,6 +179,11 @@ function blankAttack(kind: "melee" | "ranged") {
   return { id: "", name: "", bonus: "", damage: "", notes: "", kind };
 }
 
+/**
+ * One roll as a table row: the label in a fixed-width column, the dice and
+ * each bonus after it, and the total flush right, so a list of lines reads
+ * down in straight columns and fits a phone without wrapping.
+ */
 function Line({
   label,
   sub,
@@ -180,6 +191,7 @@ function Line({
   strong,
   note,
   total,
+  labelWidth = "7.5rem",
 }: {
   label: string;
   sub?: string;
@@ -188,23 +200,26 @@ function Line({
   note?: string;
   /** Shown instead of the parts' sum, for a flat base like a save DC. */
   total?: number;
+  /** Width of the label column; narrower inside the small cards. */
+  labelWidth?: string;
 }) {
   const sum = total ?? rollTotal(roll);
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
-      <span
-        className={`shrink-0 ${strong ? "text-ember-200" : "text-ink-400"}`}
-      >
+    <div
+      className="grid items-baseline gap-x-2 text-xs"
+      style={{ gridTemplateColumns: `${labelWidth} minmax(0, 1fr) auto` }}
+    >
+      <span className={strong ? "text-ember-200" : "text-ink-400"}>
         {label}
         {sub && <span className="ml-1 text-ink-600">{sub}</span>}
       </span>
-      <span className="font-mono text-ink-100">{formatRoll(roll)}</span>
-      {roll.parts.length > 0 && (
-        <span className="font-mono text-ink-500">
-          = {total !== undefined ? sum : `${roll.die} ${signed(sum)}`}
-        </span>
+      <span className="font-mono text-ink-300">{formatRoll(roll)}</span>
+      <span className="justify-self-end font-mono text-ink-100">
+        {roll.parts.length > 0 && (total !== undefined ? sum : signed(sum))}
+      </span>
+      {note && (
+        <span className="col-start-2 col-span-2 text-ink-600">{note}</span>
       )}
-      {note && <span className="text-ink-600">{note}</span>}
     </div>
   );
 }

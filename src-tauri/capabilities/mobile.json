@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "The player app on a phone or tablet: joins a GM's table over the LAN and nothing more",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "permissions": ["core:default", "opener:default", "store:default"]
+}

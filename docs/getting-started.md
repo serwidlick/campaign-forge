@@ -7,8 +7,9 @@ Download the installer for your system from the [download page](https://serwidli
 - **Windows:** run the `.exe`. It installs for your user only, so no admin prompt. SmartScreen may say the publisher is unknown because the build is not code-signed: choose _More info_, then _Run anyway_.
 - **macOS (Apple Silicon):** open the disk image and drag Campaign Forge to Applications. If macOS calls the app damaged, see [Troubleshooting](troubleshooting.md#macos-says-the-app-is-damaged).
 - **Linux:** make the `.AppImage` executable and run it, or install the `.deb` on Debian and Ubuntu.
+- **Android (players only):** the download page offers the `.apk` when you open it on the phone. Open the file and allow installing from that source when Android asks. It is the player side of the app, for joining a table; see [Playing at the table](playing-at-the-table.md#phones-and-tablets).
 
-Players install the same app. They do not need a campaign folder.
+Players install the same app, or the Android app on a phone. They do not need a campaign folder.
 
 ## Your first campaign
 

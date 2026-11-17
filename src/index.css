@@ -230,6 +230,40 @@ body {
   overscroll-behavior: none;
 }
 
+/* A character sheet a player may look at but not change (the fieldset is
+   disabled): fields read as plain values, toggles keep their state, and the
+   controls that only add or remove things are gone. */
+.sheet-readonly :is(input, select, textarea):disabled {
+  opacity: 1;
+  color: inherit;
+  -webkit-text-fill-color: currentColor;
+  appearance: none;
+  border-color: transparent;
+  background-color: transparent;
+  cursor: default;
+}
+.sheet-readonly :is(input, textarea):disabled::placeholder {
+  color: transparent;
+}
+.sheet-readonly button:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.sheet-readonly [data-edit-only],
+.sheet-readonly button[aria-label^="Remove"] {
+  display: none;
+}
+
+/* The phone app draws edge to edge; keep content clear of the status bar
+   and the camera cut-out. Android's WebView reports no bottom inset for the
+   gesture pill, so leave a little room for it regardless. */
+.mobile-safe-area {
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+  padding-left: env(safe-area-inset-left);
+}
+
 /* Thin, unobtrusive scrollbars (WebView2 / WebKit) */
 * {
   scrollbar-width: thin;

@@ -520,6 +520,7 @@ dependencies = [
  "ed25519-dalek",
  "imagesize",
  "keyring",
+ "libc",
  "local-ip-address",
  "mdns-sd",
  "notify-debouncer-mini",

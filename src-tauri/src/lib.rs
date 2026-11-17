@@ -13,13 +13,27 @@ use watcher::FolderWatch;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_store::Builder::new().build());
+
+    // The mobile app is for players only: it never picks a folder, never
+    // calls the assistant and updates through the store it came from.
+    #[cfg(desktop)]
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+
+    builder
+        .setup(|_app| {
+            // No credential store on a phone: the device key lives in the
+            // app's private data directory instead.
+            #[cfg(mobile)]
+            identity::use_file_store(_app.path().app_data_dir()?);
+            Ok(())
+        })
         .manage(AppState::default())
         .manage(TableState::default())
         .manage(FolderWatch::default())
