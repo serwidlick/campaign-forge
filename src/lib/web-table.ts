@@ -13,6 +13,7 @@ import nacl from "tweetnacl";
 import type {
   Element,
   ElementSummary,
+  NoteInput,
   TableChange,
   TableInfo,
   TableSession,
@@ -240,6 +241,18 @@ export const web = {
       ...postJson(sheet),
       method: "PUT",
     });
+  },
+
+  createNote(input: NoteInput): Promise<Element> {
+    return json("/api/notes", postJson(input));
+  },
+
+  updateNote(id: string, input: NoteInput): Promise<Element> {
+    return json(`/api/notes/${id}`, { ...postJson(input), method: "PUT" });
+  },
+
+  async deleteNote(id: string): Promise<void> {
+    await request(`/api/notes/${id}`, { method: "DELETE" });
   },
 
   waitForChange(after: number, event: number): Promise<TableChange> {

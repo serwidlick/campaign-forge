@@ -11,7 +11,12 @@
  * comes from: the GM's own files (preview) or a GM's machine over the network.
  */
 import { storage, table } from "@/lib/tauri";
-import type { Element, ElementSummary, PlayerName } from "@/lib/types";
+import type {
+  Element,
+  ElementSummary,
+  NoteInput,
+  PlayerName,
+} from "@/lib/types";
 
 export interface PlayerSource {
   /** Shared elements only, already sanitised. */
@@ -28,6 +33,12 @@ export interface PlayerSource {
   players?: PlayerName[];
   /** Saves the sheet of a character this player owns. */
   updateSheet?(id: string, sheet: unknown): Promise<Element>;
+  /** Writes a new note, as this player, into the GM's campaign folder. */
+  createNote?(input: NoteInput): Promise<Element>;
+  /** Changes or shares a note this player wrote. */
+  updateNote?(id: string, input: NoteInput): Promise<Element>;
+  /** Deletes a note this player wrote. */
+  deleteNote?(id: string): Promise<void>;
 }
 
 export function isShared(e: Record<string, unknown>): boolean {
@@ -79,7 +90,45 @@ export function remoteSource(
     playerId,
     players,
     updateSheet: (id, sheet) => table.updateSheet(id, sheet),
+    createNote: (input) => table.createNote(input),
+    updateNote: (id, input) => table.updateNote(id, input),
+    deleteNote: (id) => table.deleteNote(id),
   };
+}
+
+/**
+ * Whether this player wrote a note: its `author` is their player id, or
+ * the table name they joined with before pairing, matched
+ * case-insensitively as the Rust rule in `share.rs` does.
+ */
+export function ownsNote(
+  element: Record<string, unknown>,
+  playerName: string | undefined,
+  playerId?: string | null,
+): boolean {
+  if (element.type !== "note") return false;
+  const author =
+    typeof element.author === "string" ? element.author.trim() : "";
+  if (author === "") return false;
+  if (playerId && author === playerId) return true;
+  return (
+    !!playerName && author.toLowerCase() === playerName.trim().toLowerCase()
+  );
+}
+
+/** Who wrote a note, as a name: the name stored with it, else its author. */
+export function noteAuthorLabel(
+  element: Record<string, unknown>,
+  players: PlayerName[],
+): string | null {
+  const author =
+    typeof element.author === "string" ? element.author.trim() : "";
+  if (author === "") return null;
+  const named = players.find((p) => p.id === author);
+  if (named) return named.name;
+  const stored =
+    typeof element.authorName === "string" ? element.authorName.trim() : "";
+  return stored || ownerLabel(author, players);
 }
 
 /**

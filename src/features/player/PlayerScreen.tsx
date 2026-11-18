@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, Search, X } from "lucide-react";
+import { ArrowLeft, Eye, Plus, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -54,7 +54,13 @@ import { readStatBlock5e } from "@/features/templates/dnd5e-statblock";
 import { StatBlockView } from "@/features/templates/StatBlockView";
 
 import { PlayerMap } from "./PlayerMap";
-import { ownerLabel, ownsCharacter } from "./player-model";
+import { PlayerNoteEditor } from "./PlayerNoteEditor";
+import {
+  noteAuthorLabel,
+  ownerLabel,
+  ownsCharacter,
+  ownsNote,
+} from "./player-model";
 import type { PlayerSource } from "./player-model";
 
 interface Props {
@@ -114,6 +120,11 @@ export function PlayerScreen({
     id: string;
     element: Element | null;
   } | null>(null);
+  // Writing a note: the title is asked for first, since it names the file
+  // the GM gets.
+  const [noteTitle, setNoteTitle] = useState<string | null>(null);
+  const [creatingNote, setCreatingNote] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
 
   const elements = source.elements;
 
@@ -158,6 +169,27 @@ export function PlayerScreen({
     opened && opened.id === selectedId ? opened.element : undefined;
   const narrow = useNarrow();
 
+  const createNote = source.createNote;
+  async function submitNote() {
+    if (!createNote || creatingNote) return;
+    const name = (noteTitle ?? "").trim();
+    if (!name) return;
+    setCreatingNote(true);
+    setNoteError(null);
+    try {
+      const created = await createNote({ name, body: "" });
+      setNoteTitle(null);
+      // Open it at once; the list catches up with the next refresh.
+      setOpened({ id: created.id, element: created });
+      setSelectedId(created.id);
+      if (kindFilter !== null && kindFilter !== "note") setKindFilter("note");
+    } catch (err) {
+      setNoteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreatingNote(false);
+    }
+  }
+
   const exitControls = (
     <>
       <ThemePicker
@@ -176,26 +208,72 @@ export function PlayerScreen({
   );
 
   const search = (
-    <div className="flex items-center gap-2 border-b border-ink-800 px-3 py-2">
-      <div className="flex flex-1 items-center gap-2 rounded-md border border-ink-700 bg-ink-900 px-2 py-1">
-        <Search size={13} className="text-ink-500" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search"
-          className="w-full bg-transparent text-sm outline-none placeholder:text-ink-600"
-        />
-        {query && (
-          <button
-            type="button"
-            onClick={() => setQuery("")}
-            aria-label="Clear search"
-            className="text-ink-500 hover:text-ink-200"
+    <div className="border-b border-ink-800 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <div className="flex flex-1 items-center gap-2 rounded-md border border-ink-700 bg-ink-900 px-2 py-1">
+          <Search size={13} className="text-ink-500" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search"
+            className="w-full bg-transparent text-sm outline-none placeholder:text-ink-600"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+              className="text-ink-500 hover:text-ink-200"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        {createNote && noteTitle === null && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setNoteTitle("")}
+            title="Write a note. It is saved in the GM's campaign folder, for you and the GM until you share it."
           >
-            <X size={13} />
-          </button>
+            <Plus size={13} /> Note
+          </Button>
         )}
       </div>
+      {createNote && noteTitle !== null && (
+        <form
+          className="mt-2 flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submitNote();
+          }}
+        >
+          <input
+            autoFocus
+            value={noteTitle}
+            onChange={(e) => setNoteTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setNoteTitle(null)}
+            placeholder="Title of your note"
+            aria-label="Title of your note"
+            className="w-full rounded-md border border-ink-700 bg-ink-900 px-2 py-1 text-sm outline-none placeholder:text-ink-600 focus:border-ember-500"
+          />
+          <Button
+            size="sm"
+            type="submit"
+            disabled={creatingNote || !noteTitle.trim()}
+          >
+            Create
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setNoteTitle(null)}>
+            Cancel
+          </Button>
+        </form>
+      )}
+      {noteError && (
+        <p className="mt-1 text-xs text-red-300">
+          Could not create: {noteError}
+        </p>
+      )}
     </div>
   );
 
@@ -263,6 +341,7 @@ export function PlayerScreen({
       source={source}
       calendar={calendar}
       onOpen={open}
+      onClose={() => setSelectedId(null)}
     />
   );
 
@@ -500,18 +579,23 @@ function KindRow({
   );
 }
 
-/** One shared element, read-only. */
+/** One shared element, read-only except your own character and notes. */
 function PlayerElementView({
   element,
   source,
   calendar,
   onOpen,
+  onClose,
 }: {
   element: Element;
   source: PlayerSource;
   calendar: Calendar;
   onOpen: (id: string) => void;
+  /** Leave this element's page (it was deleted). */
+  onClose: () => void;
 }) {
+  // A note's title as typed in its editor, ahead of the save and refresh.
+  const [typedName, setTypedName] = useState<string | null>(null);
   const elements = source.elements;
   const byId = useMemo(
     () => new Map(elements.map((e) => [e.id, e])),
@@ -535,6 +619,12 @@ function PlayerElementView({
   const encounter =
     element.type === "encounter" ? readEncounter(element) : null;
   const saveSheet = source.updateSheet;
+  const myNote =
+    ownsNote(element, source.playerName, source.playerId) &&
+    source.updateNote &&
+    source.deleteNote
+      ? { save: source.updateNote, remove: source.deleteNote }
+      : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -552,7 +642,7 @@ function PlayerElementView({
             {kindById(element.type).label}
           </div>
           <h2 className="mt-0.5 font-serif text-2xl font-semibold text-ink-100">
-            {element.name}
+            {typedName ?? element.name}
           </h2>
           {element.tags.length > 0 && (
             <p className="mt-1 text-xs text-ink-400">
@@ -665,7 +755,15 @@ function PlayerElementView({
             </>
           )}
 
-          {element.body.trim() ? (
+          {myNote ? (
+            <PlayerNoteEditor
+              element={element}
+              onSave={(input) => myNote.save(element.id, input)}
+              onDelete={() => myNote.remove(element.id)}
+              onDeleted={onClose}
+              onNameChange={setTypedName}
+            />
+          ) : element.body.trim() ? (
             <div className="chat-md text-[15px] text-ink-200">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -770,6 +868,11 @@ function detailsFor(
     case "arc":
       out.push({ label: "Status", value: readArc(element).status });
       break;
+    case "note": {
+      const by = noteAuthorLabel(element, players);
+      if (by) out.push({ label: "By", value: by });
+      break;
+    }
     case "encounter":
       out.push({
         label: "Status",

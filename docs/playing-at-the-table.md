@@ -31,7 +31,7 @@ The **Preview** tile (the eye) at the bottom of the sidebar switches the whole w
 
 While you host, every edit or share change reaches players within about a second. **Stop hosting** ends the table; every player's app returns to its welcome screen with a note that the GM ended the table. Quitting the app while hosting does the same.
 
-The table is announced on the local network with mDNS, the same mechanism printers use. Nothing leaves the network, and nobody joins without the code.
+The table is announced on the local network with mDNS, the same mechanism printers use. Nothing leaves the network, and nobody joins without the code. A device that gets the code wrong five times is turned away for a minute before it may try again, and the hosting machine logs it.
 
 ## Joining a table
 
@@ -41,7 +41,7 @@ On the welcome screen, in the **Join a table** card:
 2. Press **Join** on the GM's table, or press **Enter an address instead** and type the address the GM reads out.
 3. Give your name and the join code, then **Sit down**.
 
-The player view then fills the window: kinds down the side with counts, a searchable list, and a reader. Maps show their shared pins, routes and territories; documents show their PDF. **Leave table** at the bottom of the sidebar takes you back.
+The player view then fills the window: kinds down the side with counts, a searchable list, and a reader. Maps show their shared pins, routes and territories; documents show their PDF. You can write your own notes, which go into the GM's folder (see [Notes](#notes)). **Leave table** at the bottom of the sidebar takes you back.
 
 If the GM's machine goes quiet, the banner says the connection was lost and the app keeps trying until you leave or the GM is back.
 
@@ -69,11 +69,21 @@ The same works from a phone or tablet joined through the web page, with no app i
 
 A player cannot change who owns a sheet, and nobody but the owner can edit it over the table. If GM and player edit the same sheet at the same moment, the last save wins.
 
+## Notes
+
+Anyone at the table can write. The **＋ Note** button next to the search box asks for a title and opens a page with a title field, a Markdown body and a save status. The note is created the moment the title is given, as a file in your campaign folder: `elements/note/<title>.md`, with the player recorded as its author. From then on it saves itself a moment after each change, straight into that file, and shows up in your bible under **Notes** within a second with a line saying who wrote it. If the table is not reachable the player keeps what they typed and the page offers Retry.
+
+A note starts out private: its author and you see it, nobody else. The **Only you and the GM** button under the body turns it into **Shared with the table**, which sends it to everyone like any shared element, and back again. Only the author can change or delete their note over the table; you can do both from the bible, as with any file, and the Shared toggle in your header is the same switch. A player who has not been paired yet is recorded by the name they joined with, so their notes stay theirs across evenings as long as they use the same name; pairing them records their player id instead. Because the name is what makes a note theirs, a newcomer cannot sit down under a paired player's name, nor under the name of someone already at the table: they are asked to pick another, or to have you pair their device as that player. If you and the author edit the same note at the same moment, the last save wins.
+
+Your own notes, made with **New** on the Notes view of the bible or from the Everything view, have no author and follow the usual sharing rules.
+
+The same works from a phone or tablet joined through the web page, with no app installed.
+
 ## Phones and tablets
 
 There is an Android app for players. It is the player side of Campaign Forge and nothing else: it opens on the **Join your GM's table** card, finds the table on the Wi-Fi or takes the GM's address, and once seated shows the same player view as the desktop app, one pane at a time on a phone. Your character, the map, shared pages and what to roll all work the same way, and the phone pairs with the GM like any other device, so after the first evening it joins with your name alone. The app cannot open a campaign folder, host a table or run the assistant; those stay on a computer. It is installed from an APK rather than a store: open the [download page](https://serwidlick.github.io/campaign-forge/) on the phone, download the APK it offers, open it, allow installing from that source when Android asks, and you are done. It does not update itself; when a new version is out, install its APK the same way over the old one.
 
-For anyone without the app, the hosting panel also shows a QR code and a web address. Anyone on the same Wi-Fi can scan it or type it into a browser and join with their name and the code, with nothing installed. The page makes itself a key like the app does, so you can pair the browser with a player; after that it joins with the name alone, receives that player's private pages, and shows as them in the hosting panel. The table keeps the same port from one evening to the next so the browser is recognised again. The page shows the shared elements with their pictures, opens maps with their shared pins, opens PDFs, follows Show to players, and leaves when the GM ends the table. Everything on it is read-only except your own character: once the GM has paired the browser with you and handed you a character, opening it shows editable hit points, slots, conditions, item counts and coins that save straight to the GM's copy (see Your own character above). Open a character the GM has not handed to you and it stays a read-only summary.
+For anyone without the app, the hosting panel also shows a QR code and a web address. Anyone on the same Wi-Fi can scan it or type it into a browser and join with their name and the code, with nothing installed. The page makes itself a key like the app does, so you can pair the browser with a player; after that it joins with the name alone, receives that player's private pages, and shows as them in the hosting panel. The table keeps the same port from one evening to the next so the browser is recognised again. The page shows the shared elements with their pictures, opens maps with their shared pins, opens PDFs, follows Show to players, and leaves when the GM ends the table. Everything on it is read-only except your own notes and your own character. Notes work as in the app: **＋ Note** above the list asks for a title, and your own notes open with an editable title and body, a sharing switch and a Delete button. For your character, once the GM has paired the browser with you and handed you a character, opening it shows editable hit points, slots, conditions, item counts and coins that save straight to the GM's copy (see Your own character above). Open a character the GM has not handed to you and it stays a read-only summary.
 
 ## Running the table from a second machine
 
@@ -94,7 +104,7 @@ The laptop does not need the app. The hosting panel's **Phones and tablets** sec
 
 Nobody else gets in. The GM page seats only a browser that is paired with a player marked GM; any other device, code or not, is turned away with a note saying what the GM would have to do. Players use the main page, which is the player view. If you press **Revoke GM** while the laptop is on the GM page, it is sent back to that note at once.
 
-The browser is one device, whichever of the two pages it opens: pairing it on the phone page pairs it for the GM page too, and it stays paired as long as the site's storage is kept (a private window or cleared site data counts as a new device). Two things differ from the app. The assistant's API key is kept in that browser's own storage rather than the operating system's credential store, so only put it in a browser you own. And building elements from a book with the PDF import runs in the app on the hosting machine; attaching a PDF to a document, pictures and map images from the laptop's disk all work from the browser.
+The browser is one device, whichever of the two pages it opens: pairing it on the phone page pairs it for the GM page too, and it stays paired as long as the site's storage is kept (a private window or cleared site data counts as a new device). Two things differ from the app. The assistant's API key is kept by that browser tab only, not in the operating system's credential store: closing the tab forgets it, and you enter it again next time. The page is plain HTTP at a name every table shares, so only put the key into a browser you own, on a network you trust. And building elements from a book with the PDF import runs in the app on the hosting machine; attaching a PDF to a document, pictures and map images from the laptop's disk all work from the browser.
 
 A GM device sees and changes everything, like your own window, so only make players you trust with the whole campaign a GM. The same six-digit code and same-network rules apply as for everyone else.
 

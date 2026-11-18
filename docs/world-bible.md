@@ -4,16 +4,16 @@ Everything in a campaign is an **element**: one Markdown file with a name, tags,
 
 ## Kinds
 
-| Family   | Kinds                                  |
-| -------- | -------------------------------------- |
-| Play     | Arc, Session, Journal entry, Encounter |
-| People   | Character, Creature                    |
-| Factions | Faction                                |
-| Places   | Location, Map                          |
-| Things   | Item, Document                         |
-| Story    | Quest, Event, Lore                     |
+| Family   | Kinds                                        |
+| -------- | -------------------------------------------- |
+| Play     | Arc, Session, Journal entry, Encounter, Note |
+| People   | Character, Creature                          |
+| Factions | Faction                                      |
+| Places   | Location, Map                                |
+| Things   | Item, Document                               |
+| Story    | Quest, Event, Lore                           |
 
-Most kinds are just a body. Sessions, arcs, encounters, maps, events, journal entries and documents add a panel of fields above the body; those are covered on their own pages.
+Most kinds are just a body. Sessions, arcs, encounters, maps, events, journal entries and documents add a panel of fields above the body; those are covered on their own pages. A **note** is the plainest kind of all: a title and a body, for anything that does not belong anywhere else. Players at the table can write notes too; those land in your folder like any other element, marked with who wrote them (see [Playing at the table](playing-at-the-table.md#notes)).
 
 ## Creating, naming, tagging, deleting
 

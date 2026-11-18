@@ -18,6 +18,7 @@
     </script>
     <script src="/marked.umd.js"></script>
     <script src="/nacl-fast.min.js"></script>
+    <script src="/purify.min.js"></script>
     <style>
       /* ---- Themes ------------------------------------------------------
          The same eight themes as the app, with the same values: every colour
@@ -831,6 +832,112 @@
         font-size: 13px;
         color: var(--ink-400);
       }
+      /* Notes: a player's own pages, written here into the GM's folder */
+      .new-note {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin: 0 14px 6px;
+      }
+      .new-note button.mini,
+      .note-row button {
+        padding: 5px 12px;
+        border: 1px solid var(--ink-700);
+        border-radius: 999px;
+        background: var(--ink-900);
+        color: var(--ink-300);
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .new-note button.mini:not(.ghost) {
+        border-color: var(--ember-500);
+        color: var(--ember-300);
+      }
+      /* The title field appears only once Note is pressed; `display`
+         below would otherwise beat the hidden attribute. */
+      .new-note form {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        align-items: center;
+        gap: 8px;
+      }
+      .new-note form[hidden],
+      .new-note button[hidden],
+      .new-note .error[hidden] {
+        display: none;
+      }
+      .new-note form input {
+        flex: 1;
+        min-width: 0;
+        margin: 0;
+      }
+      .new-note .error {
+        flex-basis: 100%;
+        margin-top: 0;
+      }
+      .note-editor {
+        display: grid;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      .note-editor input,
+      .note-editor textarea {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 10px 12px;
+        border: 1px solid var(--ink-700);
+        border-radius: 8px;
+        background: var(--ink-850);
+        color: var(--ink-100);
+        font: inherit;
+        outline: none;
+      }
+      .note-editor input {
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .note-editor textarea {
+        min-height: 220px;
+        resize: vertical;
+        line-height: 1.5;
+      }
+      .note-editor input:focus,
+      .note-editor textarea:focus {
+        border-color: var(--ember-500);
+      }
+      .note-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+      .note-row .spacer {
+        flex: 1;
+      }
+      .note-row button.on {
+        border-color: var(--ember-500);
+        color: var(--ember-300);
+        background: rgba(var(--ember-rgb), 0.12);
+      }
+      .note-row button.danger {
+        border-color: rgba(var(--red-rgb), 0.4);
+        color: var(--red-text);
+      }
+      .note-row .confirm {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--red-text);
+      }
+      .note-row button[hidden],
+      .note-row .confirm[hidden] {
+        display: none;
+      }
       /* What to roll: the die and each bonus, with where it comes from */
       details.card.rolls {
         border-color: rgba(var(--ember-rgb), 0.35);
@@ -1011,6 +1118,25 @@
       <div id="list-view">
         <div class="filters" id="filters"></div>
         <input id="search" type="search" placeholder="Search" />
+        <div class="new-note" id="new-note">
+          <button id="new-note-btn" type="button" class="mini">＋ Note</button>
+          <form id="new-note-form" hidden>
+            <input
+              id="new-note-title"
+              type="text"
+              placeholder="Title of your note"
+              aria-label="Title of your note"
+              autocomplete="off"
+            />
+            <button id="new-note-create" type="submit" class="mini">
+              Create
+            </button>
+            <button id="new-note-cancel" type="button" class="mini ghost">
+              Cancel
+            </button>
+          </form>
+          <div id="new-note-error" class="error" hidden></div>
+        </div>
         <ul class="list" id="list"></ul>
       </div>
       <article id="reader" hidden></article>
@@ -1040,6 +1166,7 @@
           ["arc", "Arc", "Arcs"],
           ["session", "Session", "Sessions"],
           ["journal", "Journal entry", "Journal"],
+          ["note", "Note", "Notes"],
         ];
         var kindLabel = {};
         var kindPlural = {};
@@ -1416,10 +1543,13 @@
 
         function leave(message) {
           flushDraft();
+          flushNote();
           state.stopped = true;
           state.token = null;
           state.playerId = null;
           draft.denied = {};
+          note.denied = {};
+          note.id = null;
           try {
             sessionStorage.removeItem("cf.token");
             sessionStorage.removeItem("cf.name");
@@ -1640,6 +1770,7 @@
 
         $("back").addEventListener("click", function () {
           flushDraft();
+          flushNote();
           state.openId = null;
           $("reader").hidden = true;
           $("list-view").hidden = false;
@@ -1697,6 +1828,19 @@
             if (el.status) out.push(["Status", el.status]);
           }
           if (el.type === "journal" && el.date) out.push(["Written", el.date]);
+          if (
+            el.type === "note" &&
+            typeof el.author === "string" &&
+            el.author
+          ) {
+            out.push([
+              "By",
+              ownsNote(el)
+                ? "you"
+                : (typeof el.authorName === "string" && el.authorName) ||
+                  ownerLabel(el.author),
+            ]);
+          }
           var sb = el.statblock;
           if (el.type === "creature" && sb && typeof sb === "object") {
             var head = [sb.size, sb.type, sb.alignment]
@@ -1757,8 +1901,12 @@
               .join(" · ");
             r.appendChild(p);
           }
+          var myNote = ownsNote(el);
           if (mine) {
             r.appendChild(renderSheet(el));
+            restoreFocus(r, focused);
+          } else if (myNote) {
+            r.appendChild(renderNote(el));
             restoreFocus(r, focused);
           } else if (el.type === "character" && draft.denied[el.id]) {
             var note = document.createElement("p");
@@ -1784,10 +1932,26 @@
           if (el.type === "map" && el.image && el.width && el.height) {
             r.appendChild(renderMap(el));
           }
-          if (el.body && el.body.trim()) {
+          if (!myNote && el.body && el.body.trim()) {
             var body = document.createElement("div");
             body.className = "body";
-            body.innerHTML = marked.parse(el.body);
+            // Markdown from the GM or another player: marked keeps raw HTML
+            // and any link scheme, so the output is sanitised before it is
+            // put in the page. Only web, mail and element links survive.
+            body.innerHTML = DOMPurify.sanitize(marked.parse(el.body), {
+              USE_PROFILES: { html: true },
+              ALLOWED_URI_REGEXP:
+                /^(?:(?:https?|mailto|cf):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+              FORBID_TAGS: [
+                "style",
+                "form",
+                "input",
+                "button",
+                "textarea",
+                "select",
+              ],
+              FORBID_ATTR: ["style"],
+            });
             body.querySelectorAll("a[href]").forEach(function (link) {
               var href = link.getAttribute("href") || "";
               var m = /^cf:\/\/element\/([0-9a-fA-F-]{36})$/.exec(href);
@@ -2748,10 +2912,331 @@
 
         // Switching apps or closing the tab sends whatever is still pending.
         document.addEventListener("visibilitychange", function () {
-          if (document.visibilityState === "hidden") flushDraft(true);
+          if (document.visibilityState === "hidden") {
+            flushDraft(true);
+            flushNote(true);
+          }
         });
         window.addEventListener("pagehide", function () {
           flushDraft(true);
+          flushNote(true);
+        });
+
+        // ---- Your notes -----------------------------------------------------
+        // Anyone at the table can write a note. It becomes a file in the GM's
+        // campaign folder, named as the player's, and only its author (and
+        // the GM) sees it until they share it with the table. The author
+        // edits it here: title, Markdown body and sharing, saved on their
+        // own a moment after each change, like the sheet above.
+        var note = {
+          id: null,
+          name: "",
+          body: "",
+          shared: false,
+          version: null,
+          node: null,
+          dirty: false,
+          saving: false,
+          timer: null,
+          failed: false,
+          error: "",
+          savedAt: 0,
+          /** Notes the table said are not this player's after all. */
+          denied: {},
+        };
+        var noteStateTimer = null;
+
+        /** Whether the note names the joined player as its author. */
+        function ownsNote(el) {
+          if (el.type !== "note" || note.denied[el.id]) return false;
+          if (typeof el.author !== "string") return false;
+          var author = el.author.trim();
+          if (!author) return false;
+          if (state.playerId && author === state.playerId) return true;
+          // Notes from before pairing name the player instead.
+          return author.toLowerCase() === state.name.trim().toLowerCase();
+        }
+
+        function renderNote(el) {
+          if (note.id !== el.id) {
+            flushNote();
+            note.id = el.id;
+            note.name = el.name;
+            note.body = el.body || "";
+            note.shared = el.shared === true;
+            note.dirty = false;
+            note.saving = false;
+            note.failed = false;
+            note.savedAt = 0;
+            note.node = buildNoteEditor();
+          } else if (!note.dirty && !note.saving) {
+            // Nothing of ours in flight: the GM's copy is the newer one.
+            note.name = el.name;
+            note.body = el.body || "";
+            note.shared = el.shared === true;
+          }
+          // The version the next save starts from; if the GM edited the
+          // note meanwhile, the last save wins, as with a sheet.
+          note.version = el.version || null;
+          paintNoteFields();
+          paintNoteState();
+          // A repaint mid-typing keeps the title as typed, not as last saved.
+          if (note.dirty) {
+            var heading = $("reader").querySelector("h1");
+            if (heading) heading.textContent = note.name;
+          }
+          return note.node;
+        }
+
+        /** The editor's DOM, kept across repaints so typing is never lost. */
+        function buildNoteEditor() {
+          var box = h("section", "note-editor");
+          var head = h("div", "sheet-head");
+          head.appendChild(
+            h(
+              "span",
+              null,
+              "Your note. It is saved in the GM's campaign folder.",
+            ),
+          );
+          head.appendChild(h("span", "save-state"));
+          box.appendChild(head);
+
+          var title = h("input");
+          title.type = "text";
+          title.placeholder = "Title";
+          title.setAttribute("aria-label", "Title");
+          title.setAttribute("data-key", "note.name");
+          title.oninput = function () {
+            note.name = title.value;
+            var heading = $("reader").querySelector("h1");
+            if (heading) heading.textContent = title.value;
+            scheduleNote();
+          };
+          box.appendChild(title);
+
+          var body = h("textarea");
+          body.placeholder =
+            "Write here. Markdown works: # headings, - lists, **bold**.";
+          body.setAttribute("aria-label", "Note");
+          body.setAttribute("data-key", "note.body");
+          body.oninput = function () {
+            note.body = body.value;
+            scheduleNote();
+          };
+          box.appendChild(body);
+
+          var row = h("div", "note-row");
+          var share = button(null, "", function () {
+            note.shared = !note.shared;
+            paintNoteFields();
+            scheduleNote();
+          });
+          share.setAttribute("data-key", "note.shared");
+          share.className = "share";
+          row.appendChild(share);
+          row.appendChild(h("span", "spacer"));
+          var del = button("danger", "Delete", function () {
+            del.hidden = true;
+            ask.hidden = false;
+          });
+          var ask = h("span", "confirm");
+          ask.hidden = true;
+          ask.appendChild(document.createTextNode("Delete this note?"));
+          ask.appendChild(button("danger", "Delete", deleteNote));
+          ask.appendChild(
+            button(null, "Keep", function () {
+              ask.hidden = true;
+              del.hidden = false;
+            }),
+          );
+          row.appendChild(del);
+          row.appendChild(ask);
+          box.appendChild(row);
+          return box;
+        }
+
+        /** Writes the draft into the fields, leaving a field being typed in alone. */
+        function paintNoteFields() {
+          if (!note.node) return;
+          var title = note.node.querySelector('[data-key="note.name"]');
+          var body = note.node.querySelector('[data-key="note.body"]');
+          var share = note.node.querySelector('[data-key="note.shared"]');
+          if (title && title.value !== note.name) title.value = note.name;
+          if (body && body.value !== note.body) body.value = note.body;
+          if (share) {
+            share.textContent = note.shared
+              ? "Shared with the table"
+              : "Only you and the GM";
+            share.classList.toggle("on", note.shared);
+            share.setAttribute("aria-pressed", note.shared ? "true" : "false");
+          }
+        }
+
+        function paintNoteState() {
+          var el = note.node && note.node.querySelector(".save-state");
+          if (!el) return;
+          el.innerHTML = "";
+          el.classList.toggle("err", note.failed);
+          if (note.failed) {
+            el.appendChild(document.createTextNode(note.error || "Not saved"));
+            el.appendChild(button(null, "Retry", flushNote));
+          } else if (note.saving || note.dirty) {
+            el.textContent = "Saving…";
+          } else if (note.savedAt) {
+            el.textContent = "Saved";
+            if (noteStateTimer) clearTimeout(noteStateTimer);
+            noteStateTimer = setTimeout(function () {
+              note.savedAt = 0;
+              if (!note.saving && !note.dirty && !note.failed) paintNoteState();
+            }, 2000);
+          }
+        }
+
+        function scheduleNote() {
+          note.dirty = true;
+          if (note.timer) clearTimeout(note.timer);
+          note.timer = setTimeout(flushNote, SAVE_DELAY_MS);
+          paintNoteState();
+        }
+
+        /** The table's answer to a note call, or its error as an Error. */
+        function noteResponse(r) {
+          if (r.status === 403) throw new Error("DENIED");
+          if (r.status === 204) return null;
+          if (!r.ok) {
+            return r.json().then(
+              function (b) {
+                throw new Error(
+                  (b && b.error) || "The table answered " + r.status,
+                );
+              },
+              function () {
+                throw new Error("The table answered " + r.status);
+              },
+            );
+          }
+          return r.json();
+        }
+
+        /** Sends the note now, as the app does after its own short pause. */
+        function flushNote(keepalive) {
+          if (note.timer) {
+            clearTimeout(note.timer);
+            note.timer = null;
+          }
+          if (!note.dirty || !note.id || !state.token) return;
+          if (note.saving) return;
+          var id = note.id;
+          note.dirty = false;
+          note.saving = true;
+          note.failed = false;
+          paintNoteState();
+          var input = { name: note.name, body: note.body, shared: note.shared };
+          if (note.version) input.baseVersion = note.version;
+          api("/api/notes/" + id, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+            keepalive: keepalive === true,
+          })
+            .then(noteResponse)
+            .then(function (saved) {
+              if (note.id !== id) return;
+              note.saving = false;
+              note.savedAt = Date.now();
+              if (saved && saved.version) note.version = saved.version;
+              if (note.dirty) flushNote();
+              else paintNoteState();
+            })
+            .catch(function (e) {
+              if (note.id !== id) return;
+              note.saving = false;
+              if (e.message === "DENIED") {
+                note.denied[id] = true;
+                note.dirty = false;
+                if (state.openId === id) openElement(id, true);
+                return;
+              }
+              note.dirty = true;
+              note.failed = true;
+              var why =
+                e.message === "Failed to fetch"
+                  ? "lost the GM"
+                  : /^conflict:/.test(e.message)
+                    ? "the GM changed it meanwhile; Retry saves your version"
+                    : e.message;
+              note.error = "Could not save: " + why;
+              paintNoteState();
+            });
+        }
+
+        function deleteNote() {
+          var id = note.id;
+          if (!id) return;
+          note.dirty = false;
+          if (note.timer) clearTimeout(note.timer);
+          api("/api/notes/" + id, { method: "DELETE" })
+            .then(noteResponse)
+            .then(function () {
+              if (note.id === id) note.id = null;
+              if (state.openId === id) $("back").click();
+              refresh();
+            })
+            .catch(function (e) {
+              note.failed = true;
+              note.error =
+                "Could not delete: " +
+                (e.message === "DENIED" ? "it is not yours" : e.message);
+              paintNoteState();
+            });
+        }
+
+        // A new note: the title first, since it names the GM's file.
+        $("new-note-btn").addEventListener("click", function () {
+          $("new-note-btn").hidden = true;
+          $("new-note-form").hidden = false;
+          $("new-note-error").hidden = true;
+          $("new-note-title").focus();
+        });
+        function closeNoteForm() {
+          $("new-note-form").hidden = true;
+          $("new-note-btn").hidden = false;
+          $("new-note-title").value = "";
+        }
+        $("new-note-cancel").addEventListener("click", closeNoteForm);
+        $("new-note-title").addEventListener("keydown", function (e) {
+          if (e.key === "Escape") closeNoteForm();
+        });
+        $("new-note-form").addEventListener("submit", function (e) {
+          e.preventDefault();
+          var name = $("new-note-title").value.trim();
+          if (!name) return;
+          var create = $("new-note-create");
+          create.disabled = true;
+          api("/api/notes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name, body: "" }),
+          })
+            .then(noteResponse)
+            .then(function (created) {
+              closeNoteForm();
+              if (!state.filter || state.filter === "note") {
+                state.elements.push(created);
+                renderList();
+              }
+              openElement(created.id);
+              refresh();
+            })
+            .catch(function (err) {
+              var box = $("new-note-error");
+              box.textContent = "Could not create the note: " + err.message;
+              box.hidden = false;
+            })
+            .finally(function () {
+              create.disabled = false;
+            });
         });
 
         function renderMap(el) {

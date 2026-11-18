@@ -161,6 +161,13 @@ pub fn import_image_bytes(
 /// Reads an asset by its campaign-relative path. Refuses anything that is not
 /// a plain path under `assets/`.
 pub fn read(root: &Path, rel: &str) -> Result<Vec<u8>, StorageError> {
+    let full = checked(root, rel)?;
+    fs::read(&full).map_err(|e| StorageError::io(&full, e))
+}
+
+/// Resolves a campaign-relative asset path, refusing anything that is not a
+/// plain path under `assets/`.
+fn checked(root: &Path, rel: &str) -> Result<PathBuf, StorageError> {
     let rel_path = Path::new(rel);
     let safe = rel_path
         .components()
@@ -171,8 +178,67 @@ pub fn read(root: &Path, rel: &str) -> Result<Vec<u8>, StorageError> {
             "asset path must be a plain path under {ASSETS_DIR}/: {rel}"
         )));
     }
-    let full = root.join(rel_path);
-    fs::read(&full).map_err(|e| StorageError::io(&full, e))
+    Ok(root.join(rel_path))
+}
+
+/// Where a PDF's recovered text lives: the same path with a `.txt` extension.
+fn sidecar_of(root: &Path, pdf_rel: &str) -> Result<PathBuf, StorageError> {
+    let full = checked(root, pdf_rel)?;
+    if !full
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+    {
+        return Err(StorageError::InvalidInput(format!(
+            "not a PDF asset: {pdf_rel}"
+        )));
+    }
+    Ok(full.with_extension("txt"))
+}
+
+/// The text kept beside a PDF (pages separated by form feeds), if any.
+pub fn read_document_text(root: &Path, pdf_rel: &str) -> Result<Option<String>, StorageError> {
+    let path = sidecar_of(root, pdf_rel)?;
+    match fs::read(&path) {
+        Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(StorageError::io(&path, e)),
+    }
+}
+
+/// Writes text recovered for a run of a PDF's pages beside it, as one entry
+/// per page of the whole document separated by form feeds (the convention
+/// OCR dumps use), merging into what an earlier run left: pages this run has
+/// no text for keep theirs. Returns the sidecar's campaign-relative path.
+pub fn write_document_text(
+    root: &Path,
+    pdf_rel: &str,
+    first_page: usize,
+    pages: &[String],
+    page_count: usize,
+) -> Result<String, StorageError> {
+    if first_page == 0 || page_count == 0 || first_page + pages.len() - 1 > page_count {
+        return Err(StorageError::InvalidInput(
+            "page range does not fit the document".into(),
+        ));
+    }
+    let path = sidecar_of(root, pdf_rel)?;
+    let mut all: Vec<String> = match fs::read(&path) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes)
+            .split('\u{0c}')
+            .map(|p| p.trim().to_owned())
+            .collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(StorageError::io(&path, e)),
+    };
+    all.resize(page_count, String::new());
+    for (i, text) in pages.iter().enumerate() {
+        let text = text.trim();
+        if !text.is_empty() {
+            all[first_page - 1 + i] = text.to_owned();
+        }
+    }
+    fs::write(&path, all.join("\u{0c}")).map_err(|e| StorageError::io(&path, e))?;
+    Ok(relative(root, &path))
 }
 
 fn unique_path(dir: &Path, slug: &str, ext: &str) -> PathBuf {

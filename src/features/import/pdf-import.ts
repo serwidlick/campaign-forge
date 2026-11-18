@@ -7,6 +7,12 @@
  * the campaign, and finally writes the ones the GM ticked as Markdown files
  * linked by id. Nothing touches disk until `writeProposals`.
  *
+ * A scanned book has no text to cut. Its pages go to the model as pictures
+ * instead: the Rust side slices the PDF into runs of a few pages and each run
+ * is sent as a document the model reads visually. It can also write out what
+ * each page says, which is kept beside the PDF so the assistant can read the
+ * book later without paying for it again.
+ *
  * Uses the assistant's key, model and effort; an import is just a batch of
  * model calls with the same client the chat uses.
  */
@@ -57,13 +63,38 @@ export interface ImportOptions {
   to?: number;
   /** A line from the GM about what the book is and what to look for. */
   guidance: string;
+  /** Send the pages as pictures rather than their text. Undefined means
+   *  decide from the file: pictures when it looks scanned. */
+  readPages?: boolean;
+  /** When reading pictures, also have the model write out each page's text
+   *  and keep it beside the Document. */
+  keepText: boolean;
 }
 
 export const DEFAULT_OPTIONS: ImportOptions = {
   kinds: [...IMPORTABLE_KINDS],
   attachDocument: true,
   guidance: "",
+  keepText: true,
 };
+
+/** Hardly any text came out: pictures of pages rather than text. */
+export function isScanned(text: PdfText): boolean {
+  const emptyShare = text.pages.length
+    ? text.emptyPages / text.pages.length
+    : 0;
+  return text.chars < 200 || emptyShare > 0.8;
+}
+
+/** Whether a run over `source` reads pictures: the GM's choice, else what
+ *  the file looks like. Only a PDF has pages to picture. */
+export function readsPictures(
+  options: ImportOptions,
+  source: { kind: "pdf" | "text"; text: PdfText },
+): boolean {
+  if (source.kind !== "pdf") return false;
+  return options.readPages ?? isScanned(source.text);
+}
 
 // ---- Chunking -----------------------------------------------------------------
 
@@ -71,18 +102,67 @@ export const DEFAULT_OPTIONS: ImportOptions = {
  *  small enough that the answer fits in one reply. */
 export const CHUNK_CHARS = 48_000;
 
-export interface Chunk {
+/** Pages per call when reading pictures. A scanned page is a couple of
+ *  thousand tokens to look at and up to a thousand to transcribe, so a dozen
+ *  keeps the reply well inside one message. */
+export const PAGES_PER_CALL = 12;
+
+interface ChunkBase {
   index: number;
   firstPage: number;
   lastPage: number;
+}
+
+/** A run of pages' text, each page labelled so the model can cite it. */
+export interface TextChunk extends ChunkBase {
+  kind: "text";
   text: string;
+}
+
+/** A run of pages of the PDF at `path`, sent as pictures. */
+export interface PagesChunk extends ChunkBase {
+  kind: "pages";
+  path: string;
+}
+
+export type Chunk = TextChunk | PagesChunk;
+
+/** Cuts pages `first`..`last` (1-based, inclusive) of the PDF at `path`
+ *  into runs of `PAGES_PER_CALL`. */
+export function chunkPageRange(
+  path: string,
+  first: number,
+  last: number,
+): PagesChunk[] {
+  const chunks: PagesChunk[] = [];
+  for (let from = first; from <= last; from += PAGES_PER_CALL) {
+    chunks.push({
+      index: chunks.length,
+      kind: "pages",
+      path,
+      firstPage: from,
+      lastPage: Math.min(from + PAGES_PER_CALL - 1, last),
+    });
+  }
+  return chunks;
+}
+
+/** Two halves of a pages chunk that was too large to send, or null when it
+ *  is a single page and cannot shrink. */
+export function splitChunk(chunk: PagesChunk): [PagesChunk, PagesChunk] | null {
+  if (chunk.lastPage <= chunk.firstPage) return null;
+  const mid = Math.floor((chunk.firstPage + chunk.lastPage) / 2);
+  return [
+    { ...chunk, lastPage: mid },
+    { ...chunk, firstPage: mid + 1 },
+  ];
 }
 
 /** Cuts the pages into chunks of whole pages, labelling each page so the
  *  model can cite where it found something. A page longer than a chunk is
  *  split on its own. */
-export function chunkPages(pdf: PdfText): Chunk[] {
-  const chunks: Chunk[] = [];
+export function chunkPages(pdf: PdfText): TextChunk[] {
+  const chunks: TextChunk[] = [];
   let buf: string[] = [];
   let bufChars = 0;
   /** First and last page with text in the buffer. */
@@ -100,6 +180,7 @@ export function chunkPages(pdf: PdfText): Chunk[] {
     if (buf.length === 0) return;
     chunks.push({
       index: chunks.length,
+      kind: "text",
       firstPage: first,
       lastPage: last,
       text: buf.join("\n\n"),
@@ -149,6 +230,29 @@ export function estimateImportCostUsd(
   return (input * p.input + output * p.output) / 1_000_000;
 }
 
+/** What a page costs to look at: the picture plus whatever text layer it
+ *  has, per Anthropic's guidance of 1,500–3,000 tokens a page. */
+const PAGE_INPUT_TOKENS = 2_500;
+/** Elements drawn from a page, as output. */
+const PAGE_OUTPUT_TOKENS = 250;
+/** Writing a page's text out as well. */
+const PAGE_TRANSCRIPT_TOKENS = 800;
+
+/** Order-of-magnitude cost of reading `pages` pages as pictures. */
+export function estimateScanCostUsd(
+  pages: number,
+  chunkCount: number,
+  model: string,
+  keepText: boolean,
+): number | null {
+  const p = PRICING[model];
+  if (!p) return null;
+  const input = pages * PAGE_INPUT_TOKENS + chunkCount * PROMPT_OVERHEAD_TOKENS;
+  const output =
+    pages * (PAGE_OUTPUT_TOKENS + (keepText ? PAGE_TRANSCRIPT_TOKENS : 0));
+  return (input * p.input + output * p.output) / 1_000_000;
+}
+
 const PROMPT_OVERHEAD_TOKENS = 1_200;
 
 // ---- The model call -------------------------------------------------------------
@@ -165,19 +269,34 @@ const ProposalSchema = z.object({
 
 const ReplySchema = z.object({
   elements: z.array(ProposalSchema).max(200),
+  /** Page number → the page's text, when the pages were read as pictures
+   *  and the GM asked to keep their text. */
+  text: z.record(z.string(), z.string()).optional(),
 });
 
 export type RawProposal = z.infer<typeof ProposalSchema>;
 
+/** Text the model read off pages, by page number. */
+export type PageText = Record<number, string>;
+
+export interface Reply {
+  elements: RawProposal[];
+  text: PageText;
+}
+
 const STATBLOCK_HINT =
   'For a creature in a D&D 5e book, also return fields.statblock as { size, type, alignment, ac, acNote, hp, hpFormula, speed, abilities: { str, dex, con, int, wis, cha } (scores), saves, skills, vulnerabilities, resistances, immunities, conditionImmunities, senses, languages (strings), cr (such as "1/4" or "5"), traits/actions/bonusActions/reactions/legendary: [{ name, text }] }. Leave out anything the text does not give.';
 
-/** The instructions every chunk is read under; stable so the API caches it. */
+/** The instructions every chunk is read under; stable so the API caches it.
+ *  `pictures` is whether the pages come as a PDF to look at rather than as
+ *  labelled text. */
 export function systemPromptFor(
   campaign: CampaignMeta,
   options: ImportOptions,
+  pictures = false,
 ): string {
   const dnd5e = rulesOf(campaign) === "dnd5e";
+  const transcribe = pictures && options.keepText;
   const kinds = ELEMENT_KINDS.filter((k) =>
     (options.kinds as string[]).includes(k.id),
   )
@@ -194,14 +313,24 @@ export function systemPromptFor(
     "",
     "## Your answer",
     "Reply with one JSON object and nothing else, no prose, no code fence:",
-    '{ "elements": [ { "kind": "...", "name": "...", "summary": "...", "tags": ["..."], "body": "...", "pages": [12, 13] } ] }',
+    transcribe
+      ? '{ "elements": [ { "kind": "...", "name": "...", "summary": "...", "tags": ["..."], "body": "...", "pages": [12, 13] } ], "text": { "12": "...", "13": "..." } }'
+      : '{ "elements": [ { "kind": "...", "name": "...", "summary": "...", "tags": ["..."], "body": "...", "pages": [12, 13] } ] }',
     "",
+    pictures
+      ? "The pages come as a PDF of scanned pages to read visually. The message with it says which page of the book its first page is; number the rest from there."
+      : null,
+    transcribe
+      ? "- text is every page's full text as it reads, keyed by book page number: reading order, columns joined into one flow, headings and paragraphs kept as plain lines, tables as simple rows. Leave out running headers, footers and page numbers. Leave out a page that is only art."
+      : null,
     `- kind is one of: ${kinds}. Skip anything that fits none of them.`,
     "- name is the proper name as the book writes it (not a description). One element per named thing; a place inside a place is its own location.",
     "- summary is one sentence, GM-facing, for a review list.",
     "- tags: up to five short lower-case words (a region, a role, a theme). Optional.",
     "- body is Markdown for the GM's notes: two to six short paragraphs or bullet lists that paraphrase what the book says about the thing: who or what it is, what it wants or does, how it connects to other things named in the text, and any hooks or secrets. Use ## headings only when the text clearly has sections. Paraphrase, do not copy passages; stat tables and rules text belong in the book, not here. Mention other elements by their exact names in plain text so they can be linked afterwards.",
-    "- pages: the page numbers (from the [Page N] labels) where the thing is described.",
+    pictures
+      ? "- pages: the book page numbers where the thing is described."
+      : "- pages: the page numbers (from the [Page N] labels) where the thing is described.",
     "- Never invent facts. If the text says little, say little. Leave out things that are only mentioned in passing with nothing said about them.",
     "- Skip tables of contents, indexes, legal text, credits and generic rules.",
     "- If this part of the text introduces the book's premise as a whole (an adventure's background, a region's overview), include one lore element named after the book or region that sums it up.",
@@ -213,7 +342,7 @@ export function systemPromptFor(
 }
 
 /** Pulls the outermost JSON object out of a reply, tolerating fences and chatter. */
-export function parseReply(text: string): RawProposal[] {
+export function parseReply(text: string): Reply {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end <= start) {
@@ -232,10 +361,17 @@ export function parseReply(text: string): RawProposal[] {
       `the reply did not match the expected shape (${first?.path.join(".") ?? "?"}: ${first?.message ?? "?"})`,
     );
   }
-  return result.data.elements;
+  const pageText: PageText = {};
+  for (const [page, body] of Object.entries(result.data.text ?? {})) {
+    const n = Number.parseInt(page, 10);
+    if (Number.isInteger(n) && n >= 1 && body.trim()) pageText[n] = body.trim();
+  }
+  return { elements: result.data.elements, text: pageText };
 }
 
 const MAX_TOKENS = 16_000;
+/** Room for a dozen pages' transcripts on top of the elements. */
+const MAX_TOKENS_PICTURES = 32_000;
 
 export interface ChunkCallOptions {
   client: Anthropic;
@@ -245,16 +381,63 @@ export interface ChunkCallOptions {
   signal?: AbortSignal;
 }
 
+/** A pages chunk too large for one request even as its own PDF; the caller
+ *  splits it and tries again. */
+export class ChunkTooLargeError extends Error {
+  constructor(public readonly chunk: PagesChunk) {
+    super(
+      `pages ${chunk.firstPage}–${chunk.lastPage} are too large to send in one call`,
+    );
+    this.name = "ChunkTooLargeError";
+  }
+}
+
+/** The user turn for a chunk: labelled text, or the page range as a PDF. */
+async function chunkContent(
+  chunk: Chunk,
+): Promise<Anthropic.Beta.BetaContentBlockParam[]> {
+  const range = `Pages ${chunk.firstPage}–${chunk.lastPage} of the book`;
+  if (chunk.kind === "text") {
+    return [
+      {
+        type: "text",
+        text: `${range} follow. Return the elements they describe as JSON.\n\n${chunk.text}`,
+      },
+    ];
+  }
+  const slice = await storage.sliceDocumentPages(
+    chunk.path,
+    chunk.firstPage,
+    chunk.lastPage,
+  );
+  if (slice.data === null) throw new ChunkTooLargeError(chunk);
+  return [
+    {
+      type: "document",
+      source: {
+        type: "base64",
+        media_type: "application/pdf",
+        data: slice.data,
+      },
+    },
+    {
+      type: "text",
+      text: `${range} are attached as a PDF; its first page is page ${chunk.firstPage} of the book. Return the elements they describe as JSON.`,
+    },
+  ];
+}
+
 /** One chunk → the model → proposals. Throws on API or parse failure. */
 export async function extractFromChunk(
   chunk: Chunk,
   opts: ChunkCallOptions,
-): Promise<{ proposals: RawProposal[]; usage: TurnUsage }> {
+): Promise<{ proposals: RawProposal[]; text: PageText; usage: TurnUsage }> {
   const supportsFallback = !opts.model.includes("haiku");
+  const content = await chunkContent(chunk);
   const stream = opts.client.beta.messages.stream(
     {
       model: opts.model,
-      max_tokens: MAX_TOKENS,
+      max_tokens: chunk.kind === "pages" ? MAX_TOKENS_PICTURES : MAX_TOKENS,
       output_config: { effort: opts.effort },
       system: [
         {
@@ -263,12 +446,7 @@ export async function extractFromChunk(
           cache_control: { type: "ephemeral" },
         },
       ],
-      messages: [
-        {
-          role: "user",
-          content: `Pages ${chunk.firstPage}–${chunk.lastPage} of the book follow. Return the elements they describe as JSON.\n\n${chunk.text}`,
-        },
-      ],
+      messages: [{ role: "user", content }],
       ...(supportsFallback
         ? {
             betas: ["server-side-fallback-2026-07-01"],
@@ -296,7 +474,8 @@ export async function extractFromChunk(
     .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
     .map((b) => b.text)
     .join("");
-  return { proposals: parseReply(text), usage };
+  const reply = parseReply(text);
+  return { proposals: reply.elements, text: reply.text, usage };
 }
 
 // ---- Merging -------------------------------------------------------------------
@@ -415,7 +594,27 @@ export interface WriteOptions {
   sourceName: string;
   /** Path of a PDF to keep as a Document element, or null to cite by name. */
   attach: string | null;
+  /** Text the model read off the pages, kept beside the attached PDF so the
+   *  assistant can read it later. Needs `attach`. */
+  pageText?: { pages: PageText; pageCount: number };
   onProgress?: (done: number, total: number) => void;
+}
+
+/** Writes `pageText` beside the PDF at `path` (campaign-relative) as one
+ *  entry per page from the first page with text to the last. */
+async function keepPageText(
+  path: string,
+  pageText: { pages: PageText; pageCount: number },
+): Promise<void> {
+  const numbers = Object.keys(pageText.pages)
+    .map(Number)
+    .filter((n) => n >= 1 && n <= pageText.pageCount);
+  if (numbers.length === 0) return;
+  const first = Math.min(...numbers);
+  const last = Math.max(...numbers);
+  const pages: string[] = [];
+  for (let n = first; n <= last; n++) pages.push(pageText.pages[n] ?? "");
+  await storage.saveDocumentText(path, first, pages, pageText.pageCount);
 }
 
 /**
@@ -436,6 +635,11 @@ export async function writeProposals(opts: WriteOptions): Promise<WriteResult> {
   let sourceLabel = opts.sourceName;
   if (opts.attach) {
     const imported = await storage.importDocument(opts.attach);
+    const kept =
+      opts.pageText && Object.keys(opts.pageText.pages).length > 0
+        ? opts.pageText
+        : null;
+    if (kept) await keepPageText(imported.path, kept);
     const doc = await storage.createElement("document", imported.name, {
       file: imported.path,
       fileName: imported.name,
@@ -445,7 +649,11 @@ export async function writeProposals(opts: WriteOptions): Promise<WriteResult> {
       id: doc.id,
       name: doc.name,
       tags: ["imported"],
-      body: `# ${doc.name}\n\nImported on ${today()}. The elements built from this book cite it by page.\n`,
+      body: `# ${doc.name}\n\nImported on ${today()}. The elements built from this book cite it by page.${
+        kept
+          ? " The pages were read as pictures and the text the model read off them is kept beside the file, so the assistant can read it too."
+          : ""
+      }\n`,
       extra: extraOf(doc),
     });
     documentId = doc.id;

@@ -153,6 +153,13 @@ export interface PdfText {
   truncated: boolean;
 }
 
+/** A page range of a PDF as a smaller PDF (`slice_document_pages`). */
+export interface PdfSlice {
+  /** Base64 of the PDF, or null when the range is too large to send. */
+  data: string | null;
+  bytes: number;
+}
+
 export interface ImportedImage {
   /** Path relative to the campaign root. */
   path: string;
@@ -224,6 +231,7 @@ export const ELEMENT_KINDS: ElementKind[] = [
     plural: "Encounters",
     family: "play",
   },
+  { id: "note", label: "Note", plural: "Notes", family: "play" },
   {
     id: "character",
     label: "Character",
@@ -428,6 +436,19 @@ export interface TableChange {
   gm: boolean;
   /** For a GM's device: what changed on the host since our version. */
   changes: DiskChanges | null;
+}
+
+/**
+ * What a player sends to write or change a note of their own at the table.
+ * Mirrors `NoteInput` in `src-tauri/src/table/share.rs`.
+ */
+export interface NoteInput {
+  name: string;
+  body: string;
+  /** Share with everyone at the table, or take it back; absent keeps it. */
+  shared?: boolean;
+  /** The `version` the edit started from; absent overwrites. */
+  baseVersion?: string;
 }
 
 export interface TableSession {

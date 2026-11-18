@@ -75,7 +75,7 @@ export function StatBlock5e({ element }: { element: Element }) {
 
   const cr = crInfo(sb.cr);
   return (
-    <section className="space-y-4 rounded-lg border border-ink-800 bg-ink-900/60 p-4">
+    <section className="@container space-y-4 rounded-lg border border-ink-800 bg-ink-900/60 p-4">
       {/* Identity */}
       <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
         <label className={LABEL}>
@@ -195,7 +195,7 @@ export function StatBlock5e({ element }: { element: Element }) {
       </div>
 
       {/* Abilities */}
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+      <div className="grid grid-cols-3 gap-2 @lg:grid-cols-6">
         {ABILITIES.map((a) => (
           <div
             key={a}
@@ -232,7 +232,7 @@ export function StatBlock5e({ element }: { element: Element }) {
       </div>
 
       {/* Lines */}
-      <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+      <div className="grid gap-x-4 gap-y-3 @lg:grid-cols-2">
         <Text
           label="Saving throws"
           value={sb.saves}

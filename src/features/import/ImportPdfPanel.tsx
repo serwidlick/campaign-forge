@@ -26,9 +26,13 @@ import { useImportStore } from "@/stores/import-store";
 import {
   CHUNK_CHARS,
   IMPORTABLE_KINDS,
+  PAGES_PER_CALL,
   chunkPages,
   estimateImportCostUsd,
+  estimateScanCostUsd,
   formatPages,
+  isScanned,
+  readsPictures,
   type Proposal,
 } from "./pdf-import";
 
@@ -145,8 +149,9 @@ function ChooseStep() {
           elements.
         </p>
         <p className="text-xs text-ink-500">
-          A scanned PDF needs its OCR text layer; if the archive you got it from
-          also offers a full-text file, that is the cleaner choice.
+          A scanned PDF (pictures of pages) is read page by page by the model,
+          which costs more; if the archive you got it from also offers a
+          full-text file, that is the cheaper choice.
         </p>
         <p className="text-xs text-ink-500">
           The book&apos;s text is sent to Anthropic with your own API key, in
@@ -188,26 +193,28 @@ function OptionsStep() {
     }
     return n;
   }, [text, from, to]);
+  const pictures = source ? readsPictures(options, source) : false;
+  const rangePages = Math.max(0, to - from + 1);
   const chunkCount = useMemo(() => {
     if (!text) return 0;
+    if (pictures) return Math.ceil(rangePages / PAGES_PER_CALL);
     const sliced = {
       ...text,
       firstPage: from,
       pages: text.pages.slice(from - text.firstPage, to - text.firstPage + 1),
     };
     return chunkPages(sliced).length;
-  }, [text, from, to]);
+  }, [text, from, to, pictures, rangePages]);
   const cost = model
-    ? estimateImportCostUsd(rangeChars, chunkCount, model)
+    ? pictures
+      ? estimateScanCostUsd(rangePages, chunkCount, model, options.keepText)
+      : estimateImportCostUsd(rangeChars, chunkCount, model)
     : null;
   const modelLabel = MODELS.find((m) => m.id === model)?.label ?? model;
 
   if (!source || !text) return null;
 
-  const emptyShare = text.pages.length
-    ? text.emptyPages / text.pages.length
-    : 0;
-  const scanned = rangeChars < 200 || emptyShare > 0.8;
+  const scanned = isScanned(text);
 
   function toggleKind(kind: (typeof IMPORTABLE_KINDS)[number]) {
     const has = options.kinds.includes(kind);
@@ -240,15 +247,60 @@ function OptionsStep() {
             {text.emptyPages > 0 && <> · {text.emptyPages} without text</>}
             {text.truncated && <> · cut at the size limit</>}
           </div>
-          {scanned && (
+          {scanned && source.kind === "pdf" && (
             <p className="mt-2 text-xs text-amber-200/90">
-              Hardly any text came out. This is probably a scanned PDF (pictures
-              of pages). It would need OCR in another tool first; the import can
-              only read real text.
+              Hardly any text came out, so this is probably a scanned PDF
+              (pictures of pages). The pages will be sent to the model as
+              pictures and read off the page, which costs more than text.
+            </p>
+          )}
+          {scanned && source.kind === "text" && (
+            <p className="mt-2 text-xs text-amber-200/90">
+              Hardly any text came out of this file.
             </p>
           )}
         </div>
       </section>
+
+      {source.kind === "pdf" && (
+        <section>
+          <Label>How to read it</Label>
+          <label className="mt-2 flex items-start gap-2 text-sm text-ink-300">
+            <input
+              type="checkbox"
+              checked={pictures}
+              onChange={(e) => setOptions({ readPages: e.target.checked })}
+              className="mt-0.5 accent-ember-500"
+            />
+            <span>
+              Read the pages as pictures.{" "}
+              <span className="text-ink-500">
+                Each page goes to the model as an image instead of its text.
+                Needed for a scan; also catches maps, tables and sidebars the
+                text layer muddles. About three times the cost of text.
+              </span>
+            </span>
+          </label>
+          {pictures && options.attachDocument && (
+            <label className="mt-2 flex items-start gap-2 text-sm text-ink-300">
+              <input
+                type="checkbox"
+                checked={options.keepText}
+                onChange={(e) => setOptions({ keepText: e.target.checked })}
+                className="mt-0.5 accent-ember-500"
+              />
+              <span>
+                Keep the page text.{" "}
+                <span className="text-ink-500">
+                  The model also writes out what each page says, saved beside
+                  the Document so the assistant can read the book later without
+                  paying for it again. Adds to the output cost.
+                </span>
+              </span>
+            </label>
+          )}
+        </section>
+      )}
 
       <section>
         <Label>What to look for</Label>
@@ -341,7 +393,10 @@ function OptionsStep() {
         <div className="flex flex-wrap items-center gap-x-2">
           <span>
             {chunkCount} model call{chunkCount === 1 ? "" : "s"} of up to{" "}
-            {formatTokens(CHUNK_CHARS)} characters each
+            {pictures
+              ? `${PAGES_PER_CALL} pages`
+              : `${formatTokens(CHUNK_CHARS)} characters`}{" "}
+            each
           </span>
           <span>·</span>
           <span>{modelLabel ?? "assistant model"}</span>
@@ -358,7 +413,8 @@ function OptionsStep() {
         <p className="mt-1 text-ink-500">
           The model and effort are the assistant&apos;s; change them in its
           settings (the sparkle button). The estimate is rough: a dense book
-          costs more, a sparse one less.
+          costs more, a sparse one less
+          {pictures && "; a run of pages too big to send in one call is split"}.
         </p>
       </section>
 
@@ -371,7 +427,8 @@ function OptionsStep() {
         </Button>
         {chunkCount === 0 && (
           <span className="text-xs text-ink-500">
-            No text in the chosen pages.
+            No text in the chosen pages
+            {source.kind === "pdf" && "; read them as pictures instead"}.
           </span>
         )}
       </div>
@@ -386,6 +443,9 @@ function BuildingStep() {
   const proposals = useImportStore((s) => s.proposals);
   const failures = useImportStore((s) => s.failures);
   const cancel = useImportStore((s) => s.cancel);
+  const pictures = useImportStore((s) =>
+    s.source ? readsPictures(s.options, s.source) : false,
+  );
   if (!progress) return null;
   const pct = progress.chunks
     ? Math.round((progress.chunk / progress.chunks) * 100)
@@ -399,6 +459,7 @@ function BuildingStep() {
           <span className="text-ink-200">
             Reading part {Math.min(progress.chunk + 1, progress.chunks)} of{" "}
             {progress.chunks}
+            {pictures && " (as pictures)"}
           </span>
           <span className="text-xs text-ink-500">
             {formatTokens(

@@ -12,6 +12,7 @@ use crate::storage::{Element, ElementSummary, MAX_DOCUMENT_BYTES};
 use crate::identity::{DeviceKey, device_label};
 
 use super::server::{Challenge, JoinResponse, TableInfo, VersionResponse};
+use super::share::NoteInput;
 
 /// Error text the frontend recognises as "the table closed".
 pub const CLOSED_ERROR: &str = "TABLE_CLOSED";
@@ -215,6 +216,56 @@ impl Session {
             return Err(describe(resp).await);
         }
         resp.json().await.map_err(|e| e.to_string())
+    }
+
+    // ---- Notes ------------------------------------------------------------
+
+    /// Sends a JSON body and reads the element the table answers with.
+    async fn send_element(
+        &self,
+        req: reqwest::RequestBuilder,
+        input: &NoteInput,
+    ) -> Result<Element, String> {
+        let resp = req
+            .bearer_auth(&self.token)
+            .json(input)
+            .send()
+            .await
+            .map_err(connection_error)?;
+        if !resp.status().is_success() {
+            return Err(describe(resp).await);
+        }
+        resp.json().await.map_err(|e| e.to_string())
+    }
+
+    /// Writes a new note into the GM's campaign folder, by this player.
+    pub async fn create_note(&self, input: &NoteInput) -> Result<Element, String> {
+        self.send_element(self.http.post(format!("{}/api/notes", self.base)), input)
+            .await
+    }
+
+    /// Changes a note this player wrote.
+    pub async fn update_note(&self, id: &str, input: &NoteInput) -> Result<Element, String> {
+        self.send_element(
+            self.http.put(format!("{}/api/notes/{id}", self.base)),
+            input,
+        )
+        .await
+    }
+
+    /// Deletes a note this player wrote.
+    pub async fn delete_note(&self, id: &str) -> Result<(), String> {
+        let resp = self
+            .http
+            .delete(format!("{}/api/notes/{id}", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(connection_error)?;
+        if !resp.status().is_success() {
+            return Err(describe(resp).await);
+        }
+        Ok(())
     }
 
     // ---- A GM's device ----------------------------------------------------

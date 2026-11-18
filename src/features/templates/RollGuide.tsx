@@ -50,7 +50,7 @@ export function RollGuide({
       <div className="space-y-4 px-3 pb-3">
         <div>
           <div className={HEADING}>Ability checks and saving throws</div>
-          <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-1.5 grid gap-1.5 @lg:grid-cols-2 @2xl:grid-cols-3">
             {ABILITIES.map((a) => (
               <div
                 key={a}
@@ -73,7 +73,7 @@ export function RollGuide({
               </div>
             ))}
           </div>
-          <div className="mt-1.5 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+          <div className="mt-1.5 grid gap-x-6 gap-y-1 @lg:grid-cols-2">
             <Line label="Initiative" roll={initiativeRoll(sheet)} />
             <Line
               label="Death save"
@@ -85,7 +85,7 @@ export function RollGuide({
 
         <div>
           <div className={HEADING}>Skill checks</div>
-          <div className="mt-1.5 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+          <div className="mt-1.5 grid gap-x-6 gap-y-1 @lg:grid-cols-2">
             {SKILLS.map((sk) => (
               <Line
                 key={sk.id}
@@ -103,7 +103,7 @@ export function RollGuide({
 
         <div>
           <div className={HEADING}>Attacks</div>
-          <div className="mt-1.5 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+          <div className="mt-1.5 grid gap-x-6 gap-y-1 @lg:grid-cols-2">
             <Line
               label="Melee weapon"
               roll={attackRoll(sheet, blankAttack("melee"))}
@@ -136,7 +136,7 @@ export function RollGuide({
                 return (
                   <div
                     key={a.id}
-                    className="grid grid-cols-1 gap-x-3 gap-y-0.5 rounded-md border border-ink-800 bg-ink-900 px-2.5 py-1.5 sm:grid-cols-[10rem_1fr_1fr]"
+                    className="grid grid-cols-1 gap-x-3 gap-y-0.5 rounded-md border border-ink-800 bg-ink-900 px-2.5 py-1.5 @xl:grid-cols-[10rem_1fr_1fr]"
                   >
                     <div className="truncate text-xs font-semibold text-ink-200">
                       {a.name || "Unnamed attack"}

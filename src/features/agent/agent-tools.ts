@@ -225,7 +225,7 @@ const readDocument: AgentTool = {
   definition: {
     name: "read_document",
     description:
-      "Read the text of a Document element's PDF, a few pages at a time (at most 4 per call). Use it when the GM asks about a rulebook, module or handout they attached. Start with the first pages or the ones the GM named, then ask for more. Pages without text (scans, art) come back empty.",
+      "Read the text of a Document element's PDF, a few pages at a time (at most 4 per call). Use it when the GM asks about a rulebook, module or handout they attached. Start with the first pages or the ones the GM named, then ask for more. Pages without text (scans, art) come back empty, unless the book was imported with its pages read as pictures and the text kept.",
     input_schema: {
       type: "object",
       properties: {

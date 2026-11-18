@@ -272,7 +272,7 @@ export function CharacterSheet5e({
     // `sheet-readonly` styles then show the fields as plain values.
     <fieldset
       disabled={readOnly}
-      className={`min-w-0 space-y-4 rounded-lg border border-ink-800 bg-ink-900/60 p-4 ${
+      className={`@container min-w-0 space-y-4 rounded-lg border border-ink-800 bg-ink-900/60 p-4 ${
         readOnly ? "sheet-readonly" : ""
       }`}
     >
@@ -403,7 +403,7 @@ export function CharacterSheet5e({
           </button>
         </div>
       )}
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+      <div className="grid grid-cols-3 gap-2 @lg:grid-cols-6">
         {ABILITIES.map((a) => {
           const chosen = sheet.asiChosen[a] ?? 0;
           const fixed =
@@ -554,7 +554,7 @@ export function CharacterSheet5e({
       <RollGuide sheet={sheet} open={onSave !== undefined || readOnly} />
 
       {/* Saves and skills */}
-      <div className="grid gap-4 lg:grid-cols-[17rem_1fr]">
+      <div className="grid gap-4 @2xl:grid-cols-[17rem_1fr]">
         <div>
           <div className={LABEL}>Saving throws</div>
           <div className="mt-1.5 grid grid-cols-3 gap-1.5">

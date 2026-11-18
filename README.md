@@ -29,7 +29,9 @@ Early scaffold. What works today:
 - Phones at the table: the host also serves a web page, reached by a QR code in the hosting panel, that shows the shared campaign read-only in any browser on the same Wi-Fi
 - Play at a table over the local network: the GM presses Host a table and reads out a six-digit code; players open Campaign Forge on their own laptops, pick the table from the list (or type the GM address) and get the player view live, updating within a second of the GM sharing or editing something. Nothing leaves the network and there are no accounts.
 
-Planned: table tools (show this to everyone, map reveal, dice, player notes back to the GM) and a browser join for phones.
+- Notes from the table: players write their own notes, from the app or the phone page, and each one is a Markdown file in the GM's campaign folder, private to its author and the GM until they share it
+
+Planned: table tools (map reveal, dice).
 
 ## On-disk format
 

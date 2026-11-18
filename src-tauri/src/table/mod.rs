@@ -359,6 +359,28 @@ pub async fn table_update_sheet(
 }
 
 #[tauri::command]
+pub async fn table_create_note(
+    table: State<'_, TableState>,
+    input: share::NoteInput,
+) -> CommandResult<Element> {
+    session(&table)?.create_note(&input).await
+}
+
+#[tauri::command]
+pub async fn table_update_note(
+    table: State<'_, TableState>,
+    id: String,
+    input: share::NoteInput,
+) -> CommandResult<Element> {
+    session(&table)?.update_note(&id, &input).await
+}
+
+#[tauri::command]
+pub async fn table_delete_note(table: State<'_, TableState>, id: String) -> CommandResult<()> {
+    session(&table)?.delete_note(&id).await
+}
+
+#[tauri::command]
 pub async fn table_fetch_asset(
     table: State<'_, TableState>,
     path: String,

@@ -479,6 +479,28 @@ impl AppState {
         assets::read(&open.root, rel)
     }
 
+    /// Text kept beside a PDF under `assets/docs/` (pages separated by form
+    /// feeds), written by an import that read the pages as pictures.
+    pub fn read_document_text(&self, pdf_rel: &str) -> Result<Option<String>, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        assets::read_document_text(&open.root, pdf_rel)
+    }
+
+    /// Keeps text recovered for a run of a PDF's pages beside it. Not a
+    /// change players can see, so the change counter is left alone.
+    pub fn save_document_text(
+        &self,
+        pdf_rel: &str,
+        first_page: usize,
+        pages: &[String],
+        page_count: usize,
+    ) -> Result<String, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        assets::write_document_text(&open.root, pdf_rel, first_page, pages, page_count)
+    }
+
     fn set_open(&self, root: PathBuf, meta: CampaignMeta) -> Result<(), StorageError> {
         let (_, index) = elements::scan(&root)?;
         let mut guard = self.lock()?;

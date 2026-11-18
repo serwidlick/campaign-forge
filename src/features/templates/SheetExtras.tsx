@@ -24,22 +24,24 @@ const SMALL = `${FIELD} w-full min-w-0 py-0.5 text-xs`;
 const ICON_BTN =
   "flex h-7 w-7 shrink-0 items-center justify-center justify-self-end rounded text-ink-600 hover:bg-ink-800 hover:text-red-300";
 
-// The tables below lay a row out in named columns on a wide screen. On a
-// phone the same cells wrap onto two lines instead, with the free-text cell
+// The tables below lay a row out in named columns when the sheet is wide.
+// In a narrow sheet (a phone, or a tall monitor where the editor pane is
+// slim) the same cells wrap onto two lines instead, with the free-text cell
 // (notes, description) spanning the second line, and the column headings
-// are left out; the fields' placeholders say what each one is.
+// are left out; the fields' placeholders say what each one is. The widths
+// are container queries against the sheet itself, not the window.
 const ROW = "grid items-center gap-x-2 gap-y-1";
-const HEAD = "hidden gap-x-2 text-[10px] text-ink-500 uppercase sm:grid";
+const HEAD = "hidden gap-x-2 text-[10px] text-ink-500 uppercase @2xl:grid";
 const ATTACK_COLS =
-  "grid-cols-[1fr_7.5rem_4.5rem] sm:grid-cols-[1fr_7.5rem_4.5rem_8rem_1fr_auto]";
+  "grid-cols-[1fr_7.5rem_4.5rem] @2xl:grid-cols-[1fr_7.5rem_4.5rem_8rem_1fr_auto]";
 const FEATURE_COLS =
-  "grid-cols-[1fr_1fr_auto] sm:grid-cols-[12rem_8rem_1fr_auto]";
+  "grid-cols-[1fr_1fr_auto] @2xl:grid-cols-[12rem_8rem_1fr_auto]";
 const SPELL_COLS =
-  "grid-cols-[1fr_6rem_4rem] sm:grid-cols-[1fr_6rem_4rem_1fr_auto]";
+  "grid-cols-[1fr_6rem_4rem] @2xl:grid-cols-[1fr_6rem_4rem_1fr_auto]";
 const ITEM_COLS =
-  "grid-cols-[1fr_4rem_5rem] sm:grid-cols-[1fr_4rem_5rem_1fr_auto]";
+  "grid-cols-[1fr_4rem_5rem] @2xl:grid-cols-[1fr_4rem_5rem_1fr_auto]";
 /** The free-text cell: the whole line on a phone, one column otherwise. */
-const WIDE_CELL = "col-span-2 sm:col-span-1";
+const WIDE_CELL = "col-span-2 @2xl:col-span-1";
 
 type Update = (fn: (s: Sheet5e) => Sheet5e) => void;
 
@@ -247,7 +249,7 @@ function Features({ sheet, update }: { sheet: Sheet5e; update: Update }) {
             value={f.notes}
             onChange={(e) => set(f.id, { notes: e.target.value })}
             placeholder="Bonus action, 1d10 + level, once per short rest"
-            className={`${SMALL} col-span-3 sm:col-span-1`}
+            className={`${SMALL} col-span-3 @2xl:col-span-1`}
           />
           <button
             type="button"
@@ -260,7 +262,7 @@ function Features({ sheet, update }: { sheet: Sheet5e; update: Update }) {
             aria-label={`Remove ${f.name || "feature"}`}
             // On a phone the description takes the second line, so the
             // cross stays on the first, after the source.
-            className={`${ICON_BTN} col-start-3 row-start-1 sm:col-start-auto sm:row-start-auto`}
+            className={`${ICON_BTN} col-start-3 row-start-1 @2xl:col-start-auto @2xl:row-start-auto`}
           >
             <X size={13} />
           </button>
@@ -386,7 +388,7 @@ function Spellcasting({ sheet, update }: { sheet: Sheet5e; update: Update }) {
             used / max · max follows class and level until you change it
           </span>
         </div>
-        <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-9">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(4.75rem,1fr))] gap-1.5">
           {SLOT_LEVELS.map((l) => {
             const row = sc.slots[l] ?? { max: 0, used: 0 };
             return (
@@ -433,7 +435,7 @@ function Spellcasting({ sheet, update }: { sheet: Sheet5e; update: Update }) {
                       }))
                     }
                     aria-label={`Level ${l} slots used`}
-                    className="w-8 rounded border border-ink-700 bg-ink-850 px-0.5 text-center text-xs text-ink-200 outline-none focus:border-ember-500"
+                    className="w-7 rounded border border-ink-700 bg-ink-850 px-0.5 text-center text-xs text-ink-200 outline-none focus:border-ember-500"
                   />
                   <span className="text-ink-600">/</span>
                   <input
@@ -461,7 +463,7 @@ function Spellcasting({ sheet, update }: { sheet: Sheet5e; update: Update }) {
                       }))
                     }
                     aria-label={`Level ${l} slots`}
-                    className="w-8 rounded border border-ink-700 bg-ink-850 px-0.5 text-center text-xs text-ink-200 outline-none focus:border-ember-500"
+                    className="w-7 rounded border border-ink-700 bg-ink-850 px-0.5 text-center text-xs text-ink-200 outline-none focus:border-ember-500"
                   />
                 </div>
               </div>
@@ -682,7 +684,7 @@ function Personality({ sheet, update }: { sheet: Sheet5e; update: Update }) {
       title="Personality"
       open={Object.values(sheet.personality).some((v) => v.trim() !== "")}
     >
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 @lg:grid-cols-2">
         {fields.map(([key, label, hint]) => (
           <label key={key} className="text-[11px] text-ink-400">
             {label}

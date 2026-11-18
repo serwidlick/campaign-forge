@@ -13,6 +13,7 @@ import { useCampaignStore } from "@/stores/campaign-store";
 
 import { CharacterRoleField } from "./CharacterRoleField";
 import { ElementEditor } from "./ElementEditor";
+import { NotePanel } from "./NotePanel";
 
 /**
  * Picks the kind-specific panel for an element. Every kind shares the same
@@ -90,6 +91,13 @@ export function ElementEditorFor({ element }: { element: Element }) {
         <ElementEditor
           element={element}
           panel={<MapPanel element={element} />}
+        />
+      );
+    case "note":
+      return (
+        <ElementEditor
+          element={element}
+          panel={<NotePanel element={element} />}
         />
       );
     default:

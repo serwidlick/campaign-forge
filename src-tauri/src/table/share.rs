@@ -21,9 +21,14 @@
 //!   receive only that section (up to the next heading of the same or a
 //!   higher level); the rest of the body is GM-only. Without the heading the
 //!   whole body is shared, as before.
+//! - A `note` written by a player at the table names them as `author`. The
+//!   author always receives their own notes, whole, shared or not, and is
+//!   the only player who may change or delete them; sharing one sends it
+//!   to everyone like any other element. The GM sees every note.
 
 use std::collections::HashSet;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::storage::{
@@ -32,6 +37,12 @@ use crate::storage::{
 
 const LINK_PREFIX: &str = "cf://element/";
 const UUID_LEN: usize = 36;
+
+/// The kind of a note: a page anyone at the table may write.
+pub const NOTE_KIND: &str = "note";
+
+/// What a note is called when its author gives it no title.
+const UNTITLED_NOTE: &str = "Untitled note";
 
 pub fn is_shared(extra: &Extra) -> bool {
     extra.get("shared") == Some(&Value::Bool(true))
@@ -64,10 +75,34 @@ pub fn visible_to(extra: &Extra, viewer: Option<&Viewer<'_>>) -> bool {
     }
 }
 
-/// Ids of every shared element in the open campaign.
+/// Whether `extra` names the viewer as its `author`: their player id since
+/// pairing, or the table name they joined with before that.
+fn is_author(extra: &Extra, viewer: &Viewer<'_>) -> bool {
+    extra
+        .get("author")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|author| {
+            !author.is_empty()
+                && (viewer.player_id == Some(author)
+                    || author.eq_ignore_ascii_case(viewer.name.trim()))
+        })
+}
+
+/// A note this viewer wrote: theirs to read, change and delete.
+pub fn is_own_note(kind: &str, extra: &Extra, viewer: &Viewer<'_>) -> bool {
+    kind == NOTE_KIND && is_author(extra, viewer)
+}
+
+/// Shared with this viewer, or a note of their own.
+fn can_see(kind: &str, extra: &Extra, viewer: Option<&Viewer<'_>>) -> bool {
+    visible_to(extra, viewer) || viewer.is_some_and(|v| is_own_note(kind, extra, v))
+}
+
+/// Ids of every element the viewer may see in the open campaign.
 fn shared_ids(all: &[ElementSummary], viewer: Option<&Viewer<'_>>) -> HashSet<String> {
     all.iter()
-        .filter(|e| visible_to(&e.meta.extra, viewer))
+        .filter(|e| can_see(&e.meta.kind, &e.meta.extra, viewer))
         .map(|e| e.meta.id.clone())
         .collect()
 }
@@ -86,7 +121,13 @@ pub fn shared_summaries(
             // Links are derived from what players actually get, so a mention
             // in the GM-only part of a body never shows up as a backlink.
             if let Ok(full) = state.read_element(&e.meta.id) {
-                e.links = extract_links(&player_body(&full.body).0);
+                let own = viewer.is_some_and(|v| is_own_note(&e.meta.kind, &e.meta.extra, v));
+                let body = if own {
+                    full.body
+                } else {
+                    player_body(&full.body).0
+                };
+                e.links = extract_links(&body);
             }
             sanitize_summary(e, &visible)
         })
@@ -105,7 +146,115 @@ pub fn shared_element(
         return Ok(None);
     }
     let element = state.read_element(id)?;
-    Ok(Some(sanitize_element(element, &visible)))
+    let own = viewer.is_some_and(|v| is_own_note(&element.meta.kind, &element.meta.extra, v));
+    Ok(Some(sanitize_element(element, &visible, own)))
+}
+
+/// What a player sends to create or change a note of their own.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteInput {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub body: String,
+    /// Share the note with everyone at the table, or take it back. Absent
+    /// leaves it as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<bool>,
+    /// The `version` the edit started from; absent overwrites.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_version: Option<String>,
+}
+
+/// Creates a note by this viewer as a file in the campaign folder, private
+/// to its author and the GM until the author shares it.
+pub fn create_note(
+    state: &AppState,
+    viewer: &Viewer<'_>,
+    input: NoteInput,
+) -> Result<Element, StorageError> {
+    let name = input.name.trim();
+    let name = if name.is_empty() { UNTITLED_NOTE } else { name };
+    let author = viewer.player_id.unwrap_or(viewer.name).trim();
+    if author.is_empty() {
+        return Err(StorageError::InvalidInput("a note needs an author".into()));
+    }
+    let mut extra = Extra::new();
+    extra.insert("author".to_owned(), Value::String(author.to_owned()));
+    extra.insert(
+        "authorName".to_owned(),
+        Value::String(viewer.name.trim().to_owned()),
+    );
+    extra.insert("shared".to_owned(), Value::Bool(input.shared == Some(true)));
+    let created = state.create_element(NOTE_KIND, name, Some(extra))?;
+    // A new file opens with its name as a heading; a note's title is its
+    // name already, so the body is what the author wrote and nothing else.
+    let saved = state.save_element_unseen(SaveElementInput {
+        id: created.meta.id.clone(),
+        name: created.meta.name.clone(),
+        tags: Vec::new(),
+        body: input.body,
+        extra: Some(created.meta.extra.clone()),
+        base_version: Some(created.version.clone()),
+    })?;
+    let all = state.list_elements()?;
+    let visible = shared_ids(&all, Some(viewer));
+    Ok(sanitize_element(saved, &visible, true))
+}
+
+/// Replaces the title, body and sharing of a note the viewer wrote. `None`
+/// when there is no such note or it is not theirs.
+pub fn update_note(
+    state: &AppState,
+    id: &str,
+    viewer: &Viewer<'_>,
+    input: NoteInput,
+) -> Result<Option<Element>, StorageError> {
+    let element = match state.read_element(id) {
+        Ok(e) => e,
+        Err(StorageError::ElementNotFound(_)) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    if !is_own_note(&element.meta.kind, &element.meta.extra, viewer) {
+        return Ok(None);
+    }
+    let name = input.name.trim();
+    let name = if name.is_empty() {
+        element.meta.name.clone()
+    } else {
+        name.to_owned()
+    };
+    let mut extra = element.meta.extra.clone();
+    if let Some(shared) = input.shared {
+        extra.insert("shared".to_owned(), Value::Bool(shared));
+    }
+    let saved = state.save_element_unseen(SaveElementInput {
+        id: element.meta.id.clone(),
+        name,
+        tags: element.meta.tags.clone(),
+        body: input.body,
+        extra: Some(extra),
+        base_version: input.base_version,
+    })?;
+    let all = state.list_elements()?;
+    let visible = shared_ids(&all, Some(viewer));
+    Ok(Some(sanitize_element(saved, &visible, true)))
+}
+
+/// Deletes a note the viewer wrote, file and all. `false` when there is no
+/// such note or it is not theirs.
+pub fn delete_note(state: &AppState, id: &str, viewer: &Viewer<'_>) -> Result<bool, StorageError> {
+    let element = match state.read_element(id) {
+        Ok(e) => e,
+        Err(StorageError::ElementNotFound(_)) => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    if !is_own_note(&element.meta.kind, &element.meta.extra, viewer) {
+        return Ok(false);
+    }
+    state.delete_element(id)?;
+    Ok(true)
 }
 
 /// Whether a player may edit a character's sheet: the element is shared,
@@ -162,7 +311,7 @@ pub fn update_sheet(
     })?;
     let all = state.list_elements()?;
     let visible = shared_ids(&all, Some(viewer));
-    Ok(Some(sanitize_element(saved, &visible)))
+    Ok(Some(sanitize_element(saved, &visible, false)))
 }
 
 /// Relative asset paths players may fetch: the images of shared maps, the
@@ -196,9 +345,15 @@ fn sanitize_summary(mut e: ElementSummary, visible: &HashSet<String>) -> Element
     e
 }
 
-fn sanitize_element(mut e: Element, visible: &HashSet<String>) -> Element {
+/// With `whole_body` (a note read by its author) the "Players know" rule is
+/// skipped; private links are still turned to text.
+fn sanitize_element(mut e: Element, visible: &HashSet<String>, whole_body: bool) -> Element {
     sanitize_extra(&e.meta.kind, &mut e.meta.extra, visible);
-    let (body, _) = player_body(&e.body);
+    let body = if whole_body {
+        e.body.clone()
+    } else {
+        player_body(&e.body).0
+    };
     e.body = strip_private_links(&body, visible);
     e.links = extract_links(&e.body);
     e.links.retain(|id| visible.contains(id));
@@ -467,6 +622,46 @@ mod tests {
         assert!(combatants.iter().all(|c| c.get("hp").is_none()));
         assert_eq!(combatants[1]["name"], json!("Goblin"));
         assert_eq!(extra["round"], json!(2));
+    }
+
+    #[test]
+    fn notes_reach_their_author_shared_or_not() {
+        let private: Extra =
+            serde_json::from_value(json!({ "author": A, "authorName": "Mira" })).unwrap();
+        let mira = Viewer {
+            name: "Mira",
+            player_id: Some(A),
+        };
+        let tam = Viewer {
+            name: "Tam",
+            player_id: Some(B),
+        };
+        assert!(can_see("note", &private, Some(&mira)));
+        assert!(!can_see("note", &private, Some(&tam)));
+        assert!(!can_see("note", &private, None));
+        // The author rule is for notes only: a character naming them is not theirs.
+        assert!(!can_see("character", &private, Some(&mira)));
+
+        let shared: Extra = serde_json::from_value(json!({ "author": A, "shared": true })).unwrap();
+        assert!(can_see("note", &shared, Some(&tam)));
+        assert!(can_see("note", &shared, None));
+    }
+
+    #[test]
+    fn notes_from_before_pairing_match_the_table_name() {
+        let extra: Extra = serde_json::from_value(json!({ "author": "Mira" })).unwrap();
+        let unpaired = Viewer {
+            name: " mira ",
+            player_id: None,
+        };
+        let other = Viewer {
+            name: "Tam",
+            player_id: Some(A),
+        };
+        assert!(is_own_note("note", &extra, &unpaired));
+        assert!(!is_own_note("note", &extra, &other));
+        let blank: Extra = serde_json::from_value(json!({ "author": "  " })).unwrap();
+        assert!(!is_own_note("note", &blank, &unpaired));
     }
 
     #[test]

@@ -235,8 +235,52 @@ pub async fn extract_document_text(
     .map_err(|e| format!("extraction was interrupted: {e}"))?
 }
 
+/// Hard ceiling on a page-range slice sent to the model as a document: the
+/// API takes 32 MB per request and base64 adds a third.
+const MAX_SLICE_BYTES: usize = 22 * 1024 * 1024;
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfSlice {
+    /// The page range as a PDF, base64; None when it would be too large to
+    /// send, in which case the caller asks for fewer pages.
+    pub data: Option<String>,
+    pub bytes: usize,
+}
+
+/// A page range of a PDF anywhere on disk as a smaller PDF, for the import
+/// wizard to send scanned pages to the model as pictures.
+#[tauri::command]
+pub async fn slice_document_pages(
+    source: String,
+    from: usize,
+    to: usize,
+) -> CommandResult<PdfSlice> {
+    let path = std::path::PathBuf::from(source);
+    let meta = std::fs::metadata(&path).map_err(|e| format!("could not read the file: {e}"))?;
+    if meta.len() > MAX_DOCUMENT_BYTES {
+        return Err(format!(
+            "document is too large ({} MB; limit is {} MB)",
+            meta.len() / (1024 * 1024),
+            MAX_DOCUMENT_BYTES / (1024 * 1024)
+        ));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("could not read the file: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = pdf::slice(&bytes, from, to)?;
+        let data = (out.len() <= MAX_SLICE_BYTES).then(|| BASE64_STANDARD.encode(&out));
+        Ok(PdfSlice {
+            data,
+            bytes: out.len(),
+        })
+    })
+    .await
+    .map_err(|e| format!("slicing was interrupted: {e}"))?
+}
+
 /// Text of a PDF already in the campaign (`assets/docs/...`), for the
-/// assistant's `read_document` tool.
+/// assistant's `read_document` tool. Pages the PDF has no text for fall back
+/// to the text an import kept beside it, when there is one.
 #[tauri::command]
 pub async fn read_document_text(
     state: State<'_, AppState>,
@@ -245,9 +289,39 @@ pub async fn read_document_text(
     to: Option<usize>,
 ) -> CommandResult<PdfText> {
     let bytes = state.read_asset(&path).map_err(to_command_error)?;
-    tauri::async_runtime::spawn_blocking(move || pdf::extract(&bytes, from, to))
-        .await
-        .map_err(|e| format!("extraction was interrupted: {e}"))?
+    let sidecar = state.read_document_text(&path).map_err(to_command_error)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut text = pdf::extract(&bytes, from, to)?;
+        if let Some(raw) = sidecar.filter(|_| text.empty_pages > 0) {
+            let kept = pdf::sidecar_pages(&raw, text.page_count);
+            for (i, page) in text.pages.iter_mut().enumerate() {
+                let fallback = &kept[text.first_page - 1 + i];
+                if page.is_empty() && !fallback.is_empty() {
+                    *page = fallback.clone();
+                    text.empty_pages -= 1;
+                    text.chars += page.len();
+                }
+            }
+        }
+        Ok(text)
+    })
+    .await
+    .map_err(|e| format!("extraction was interrupted: {e}"))?
+}
+
+/// Keeps text the import's model read off a PDF's pages beside the file, so
+/// the assistant can read a scanned book later without paying for it again.
+#[tauri::command]
+pub fn save_document_text(
+    state: State<'_, AppState>,
+    path: String,
+    first_page: usize,
+    pages: Vec<String>,
+    page_count: usize,
+) -> CommandResult<String> {
+    state
+        .save_document_text(&path, first_page, &pages, page_count)
+        .map_err(to_command_error)
 }
 
 #[tauri::command]

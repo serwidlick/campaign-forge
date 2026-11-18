@@ -30,6 +30,8 @@ import type {
   PlayerRecord,
   ImportedDocument,
   ImportedImage,
+  NoteInput,
+  PdfSlice,
   PdfText,
   SaveElementInput,
   SearchHit,
@@ -59,8 +61,24 @@ const LOCAL_ONLY = new Set([
   "extract_document_text",
 ]);
 
-/** Browser storage for the API key when there is no credential store. */
+/**
+ * Where a browser keeps the API key when there is no credential store: this
+ * tab only, gone when it closes. The page is served over plain HTTP at a
+ * name every table shares (`forge.local`), so anything kept for the site
+ * would be handed to whichever machine answers that name next; the key is
+ * the one thing on the page worth keeping out of that.
+ */
 const WEB_API_KEY = "cf.apiKey";
+
+/** The key as earlier builds kept it, for the site: moved on first read. */
+function readWebApiKey(): string | null {
+  const old = localStorage.getItem(WEB_API_KEY);
+  if (old !== null) {
+    localStorage.removeItem(WEB_API_KEY);
+    sessionStorage.setItem(WEB_API_KEY, old);
+  }
+  return sessionStorage.getItem(WEB_API_KEY);
+}
 
 /**
  * A Rust command, or what a browser can do in its place: the table over
@@ -95,6 +113,12 @@ async function webCommand(
       return web.fetchAsset(args.path as string);
     case "table_update_sheet":
       return web.updateSheet(args.id as string, args.sheet);
+    case "table_create_note":
+      return web.createNote(args.input as NoteInput);
+    case "table_update_note":
+      return web.updateNote(args.id as string, args.input as NoteInput);
+    case "table_delete_note":
+      return web.deleteNote(args.id as string);
     case "table_wait_for_change":
       return web.waitForChange(args.after as number, args.event as number);
     case "table_gm_call":
@@ -115,12 +139,14 @@ async function webCommand(
         label: deviceLabel(),
       } satisfies DeviceIdentity;
     case "get_api_key":
-      return localStorage.getItem(WEB_API_KEY);
+      return readWebApiKey();
     case "set_api_key":
-      localStorage.setItem(WEB_API_KEY, String(args.key).trim());
+      localStorage.removeItem(WEB_API_KEY);
+      sessionStorage.setItem(WEB_API_KEY, String(args.key).trim());
       return;
     case "clear_api_key":
       localStorage.removeItem(WEB_API_KEY);
+      sessionStorage.removeItem(WEB_API_KEY);
       return;
     default:
       throw `${command.replaceAll("_", " ")} is only available in the Campaign Forge app`;
@@ -301,12 +327,35 @@ export const storage = {
     });
   },
 
-  /** Text of a PDF under assets/docs/, by page. */
+  /** Pages `from`..`to` of a PDF anywhere on disk as a PDF of their own,
+   *  base64, for sending scanned pages to the model as pictures. */
+  sliceDocumentPages(source: string, from: number, to: number) {
+    return call<PdfSlice>("slice_document_pages", { source, from, to });
+  },
+
+  /** Text of a PDF under assets/docs/, by page. Pages without text fall
+   *  back to what an import kept beside the file. */
   readDocumentText(path: string, from?: number, to?: number) {
     return call<PdfText>("read_document_text", {
       path,
       from: from ?? null,
       to: to ?? null,
+    });
+  },
+
+  /** Keeps text read off a PDF's pages beside it (`<name>.txt`, one entry
+   *  per page), merged into what earlier imports left. Returns its path. */
+  saveDocumentText(
+    path: string,
+    firstPage: number,
+    pages: string[],
+    pageCount: number,
+  ) {
+    return call<string>("save_document_text", {
+      path,
+      firstPage,
+      pages,
+      pageCount,
     });
   },
 
@@ -411,6 +460,18 @@ export const table = {
   /** Player: save the sheet of the character the GM assigned to you. */
   updateSheet(id: string, sheet: unknown) {
     return ipc<Element>("table_update_sheet", { id, sheet });
+  },
+  /** Player: write a note into the GM's campaign folder, as yours. */
+  createNote(input: NoteInput) {
+    return ipc<Element>("table_create_note", { input });
+  },
+  /** Player: change or share a note you wrote. */
+  updateNote(id: string, input: NoteInput) {
+    return ipc<Element>("table_update_note", { id, input });
+  },
+  /** Player: delete a note you wrote. */
+  deleteNote(id: string) {
+    return ipc<void>("table_delete_note", { id });
   },
   /** Resolves when the GM's version passes `after`, after ~25 s, or when
    *  the GM stops hosting (`closed`). */

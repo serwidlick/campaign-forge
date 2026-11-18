@@ -70,3 +70,16 @@ jobs:
         working-directory: src-tauri
       - run: cargo clippy -- -D warnings
         working-directory: src-tauri
+
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # Allowed warnings are listed in src-tauri/.cargo/audit.toml; anything
+      # else fails the job.
+      - run: cargo audit --deny warnings
+        working-directory: src-tauri

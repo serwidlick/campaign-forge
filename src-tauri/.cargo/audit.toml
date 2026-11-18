@@ -1,0 +1,24 @@
+# cargo-audit: advisories the build is allowed to carry. Every entry is a
+# warning about an unmaintained or unsound crate with no fix to upgrade to,
+# not a vulnerability; a real vulnerability is never listed here. Revisit
+# when a dependency releases and drop the line as soon as it is gone.
+[advisories]
+ignore = [
+  # chrono is unmaintained. A direct dependency, for timestamps. No known bug;
+  # the way out is a move to jiff or time.
+  "RUSTSEC-2026-0543",
+  # unsafe-libyaml is unmaintained, through serde_yaml_ng (frontmatter).
+  "RUSTSEC-2024-0449",
+  # ttf-parser is unmaintained, through pdf-extract -> lopdf.
+  "RUSTSEC-2026-0192",
+  # Tauri's Linux GTK stack (compiled on Linux only): proc-macro-error is
+  # unmaintained and glib 0.18 has an unsound iterator the app never calls.
+  # Both clear when Tauri moves to glib 0.20.
+  "RUSTSEC-2024-0370",
+  "RUSTSEC-2024-0429",
+  # zbus names and variants are unmaintained, through tauri-plugin-opener and
+  # the Secret Service backend of keyring (Linux only).
+  "RUSTSEC-2026-0371",
+  "RUSTSEC-2026-0370",
+  "RUSTSEC-2026-0372",
+]

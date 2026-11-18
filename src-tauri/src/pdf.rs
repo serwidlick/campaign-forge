@@ -45,7 +45,8 @@ pub fn extract(bytes: &[u8], from: Option<usize>, to: Option<usize>) -> Result<P
     }
 }
 
-fn extract_inner(bytes: &[u8], from: Option<usize>, to: Option<usize>) -> Result<PdfText, String> {
+/// Opens a PDF held in memory, unlocking it when an empty password does.
+fn load(bytes: &[u8]) -> Result<pdf_extract::Document, String> {
     let mut doc = pdf_extract::Document::load_mem(bytes)
         .map_err(|e| format!("could not open the PDF: {e}"))?;
     if doc.is_encrypted() {
@@ -54,6 +55,11 @@ fn extract_inner(bytes: &[u8], from: Option<usize>, to: Option<usize>) -> Result
         doc.decrypt("")
             .map_err(|_| "the PDF is password-protected".to_owned())?;
     }
+    Ok(doc)
+}
+
+fn extract_inner(bytes: &[u8], from: Option<usize>, to: Option<usize>) -> Result<PdfText, String> {
+    let doc = load(bytes)?;
     let page_count = doc.get_pages().len();
     if page_count == 0 {
         return Err("the PDF has no pages".into());
@@ -87,6 +93,51 @@ fn extract_inner(bytes: &[u8], from: Option<usize>, to: Option<usize>) -> Result
         chars,
         truncated,
     })
+}
+
+/// A copy of the PDF holding only pages `from..=to` (1-based, inclusive,
+/// clamped to the document), for sending a scanned book to the model a few
+/// pages at a time. Objects the kept pages do not reach are dropped, so a
+/// slice of a scan is about its pages' images and little else.
+pub fn slice(bytes: &[u8], from: usize, to: usize) -> Result<Vec<u8>, String> {
+    if !bytes.starts_with(b"%PDF-") {
+        return Err("that does not look like a PDF file".into());
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| slice_inner(bytes, from, to)));
+    match result {
+        Ok(inner) => inner,
+        Err(_) => Err("the PDF could not be read (its structure confused the parser)".into()),
+    }
+}
+
+fn slice_inner(bytes: &[u8], from: usize, to: usize) -> Result<Vec<u8>, String> {
+    let mut doc = load(bytes)?;
+    let page_count = doc.get_pages().len();
+    if page_count == 0 {
+        return Err("the PDF has no pages".into());
+    }
+    let first = from.clamp(1, page_count);
+    let last = to.clamp(first, page_count);
+    let dropped: Vec<u32> = (1..=page_count)
+        .filter(|n| *n < first || *n > last)
+        .map(|n| n as u32)
+        .collect();
+    if !dropped.is_empty() {
+        doc.delete_pages(&dropped);
+        doc.prune_objects();
+    }
+    let mut out = Vec::new();
+    doc.save_to(&mut out)
+        .map_err(|e| format!("could not write the page range: {e}"))?;
+    Ok(out)
+}
+
+/// Splits text kept beside a PDF (one entry per page, form feeds between)
+/// into exactly `page_count` pages, so page numbers line up with the PDF.
+pub fn sidecar_pages(raw: &str, page_count: usize) -> Vec<String> {
+    let mut pages: Vec<String> = raw.split('\u{0c}').map(clean).collect();
+    pages.resize(page_count, String::new());
+    pages
 }
 
 /// Characters per pseudo-page when a text file has no page marks.
@@ -255,6 +306,65 @@ mod tests {
         assert_eq!(text.page_count, 2);
         assert_eq!(text.pages[0].len(), 2402);
         assert!(paginate_text("  \n\n ", None, None).is_err());
+    }
+
+    /// A three-page PDF built in memory, each page a bare content stream.
+    fn three_page_pdf() -> Vec<u8> {
+        use pdf_extract::{Dictionary, Object, Stream, dictionary};
+        let mut doc = pdf_extract::Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let mut kids = Vec::new();
+        for n in 1..=3 {
+            let content = Stream::new(
+                Dictionary::new(),
+                format!("BT (Page {n}) Tj ET").into_bytes(),
+            );
+            let content_id = doc.add_object(content);
+            let page_id = doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "Contents" => content_id,
+            });
+            kids.push(Object::Reference(page_id));
+        }
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => kids,
+                "Count" => 3,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        let mut out = Vec::new();
+        doc.save_to(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn slice_keeps_only_the_requested_pages() {
+        let whole = three_page_pdf();
+        let sliced = slice(&whole, 2, 3).unwrap();
+        let doc = pdf_extract::Document::load_mem(&sliced).unwrap();
+        assert_eq!(doc.get_pages().len(), 2);
+        // Out-of-range bounds clamp rather than fail.
+        let one = slice(&whole, 3, 10).unwrap();
+        assert_eq!(
+            pdf_extract::Document::load_mem(&one)
+                .unwrap()
+                .get_pages()
+                .len(),
+            1
+        );
+        assert!(slice(b"nope", 1, 1).is_err());
+    }
+
+    #[test]
+    fn sidecar_pages_line_up_with_the_document() {
+        let pages = sidecar_pages("one\u{0c}\u{0c} three ", 5);
+        assert_eq!(pages, vec!["one", "", "three", "", ""]);
+        assert_eq!(sidecar_pages("a\u{0c}b\u{0c}c", 2), vec!["a", "b"]);
     }
 
     #[test]

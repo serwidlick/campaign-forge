@@ -11,16 +11,22 @@ import {
   type TurnUsage,
 } from "@/features/agent/agent-settings";
 import {
+  ChunkTooLargeError,
   DEFAULT_OPTIONS,
+  chunkPageRange,
   chunkPages,
   createClient,
   describeError,
   extractFromChunk,
   mergeProposals,
+  readsPictures,
   sortProposals,
+  splitChunk,
   systemPromptFor,
   writeProposals,
+  type Chunk,
   type ImportOptions,
+  type PageText,
   type Proposal,
   type WriteResult,
 } from "@/features/import/pdf-import";
@@ -64,6 +70,8 @@ interface ImportState {
   progress: BuildProgress | null;
   writeProgress: WriteProgress | null;
   proposals: Proposal[];
+  /** Text the model read off pages sent as pictures, by page number. */
+  pageText: PageText;
   /** Problems from chunks that failed; the rest of the run went on. */
   failures: string[];
   result: WriteResult | null;
@@ -103,6 +111,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
   progress: null,
   writeProgress: null,
   proposals: [],
+  pageText: {},
   failures: [],
   result: null,
 
@@ -113,8 +122,16 @@ export const useImportStore = create<ImportState>((set, get) => ({
       set({
         stage: "ready",
         source: { path, name: fileStem(path), kind: sourceKind(path), text },
-        options: { ...get().options, from: undefined, to: undefined },
+        // How to read it is decided per file, so the last file's choice
+        // does not carry over.
+        options: {
+          ...get().options,
+          from: undefined,
+          to: undefined,
+          readPages: undefined,
+        },
         proposals: [],
+        pageText: {},
         failures: [],
         result: null,
       });
@@ -149,26 +166,35 @@ export const useImportStore = create<ImportState>((set, get) => ({
     }
     const settings = await loadAgentSettings();
 
-    // Narrow to the page range if one was given; the extraction is cheap
-    // compared with the model calls, so re-reading is fine.
-    let text = source.text;
-    if (options.from !== undefined || options.to !== undefined) {
-      try {
-        text = await storage.extractDocumentText(
-          source.path,
-          options.from,
-          options.to,
-        );
-      } catch (err) {
-        set({ error: errorMessage(err) });
-        return;
+    const pictures = readsPictures(options, source);
+    let chunks: Chunk[];
+    if (pictures) {
+      const pageCount = source.text.pageCount;
+      const from = Math.min(Math.max(options.from ?? 1, 1), pageCount);
+      const to = Math.min(Math.max(options.to ?? pageCount, from), pageCount);
+      chunks = chunkPageRange(source.path, from, to);
+    } else {
+      // Narrow to the page range if one was given; the extraction is cheap
+      // compared with the model calls, so re-reading is fine.
+      let text = source.text;
+      if (options.from !== undefined || options.to !== undefined) {
+        try {
+          text = await storage.extractDocumentText(
+            source.path,
+            options.from,
+            options.to,
+          );
+        } catch (err) {
+          set({ error: errorMessage(err) });
+          return;
+        }
       }
+      chunks = chunkPages(text);
     }
-    const chunks = chunkPages(text);
     if (chunks.length === 0) {
       set({
         error:
-          "No text to read in those pages. A scanned PDF has pictures of pages, not text; it would need OCR first.",
+          "No text to read in those pages. If they are pictures of pages (a scan), tick “Read the pages as pictures”.",
       });
       return;
     }
@@ -176,12 +202,13 @@ export const useImportStore = create<ImportState>((set, get) => ({
     abort = new AbortController();
     const signal = abort.signal;
     const client = createClient(apiKey);
-    const system = systemPromptFor(campaign, options);
+    const system = systemPromptFor(campaign, options, pictures);
 
     set({
       stage: "building",
       error: null,
       proposals: [],
+      pageText: {},
       failures: [],
       result: null,
       progress: {
@@ -195,23 +222,30 @@ export const useImportStore = create<ImportState>((set, get) => ({
     });
 
     const existing = useCampaignStore.getState().elements;
-    for (const chunk of chunks) {
+    // A queue rather than a loop: a run of pages too large to send as one
+    // PDF is split in two and both halves go back on the front.
+    const queue = [...chunks];
+    let done = 0;
+    while (queue.length > 0) {
       if (signal.aborted) break;
+      const chunk = queue.shift()!;
       try {
-        const { proposals, usage } = await extractFromChunk(chunk, {
+        const { proposals, text, usage } = await extractFromChunk(chunk, {
           client,
           model: settings.model,
           effort: settings.effort,
           system,
           signal,
         });
+        done += 1;
         set((s) => {
           const merged = mergeProposals(s.proposals, proposals, existing);
           return {
             proposals: merged,
+            pageText: { ...s.pageText, ...text },
             progress: s.progress && {
               ...s.progress,
-              chunk: chunk.index + 1,
+              chunk: done,
               found: merged.length,
               usage: addUsage(s.progress.usage, usage),
             },
@@ -219,6 +253,20 @@ export const useImportStore = create<ImportState>((set, get) => ({
         });
       } catch (err) {
         if (signal.aborted) break;
+        if (err instanceof ChunkTooLargeError) {
+          const halves = splitChunk(err.chunk);
+          if (halves) {
+            queue.unshift(...halves);
+            set((s) => ({
+              progress: s.progress && {
+                ...s.progress,
+                chunks: s.progress.chunks + 1,
+              },
+            }));
+            continue;
+          }
+        }
+        done += 1;
         const reason = describeError(err);
         set((s) => ({
           failures: [
@@ -227,7 +275,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
           ],
           progress: s.progress && {
             ...s.progress,
-            chunk: chunk.index + 1,
+            chunk: done,
             failed: s.progress.failed + 1,
           },
         }));
@@ -260,18 +308,23 @@ export const useImportStore = create<ImportState>((set, get) => ({
   },
 
   async write() {
-    const { source, options, proposals } = get();
+    const { source, options, proposals, pageText } = get();
     const campaign = useCampaignStore.getState().campaign;
     if (!source || !campaign || get().stage === "writing") return;
     set({ stage: "writing", error: null, writeProgress: null });
     try {
+      // Only a PDF can live in assets/docs; a text file is cited by name.
+      const attach =
+        options.attachDocument && source.kind === "pdf" ? source.path : null;
       const result = await writeProposals({
         campaign,
         proposals,
         sourceName: source.name,
-        // Only a PDF can live in assets/docs; a text file is cited by name.
-        attach:
-          options.attachDocument && source.kind === "pdf" ? source.path : null,
+        attach,
+        pageText:
+          attach && options.keepText
+            ? { pages: pageText, pageCount: source.text.pageCount }
+            : undefined,
         onProgress: (done, total) => set({ writeProgress: { done, total } }),
       });
       const store = useCampaignStore.getState();
@@ -287,7 +340,13 @@ export const useImportStore = create<ImportState>((set, get) => ({
   },
 
   backToOptions() {
-    set({ stage: "ready", proposals: [], failures: [], progress: null });
+    set({
+      stage: "ready",
+      proposals: [],
+      pageText: {},
+      failures: [],
+      progress: null,
+    });
   },
 
   reset() {
@@ -299,6 +358,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
       progress: null,
       writeProgress: null,
       proposals: [],
+      pageText: {},
       failures: [],
       result: null,
     });
