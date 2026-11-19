@@ -587,29 +587,23 @@ impl AppState {
             if !is_element {
                 continue;
             }
-            if !path.is_file() {
-                // Gone. Only matters if it was an element we knew about; our
-                // own deletes already dropped it from the index.
-                let before = open.index.len();
-                open.index.retain(|id, p| {
-                    if p == path {
-                        open.table_index.remove(id);
-                        false
-                    } else {
-                        true
-                    }
-                });
-                open.seen.remove(path);
-                if open.index.len() != before {
-                    changes.list_changed = true;
-                }
-                continue;
-            }
             let element = match elements::read(&open.root, path) {
-                Ok(e) => e,
-                // Partly synced, or a stray note without frontmatter.
-                Err(StorageError::InvalidFrontmatter { .. }) => continue,
-                Err(StorageError::Io { .. }) => continue,
+                Ok(element) => element,
+                Err(StorageError::InvalidFrontmatter { .. } | StorageError::Io { .. }) => {
+                    // A deletion or partial external rewrite must withdraw the old
+                    // publication until a valid file can be read at this path.
+                    open.index.retain(|id, known| {
+                        if known == path {
+                            open.table_index.remove(id);
+                            changes.list_changed = true;
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                    open.seen.remove(path);
+                    continue;
+                }
                 Err(other) => return Err(other),
             };
             if open.seen.get(path) == Some(&element.version) {
@@ -617,6 +611,19 @@ impl AppState {
             }
             open.seen.insert(path.clone(), element.version.clone());
             let id = element.meta.id.clone();
+            // Sync tools can replace a file with a different element at the
+            // same path. Both the public view and the ID index lose the old ID.
+            if open.index.get(&id) != Some(path) {
+                open.index.retain(|known_id, known_path| {
+                    if known_path == path && known_id != &id {
+                        open.table_index.remove(known_id);
+                        changes.list_changed = true;
+                        false
+                    } else {
+                        true
+                    }
+                });
+            }
             changes.versions.insert(id.clone(), element.version.clone());
             match open.index.get(&id) {
                 Some(known) if known == path => {}
@@ -1025,6 +1032,43 @@ mod tests {
             .save_element(save_input(&created, "mine", None))
             .unwrap();
         assert!(std::fs::read_to_string(&file).unwrap().contains("mine"));
+    }
+
+    #[test]
+    fn replaced_handout_withdraws_its_old_identity() {
+        let root = TempRoot::new("replace-id");
+        let state = AppState::default();
+        state
+            .create_campaign(root.path(), "Watch".into(), None)
+            .unwrap();
+        let handout = state
+            .create_element(
+                "location",
+                "Harbor",
+                Some(serde_json::from_value(serde_json::json!({"shared": true})).unwrap()),
+            )
+            .unwrap();
+        let file = root.0.join(&handout.meta.path);
+        let original = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, original.replace(&handout.meta.id, "replacement")).unwrap();
+        state
+            .apply_disk_changes(std::slice::from_ref(&file))
+            .unwrap();
+        let entries = state.table_entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].summary.meta.id, "replacement");
+        assert!(state.read_element(&handout.meta.id).is_err());
+        std::fs::write(&file, "incomplete frontmatter").unwrap();
+        state
+            .apply_disk_changes(std::slice::from_ref(&file))
+            .unwrap();
+        assert!(state.table_entries().unwrap().is_empty());
+        std::fs::write(&file, original).unwrap();
+        state.apply_disk_changes(&[file]).unwrap();
+        assert_eq!(
+            state.table_entries().unwrap()[0].summary.meta.id,
+            handout.meta.id
+        );
     }
 
     #[test]

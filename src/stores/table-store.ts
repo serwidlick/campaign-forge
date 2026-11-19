@@ -111,6 +111,7 @@ export const useTableStore = create<TableState>((set, get) => {
     let event = 0;
     const live = !!get().session?.info.liveProtocol;
     let needFetch = !live;
+    let subscribe = live;
     while (generation === loopGeneration) {
       try {
         const gm = get().session?.gm ?? false;
@@ -120,7 +121,8 @@ export const useTableStore = create<TableState>((set, get) => {
           set({ elements, version, connection: "connected" });
           needFetch = false;
         }
-        const next = await table.waitForChange(version, event);
+        const next = await table.waitForChange(version, event, subscribe);
+        subscribe = false;
         if (generation !== loopGeneration) return;
         if (next.closed) {
           await detach(CLOSED_NOTICE);
@@ -164,7 +166,7 @@ export const useTableStore = create<TableState>((set, get) => {
         if (!next.spotlight) set({ spotlight: null });
         if (
           next.spotlightSeq > event ||
-          (next.spotlight && next.delta?.reset)
+          (next.spotlight && next.spotlight !== get().spotlight?.id)
         ) {
           event = next.spotlightSeq;
           if (next.gm) {
@@ -196,6 +198,7 @@ export const useTableStore = create<TableState>((set, get) => {
           await detach(CLOSED_NOTICE);
           return;
         }
+        subscribe = live;
         set({ connection: "reconnecting" });
         needFetch = !live;
         await sleep(RETRY_MS + Math.random() * 1000);
@@ -216,7 +219,7 @@ export const useTableStore = create<TableState>((set, get) => {
   }
 
   async function attach(session: TableSession) {
-    loopGeneration += 1;
+    const generation = ++loopGeneration;
     set({
       session,
       elements: [],
@@ -227,7 +230,7 @@ export const useTableStore = create<TableState>((set, get) => {
     if (session.gm && !isMobile) await enterGm();
     // Start one version behind so the first wait returns at once if the GM
     // changed something between join and now.
-    void runSyncLoop(loopGeneration, Math.max(0, session.info.version - 1));
+    void runSyncLoop(generation, Math.max(0, session.info.version - 1));
   }
 
   return {

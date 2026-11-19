@@ -7,10 +7,12 @@ use tokio_tungstenite::{Connector, MaybeTlsStream, WebSocketStream};
 fn tickets_expire_and_can_only_be_consumed_once() {
     let now = Instant::now();
     let mut tickets = Tickets::default();
-    let first = tickets.issue("seat", now);
+    let first = tickets.issue("seat", now).unwrap();
+    let second_tab = tickets.issue("seat", now).unwrap();
+    assert_eq!(tickets.take(&second_tab, now).as_deref(), Some("seat"));
     assert_eq!(tickets.take(&first, now).as_deref(), Some("seat"));
     assert!(tickets.take(&first, now).is_none());
-    let expired = tickets.issue("seat", now);
+    let expired = tickets.issue("seat", now).unwrap();
     assert!(
         tickets
             .take(&expired, now + Duration::from_secs(20))
@@ -155,6 +157,29 @@ async fn trusted_table_reconnects_after_an_offline_unshare() {
         .await
         .unwrap();
     assert_eq!(joined.info.live_protocol.as_deref(), Some(LIVE_PROTOCOL));
+    let record = players::bind_device(
+        &campaign,
+        None,
+        "Mira",
+        players::PlayerDevice {
+            fingerprint: "test-device".into(),
+            public_key: "test-key".into(),
+            label: "test".into(),
+            added_at: String::new(),
+        },
+    )
+    .unwrap();
+    {
+        let mut players = served.players.lock().unwrap();
+        let seat = players.get_mut(&joined.token).unwrap();
+        seat.player_id = Some(record.id);
+        seat.device = Some(ConnectedDevice {
+            fingerprint: "test-device".into(),
+            public_key: "test-key".into(),
+            label: "test".into(),
+        });
+        assert_ne!(seat.connection_id, joined.token);
+    }
     let mut socket = connect(&address, &http, &connector, &joined.token).await;
     let first = receive(&mut socket).await;
     assert_eq!(first.spotlight.as_ref(), Some(&visible.meta.id));
@@ -227,7 +252,8 @@ async fn trusted_table_reconnects_after_an_offline_unshare() {
     let update = receive(&mut socket).await.delta.unwrap();
     assert!(!update.reset);
     assert_eq!(update.upserts[0].meta.id, shared.meta.id);
-    served.players.lock().unwrap().remove(&joined.token);
+    // Forget the paired device while its socket is still subscribed.
+    players::save(&campaign, &[]).unwrap();
     spot.send_replace(Spotlight {
         seq: 3,
         element: Some(shared.meta.id),

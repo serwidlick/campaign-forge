@@ -76,15 +76,17 @@ pub(super) async fn load_tls() -> Result<Option<(String, RustlsConfig)>, String>
 pub(super) struct Tickets(HashMap<String, (String, Instant)>);
 
 impl Tickets {
-    fn issue(&mut self, token: &str, now: Instant) -> String {
-        self.0
-            .retain(|_, (seat, expiry)| *expiry > now && seat != token);
+    fn issue(&mut self, token: &str, now: Instant) -> Option<String> {
+        self.0.retain(|_, (_, expiry)| *expiry > now);
+        if self.0.len() >= 1024 || self.0.values().filter(|(seat, _)| seat == token).count() >= 8 {
+            return None;
+        }
         let ticket = uuid::Uuid::new_v4().to_string();
         self.0.insert(
             ticket.clone(),
             (token.to_owned(), now + Duration::from_secs(20)),
         );
-        ticket
+        Some(ticket)
     }
     fn take(&mut self, ticket: &str, now: Instant) -> Option<String> {
         self.0
@@ -114,7 +116,13 @@ pub(super) async fn issue_ticket<R: tauri::Runtime>(
         .tickets
         .lock()
         .map_err(|_| poisoned())?
-        .issue(token, Instant::now());
+        .issue(token, Instant::now())
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many pending table connections".into(),
+            )
+        })?;
     Ok((
         [(header::CACHE_CONTROL, "no-store")],
         Json(json!({ "ticket": ticket })),
@@ -215,6 +223,7 @@ async fn live<R: tauri::Runtime>(
             .await;
             break;
         }
+        let current = *versions.borrow_and_update();
         let mut who = match authorize(&s, &token, false) {
             Ok(who) => who,
             Err(_) => break,
@@ -222,7 +231,6 @@ async fn live<R: tauri::Runtime>(
         if player_view {
             who.gm = false;
         }
-        let current = *versions.borrow_and_update();
         let spot = spots.borrow_and_update().clone();
         let key = (who.gm, who.player_id.clone(), who.name.clone());
         let reset = identity.as_ref() != Some(&key);
@@ -260,6 +268,12 @@ async fn live<R: tauri::Runtime>(
             let Ok(json) = serde_json::to_string(&response) else {
                 break;
             };
+            // A permission or content change raced projection. Rebuild from the
+            // new revision before sending, replacing the unacknowledged view.
+            if state.version() != current || spots.has_changed().unwrap_or(false) {
+                identity = None;
+                continue;
+            }
             if !send(&mut socket, Message::Text(json.into())).await {
                 break;
             }
