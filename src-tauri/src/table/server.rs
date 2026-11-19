@@ -463,7 +463,7 @@ fn inline_hashes(html: &str, open: &str, close: &str) -> String {
         let Some(end) = body.find(close) else {
             break;
         };
-        let digest = Sha256::digest(body[..end].as_bytes());
+        let digest = Sha256::digest(&body.as_bytes()[..end]);
         out.push_str(&format!(" 'sha256-{}'", BASE64_STANDARD.encode(digest)));
         rest = &body[end + close.len()..];
     }
