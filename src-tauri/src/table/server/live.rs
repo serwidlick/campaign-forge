@@ -100,12 +100,6 @@ pub(super) async fn issue_ticket<R: tauri::Runtime>(
     State(s): State<Served<R>>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    if s.origin.is_none() {
-        return Err(ApiError(
-            StatusCode::NOT_FOUND,
-            "secure hosting required".into(),
-        ));
-    }
     authed(&s, &headers)?;
     let token = headers[header::AUTHORIZATION]
         .to_str()
@@ -135,13 +129,9 @@ pub(super) async fn upgrade<R: tauri::Runtime>(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
-    let origin = s
-        .origin
-        .as_deref()
-        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "secure hosting required".into()))?;
-    if headers
-        .get(header::ORIGIN)
-        .is_some_and(|v| v.as_bytes() != origin.as_bytes())
+    if let Some(origin) = headers.get(header::ORIGIN)
+        && request_origin(&s.origins, &headers)
+            .is_none_or(|expected| origin.as_bytes() != expected.as_bytes())
     {
         return Err(ApiError(
             StatusCode::FORBIDDEN,

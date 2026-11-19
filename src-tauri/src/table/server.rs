@@ -321,7 +321,7 @@ pub struct PlayerDelta {
 type Served<R = tauri::Wry> = Arc<ServerState<R>>;
 
 struct ServerState<R: tauri::Runtime> {
-    origin: Option<String>,
+    origins: Vec<String>,
     tickets: Arc<Mutex<Tickets>>,
     handshakes: Arc<tokio::sync::Semaphore>,
     app: AppHandle<R>,
@@ -360,7 +360,11 @@ const BODY_LIMIT: usize = MAX_DOCUMENT_BYTES as usize + 16 * 1024 * 1024;
 
 /// Binds the first free preferred port (or any free one) on every
 /// interface and serves until `stop` is sent.
-pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
+pub async fn start(
+    app: AppHandle,
+    code: String,
+    ips: &[std::net::Ipv4Addr],
+) -> Result<Running, String> {
     let tls = load_tls().await?;
     let ports = if tls.is_some() {
         [443, 47531]
@@ -393,7 +397,7 @@ pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
         }
     });
     let served = Arc::new(ServerState {
-        origin: origin.clone(),
+        origins: browser_origins(origin.as_deref(), port, ips),
         tickets: Arc::default(),
         handshakes: Arc::new(tokio::sync::Semaphore::new(32)),
         app,
@@ -530,14 +534,49 @@ fn served(content_type: &'static str, body: impl IntoResponse, csp: Option<&str>
     response
 }
 
-fn socket_csp(policy: &str, origin: Option<&str>) -> String {
-    match origin {
-        Some(origin) => policy.replace(
-            "connect-src ",
-            &format!("connect-src {} ", origin.replacen("https:", "wss:", 1)),
-        ),
-        None => policy.to_owned(),
+// Only advertise browser origins the table actually serves. A client-supplied
+// Host header alone cannot add an origin to this list.
+fn browser_origins(secure: Option<&str>, port: u16, ips: &[std::net::Ipv4Addr]) -> Vec<String> {
+    if let Some(origin) = secure {
+        return vec![origin.to_owned()];
     }
+    let suffix = if port == 80 {
+        String::new()
+    } else {
+        format!(":{port}")
+    };
+    [super::discovery::HOST_NAME, "localhost", "127.0.0.1"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(ips.iter().map(ToString::to_string))
+        .map(|host| format!("http://{host}{suffix}"))
+        .collect()
+}
+
+fn request_origin<'a>(origins: &'a [String], headers: &HeaderMap) -> Option<&'a str> {
+    let host = headers.get(header::HOST)?.to_str().ok()?;
+    let authority: axum::http::uri::Authority = host.parse().ok()?;
+    origins.iter().find_map(|origin| {
+        let (scheme, expected) = origin.split_once("://")?;
+        let default_port = if scheme == "https" { 443 } else { 80 };
+        let actual = if authority.port_u16() == Some(default_port) {
+            authority.host()
+        } else {
+            host
+        };
+        expected
+            .eq_ignore_ascii_case(actual)
+            .then_some(origin.as_str())
+    })
+}
+
+fn socket_csp(policy: &str, origins: &[String]) -> String {
+    let sources = origins
+        .iter()
+        .map(|origin| origin.replacen("http", "ws", 1))
+        .collect::<Vec<_>>()
+        .join(" ");
+    policy.replace("connect-src ", &format!("connect-src {sources} "))
 }
 
 async fn live_script() -> Response {
@@ -545,7 +584,7 @@ async fn live_script() -> Response {
 }
 
 async fn player_page(State(s): State<Served>) -> Response {
-    let csp = socket_csp(page_csp(), s.origin.as_deref());
+    let csp = socket_csp(page_csp(), &s.origins);
     served("text/html; charset=utf-8", PLAYER_PAGE, Some(&csp))
 }
 
@@ -588,7 +627,7 @@ fn app_asset_response(s: &Served, path: &str) -> Option<Response> {
         HeaderValue::from_static("nosniff"),
     );
     if let Some(csp) = asset.csp_header.as_deref() {
-        let csp = socket_csp(csp, s.origin.as_deref());
+        let csp = socket_csp(csp, &s.origins);
         if let Ok(value) = HeaderValue::from_str(&csp) {
             headers.insert(header::CONTENT_SECURITY_POLICY, value);
         }
@@ -642,7 +681,7 @@ fn info_of<R: tauri::Runtime>(s: &Served<R>) -> Result<TableInfo, ApiError> {
         )
     })?;
     Ok(TableInfo {
-        live_protocol: s.origin.as_ref().map(|_| LIVE_PROTOCOL.to_owned()),
+        live_protocol: Some(LIVE_PROTOCOL.to_owned()),
         name: meta.name,
         system: meta.system,
         calendar: meta.extra.get("calendar").cloned(),

@@ -382,10 +382,11 @@ impl Session {
     }
 
     async fn connect_live(&self) -> Result<Socket, String> {
-        let host = self
-            .base
-            .strip_prefix("https://")
-            .ok_or("table requires HTTPS")?;
+        let socket_url = match self.base.split_once("://") {
+            Some(("http", address)) => format!("ws://{address}/api/live"),
+            Some(("https", address)) => format!("wss://{address}/api/live"),
+            _ => return Err("unsupported table URL".into()),
+        };
         let response = self
             .http
             .post(format!("{}/api/live/ticket", self.base))
@@ -401,7 +402,7 @@ impl Session {
             ticket: String,
         }
         let ticket: Ticket = response.json().await.map_err(|e| e.to_string())?;
-        let mut request = format!("wss://{host}/api/live")
+        let mut request = socket_url
             .into_client_request()
             .map_err(|e| e.to_string())?;
         request.headers_mut().insert(

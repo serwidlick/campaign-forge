@@ -126,8 +126,8 @@ pub async fn table_start_hosting(
         return Ok(existing.status());
     }
     let code = join_code();
-    let running = server::start(app.clone(), code.clone()).await?;
     let ips = discovery::lan_ipv4_addresses();
+    let running = server::start(app.clone(), code.clone(), &ips).await?;
     let addresses = if let Some(origin) = &running.origin {
         vec![origin.clone()]
     } else {
