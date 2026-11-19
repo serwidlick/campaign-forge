@@ -15,33 +15,70 @@ import {
   EMPTY_SHEET,
   modifier,
   newId,
-  slotsFor,
+  slotsForClasses,
+  totalLevel,
+  withClasses,
   type Ability,
+  type ClassLevel,
   type Personality,
   type Sheet5e,
+  type SpellProgression,
 } from "./dnd5e-model";
 
-/** Slot maximums follow class, subclass and level while `slotsAuto` holds. */
+/** One class's part in the character's spellcasting. */
+export interface CastingPart {
+  ability: Ability;
+  progression: SpellProgression;
+  level: number;
+}
+
+/**
+ * The classes that cast, with how: a casting class by its own table, or a
+ * third-caster subclass (Eldritch Knight, Arcane Trickster) of one that
+ * does not. Homebrew and non-casting classes contribute nothing.
+ */
+export function castingParts(classes: ClassLevel[]): CastingPart[] {
+  const out: CastingPart[] = [];
+  for (const c of classes) {
+    const cls = classByName(c.name);
+    const third = THIRD_CASTERS[c.subclass.trim()];
+    if (cls?.spellcasting) {
+      out.push({ ...cls.spellcasting, level: c.level });
+    } else if (third) {
+      out.push({ ability: third, progression: "third", level: c.level });
+    }
+  }
+  return out;
+}
+
+/**
+ * Slot maximums follow the classes, their subclasses and levels while
+ * `slotsAuto` holds: the shared Spellcasting slots from every casting class
+ * together, Pact Magic from the warlock levels alone. The casting ability is
+ * filled in from the first casting class when none is chosen.
+ */
 export function withAutoSlots(s: Sheet5e): Sheet5e {
-  const cls = classByName(s.class);
-  const third = THIRD_CASTERS[s.subclass.trim()];
-  const progression =
-    cls?.spellcasting?.progression ?? (third ? "third" : null);
-  const ability = cls?.spellcasting?.ability ?? third ?? null;
+  const parts = castingParts(s.classes);
   const sc = s.spellcasting;
-  const nextAbility = sc.ability || ability || "";
+  const nextAbility = sc.ability || parts[0]?.ability || "";
   if (!sc.slotsAuto) {
     return nextAbility === sc.ability
       ? s
       : { ...s, spellcasting: { ...sc, ability: nextAbility } };
   }
-  const maxes = progression ? slotsFor(progression, s.level) : {};
+  const auto = slotsForClasses(parts);
   const slots: Sheet5e["spellcasting"]["slots"] = {};
-  for (const [level, max] of Object.entries(maxes)) {
+  for (const [level, max] of Object.entries(auto.slots)) {
     const used = sc.slots[level]?.used ?? 0;
     slots[level] = { max, used: Math.min(used, max) };
   }
-  return { ...s, spellcasting: { ...sc, ability: nextAbility, slots } };
+  const pact = auto.pact
+    ? { ...auto.pact, used: Math.min(sc.pact?.used ?? 0, auto.pact.max) }
+    : null;
+  return {
+    ...s,
+    spellcasting: { ...sc, ability: nextAbility, slots, pact },
+  };
 }
 
 export function shiftAbilities(
@@ -86,6 +123,16 @@ export function subclassLevel(className: string): number {
   return SUBCLASS_LEVEL[classByName(className)?.name ?? ""] ?? 3;
 }
 
+/** Whether a class has reached the level at which it picks a subclass. */
+export function choosesSubclass(c: ClassLevel): boolean {
+  const cls = classByName(c.name);
+  return (
+    cls !== undefined &&
+    cls.subclasses.length > 0 &&
+    c.level >= subclassLevel(c.name)
+  );
+}
+
 /** Classes that choose skills for expertise, and from what level. */
 const EXPERTISE: Record<string, { level: number; count: number }> = {
   Rogue: { level: 1, count: 2 },
@@ -95,6 +142,55 @@ const EXPERTISE: Record<string, { level: number; count: number }> = {
 export function expertisePicks(className: string, level: number): number {
   const rule = EXPERTISE[classByName(className)?.name ?? ""];
   return rule && level >= rule.level ? rule.count : 0;
+}
+
+/** Expertise picks across every class; each class counts by its own level. */
+export function expertiseFor(classes: ClassLevel[]): number {
+  return classes.reduce((n, c) => n + expertisePicks(c.name, c.level), 0);
+}
+
+/**
+ * Skill proficiencies a class grants when taken after the first: one from
+ * its list for a bard, ranger or rogue (the bard's list being any skill),
+ * none for the rest.
+ */
+const MULTICLASS_SKILLS: Record<string, number> = {
+  Bard: 1,
+  Ranger: 1,
+  Rogue: 1,
+};
+
+export interface SkillChoice {
+  /** How many to pick in all. */
+  choose: number;
+  /** Skill ids to pick from; empty means any skill. */
+  from: string[];
+  /** "Fighter: 2", "Rogue (multiclass): 1", for the heading. */
+  parts: string[];
+}
+
+/**
+ * The class skill picks a set of classes allows, pooled: the starting
+ * class's full choice plus whatever each later class grants, drawn from the
+ * union of their lists.
+ */
+export function classSkillChoice(classes: ClassLevel[]): SkillChoice {
+  let choose = 0;
+  let any = false;
+  const from: string[] = [];
+  const parts: string[] = [];
+  classes.forEach((c, i) => {
+    const cls = classByName(c.name);
+    if (!cls) return;
+    const count =
+      i === 0 ? cls.skills.choose : (MULTICLASS_SKILLS[cls.name] ?? 0);
+    if (count === 0) return;
+    choose += count;
+    parts.push(`${cls.name}${i === 0 ? "" : " (multiclass)"}: ${count}`);
+    if (cls.skills.from.length === 0) any = true;
+    for (const id of cls.skills.from) if (!from.includes(id)) from.push(id);
+  });
+  return { choose, from: any ? [] : from, parts };
 }
 
 /**
@@ -111,6 +207,35 @@ export function hitPointsFor(
   const first = Math.max(1, hitDie + con);
   const perLevel = Math.max(1, Math.floor(hitDie / 2) + 1 + con);
   return first + perLevel * (Math.max(1, level) - 1);
+}
+
+/**
+ * Hit points across several classes: the starting class gives its full die
+ * at first level, and every level after that (in any class) gives that
+ * class's average. `null` while any class is unknown, since its die is.
+ */
+export function hitPointsForClasses(
+  classes: ClassLevel[],
+  conScore: number,
+): number | null {
+  const dice = classes.map((c) => classByName(c.name)?.hitDie);
+  if (dice.length === 0 || dice.some((d) => d === undefined)) return null;
+  const con = modifier(conScore);
+  return classes.reduce((total, c, i) => {
+    const die = dice[i]!;
+    if (i === 0) return total + hitPointsFor(die, c.level, conScore);
+    return total + Math.max(1, Math.floor(die / 2) + 1 + con) * c.level;
+  }, 0);
+}
+
+/** "d10" for one class, "3d10 + 1d8" across several. */
+export function hitDiceText(classes: ClassLevel[]): string {
+  const dice = classes
+    .map((c) => ({ die: classByName(c.name)?.hitDie, level: c.level }))
+    .filter((d) => d.die !== undefined);
+  if (dice.length === 0) return "—";
+  if (dice.length === 1) return `d${dice[0]!.die}`;
+  return dice.map((d) => `${d.level}d${d.die}`).join(" + ");
 }
 
 // ---- Ability score generation --------------------------------------------
@@ -184,10 +309,9 @@ export function rollScores(random: () => number = Math.random): number[] {
 
 export interface Build5e {
   name: string;
-  level: number;
   species: string;
-  class: string;
-  subclass: string;
+  /** Starting class first; more for a character built already multiclassed. */
+  classes: ClassLevel[];
   background: string;
   alignment: string;
   method: ScoreMethod;
@@ -212,10 +336,8 @@ export interface Build5e {
 export function emptyBuild(name = ""): Build5e {
   return {
     name,
-    level: 1,
     species: "",
-    class: "",
-    subclass: "",
+    classes: [{ name: "", subclass: "", level: 1 }],
     background: "",
     alignment: "",
     method: "array",
@@ -276,9 +398,17 @@ export function allSkills(b: Build5e): string[] {
 }
 
 export function computedHp(b: Build5e): number | null {
-  const cls = classByName(b.class);
-  if (!cls) return null;
-  return hitPointsFor(cls.hitDie, b.level, finalAbilities(b).con);
+  return hitPointsForClasses(b.classes, finalAbilities(b).con);
+}
+
+/** The character level the draft adds up to. */
+export function buildLevel(b: Build5e): number {
+  return b.classes.reduce((n, c) => n + c.level, 0);
+}
+
+/** The starting class, which sets saves and the first hit die. */
+export function startingClass(b: Build5e): ClassLevel {
+  return b.classes[0] ?? { name: "", subclass: "", level: 1 };
 }
 
 /** What the wizard still needs before it can finish, in step order. */
@@ -286,11 +416,29 @@ export function buildProblems(b: Build5e): string[] {
   const out: string[] = [];
   if (!b.name.trim()) out.push("Give the character a name.");
   if (!b.species.trim()) out.push("Pick a species.");
-  if (!b.class.trim()) out.push("Pick a class.");
-  const cls = classByName(b.class);
-  if (cls && cls.subclasses.length > 0 && b.level >= subclassLevel(b.class)) {
-    if (!b.subclass.trim()) out.push("Pick a subclass.");
+  b.classes.forEach((c, i) => {
+    if (!c.name.trim()) {
+      out.push(i === 0 ? "Pick a class." : `Pick class ${i + 1} or remove it.`);
+    } else if (choosesSubclass(c) && !c.subclass.trim()) {
+      out.push(
+        b.classes.length > 1
+          ? `Pick a ${c.name.trim()} subclass.`
+          : "Pick a subclass.",
+      );
+    }
+  });
+  const seen = new Set<string>();
+  for (const c of b.classes) {
+    const key = c.name.trim().toLowerCase();
+    if (!key) continue;
+    if (seen.has(key)) {
+      out.push(`${c.name.trim()} is listed twice.`);
+      break;
+    }
+    seen.add(key);
   }
+  if (buildLevel(b) > 20) out.push("Character level cannot go above 20.");
+  const cls = classByName(startingClass(b).name);
   if (!b.background.trim()) out.push("Pick a background.");
   const pool = speciesByName(b.species)?.asiChoice;
   if (pool) {
@@ -306,16 +454,17 @@ export function buildProblems(b: Build5e): string[] {
   ) {
     out.push("Place all six ability scores.");
   }
-  if (cls && b.classSkills.length < cls.skills.choose) {
+  const skillChoice = classSkillChoice(b.classes);
+  if (cls && b.classSkills.length < skillChoice.choose) {
     out.push(
-      `Choose ${cls.skills.choose} class ${cls.skills.choose === 1 ? "skill" : "skills"}.`,
+      `Choose ${skillChoice.choose} class ${skillChoice.choose === 1 ? "skill" : "skills"}.`,
     );
   }
   const bg = backgroundByName(b.background);
   if (bg?.choose && b.backgroundSkills.length < bg.choose.count) {
     out.push(`Choose ${bg.choose.count} background skill(s).`);
   }
-  const expertise = expertisePicks(b.class, b.level);
+  const expertise = expertiseFor(b.classes);
   if (expertise > 0 && b.expertise.length < expertise) {
     out.push(`Choose ${expertise} skills for expertise.`);
   }
@@ -324,15 +473,21 @@ export function buildProblems(b: Build5e): string[] {
 
 /** The finished sheet: everything the picks grant, written down once. */
 export function buildSheet(b: Build5e): Sheet5e {
-  const cls = classByName(b.class);
+  const cls = classByName(startingClass(b).name);
   const species = speciesByName(b.species);
   const abilities = finalAbilities(b);
   const hpMax = b.hpMax ?? computedHp(b);
+  const classes = b.classes.map((c) => ({
+    name: c.name.trim(),
+    subclass: c.subclass.trim(),
+    level: Math.max(1, Math.min(20, c.level)),
+  }));
   const sheet: Sheet5e = {
     ...EMPTY_SHEET,
-    class: b.class.trim(),
-    subclass: b.subclass.trim(),
-    level: Math.max(1, Math.min(20, b.level)),
+    classes,
+    class: classes[0]?.name ?? "",
+    subclass: classes[0]?.subclass ?? "",
+    level: totalLevel(classes),
     species: b.species.trim(),
     background: b.background.trim(),
     alignment: b.alignment,
@@ -352,7 +507,13 @@ export function buildSheet(b: Build5e): Sheet5e {
       source: species!.name,
       notes: "",
     })),
-    spellcasting: { ability: "", slotsAuto: true, slots: {}, spells: [] },
+    spellcasting: {
+      ability: "",
+      slotsAuto: true,
+      slots: {},
+      pact: null,
+      spells: [],
+    },
     currency: { ...EMPTY_SHEET.currency },
     personality: { ...b.personality },
     status: {
@@ -361,5 +522,5 @@ export function buildSheet(b: Build5e): Sheet5e {
       conditions: [],
     },
   };
-  return withAutoSlots(sheet);
+  return withAutoSlots(withClasses(sheet));
 }

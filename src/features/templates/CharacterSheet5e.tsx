@@ -5,8 +5,10 @@ import { useCampaignStore } from "@/stores/campaign-store";
 import { playersOf } from "@/features/table/players-model";
 
 import {
+  hitDiceText,
   sameSet,
   shiftAbilities,
+  subclassLevel,
   withAutoSlots,
   withGrantedSkills,
 } from "./dnd5e-build";
@@ -31,7 +33,9 @@ import {
   saveBonus,
   signed,
   skillBonus,
+  withClasses,
   type Ability,
+  type ClassLevel,
   type Sheet5e,
 } from "./dnd5e-model";
 import { RollGuide } from "./RollGuide";
@@ -112,21 +116,43 @@ export function CharacterSheet5e({
   });
   useEffect(() => () => flushRef.current(), []);
 
+  /** Replaces one class row, keeping the mirrors and slots in step. */
+  function patchClass(index: number, fn: (c: ClassLevel) => ClassLevel) {
+    update((s) =>
+      withAutoSlots(
+        withClasses(
+          s,
+          s.classes.map((c, i) => (i === index ? fn(c) : c)),
+        ),
+      ),
+    );
+  }
+
   /**
-   * Picking a class fills its saving throws unless the GM already chose
-   * their own, and clears a subclass that belonged to the previous class.
+   * Picking a class clears a subclass that belonged to the previous one.
+   * For the starting class it also fills the saving throws unless the GM
+   * already chose their own, and seeds hit points while they are blank;
+   * a class taken later grants neither.
    */
-  function setClass(value: string) {
+  function setClassName(index: number, value: string) {
     update((s) => {
-      const prev = classByName(s.class);
+      const row = s.classes[index];
+      if (!row) return s;
+      const prev = classByName(row.name);
       const next = classByName(value);
+      const subclassStale =
+        prev !== undefined &&
+        prev.subclasses.includes(row.subclass) &&
+        !(next?.subclasses.includes(row.subclass) ?? false);
+      const classes = s.classes.map((c, i) =>
+        i === index
+          ? { ...c, name: value, subclass: subclassStale ? "" : c.subclass }
+          : c,
+      );
+      if (index !== 0) return withAutoSlots(withClasses(s, classes));
       const savesUntouched =
         s.saves.length === 0 ||
         (prev !== undefined && sameSet(s.saves, prev.saves));
-      const subclassStale =
-        prev !== undefined &&
-        prev.subclasses.includes(s.subclass) &&
-        !(next?.subclasses.includes(s.subclass) ?? false);
       const startingHp = next
         ? Math.max(1, next.hitDie + modifier(s.abilities.con))
         : null;
@@ -134,14 +160,54 @@ export function CharacterSheet5e({
         s.hp.max === null && startingHp !== null
           ? { ...s.hp, max: startingHp, current: s.hp.current ?? startingHp }
           : s.hp;
-      return withAutoSlots({
-        ...s,
-        hp,
-        class: value,
-        saves: next && savesUntouched ? [...next.saves] : s.saves,
-        subclass: subclassStale ? "" : s.subclass,
-      });
+      return withAutoSlots(
+        withClasses(
+          {
+            ...s,
+            hp,
+            saves: next && savesUntouched ? [...next.saves] : s.saves,
+          },
+          classes,
+        ),
+      );
     });
+  }
+
+  /** Levels in one class, kept so the character level stays within 20. */
+  function setClassLevel(index: number, value: number) {
+    update((s) => {
+      const others = s.classes.reduce(
+        (n, c, i) => (i === index ? n : n + c.level),
+        0,
+      );
+      const level = Math.max(1, Math.min(20 - others, value || 1));
+      return withAutoSlots(
+        withClasses(
+          s,
+          s.classes.map((c, i) => (i === index ? { ...c, level } : c)),
+        ),
+      );
+    });
+  }
+
+  /** Multiclassing: a new class at its first level, below the others. */
+  function addClass() {
+    update((s) =>
+      s.level >= 20
+        ? s
+        : withClasses(s, [...s.classes, { name: "", subclass: "", level: 1 }]),
+    );
+  }
+
+  function removeClass(index: number) {
+    update((s) =>
+      withAutoSlots(
+        withClasses(
+          s,
+          s.classes.filter((_, i) => i !== index),
+        ),
+      ),
+    );
   }
 
   /**
@@ -244,8 +310,10 @@ export function CharacterSheet5e({
     });
   }
 
-  const hitDie = classByName(sheet.class)?.hitDie;
-  const classSkills = classByName(sheet.class)?.skills.from ?? [];
+  const classSkills = sheet.classes.flatMap(
+    (c) => classByName(c.name)?.skills.from ?? [],
+  );
+  const multiclass = sheet.classes.length > 1;
   const speciesInfo = speciesByName(sheet.species);
   const pool = speciesInfo?.asiChoice;
   const choiceUsed = Object.values(sheet.asiChosen).reduce(
@@ -299,43 +367,14 @@ export function CharacterSheet5e({
             </select>
           </label>
         )}
-        <Combo
-          label="Class"
-          value={sheet.class}
-          onChange={setClass}
-          options={CLASSES.map((c) => c.name)}
-          width="w-32"
-          placeholder="Fighter"
+        <ClassFields
+          row={sheet.classes[0]!}
+          index={0}
+          multiclass={multiclass}
+          onName={setClassName}
+          onSubclass={(i, v) => patchClass(i, (c) => ({ ...c, subclass: v }))}
+          onLevel={setClassLevel}
         />
-        <Combo
-          label="Subclass"
-          value={sheet.subclass}
-          onChange={(v) => update((s) => withAutoSlots({ ...s, subclass: v }))}
-          options={
-            classByName(sheet.class)?.subclasses ??
-            CLASSES.flatMap((c) => c.subclasses)
-          }
-          width="w-44"
-          placeholder="Champion"
-        />
-        <label className={LABEL}>
-          Level
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={sheet.level}
-            onChange={(e) =>
-              update((s) =>
-                withAutoSlots({
-                  ...s,
-                  level: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
-                }),
-              )
-            }
-            className={`mt-1 block w-16 ${FIELD}`}
-          />
-        </label>
         <Combo
           label="Species"
           value={sheet.species}
@@ -369,6 +408,50 @@ export function CharacterSheet5e({
             ))}
           </select>
         </label>
+      </div>
+
+      {/* Multiclassing: every class after the first on its own line. */}
+      {sheet.classes.slice(1).map((row, i) => (
+        <div key={i + 1} className="flex flex-wrap items-end gap-x-4 gap-y-3">
+          <ClassFields
+            row={row}
+            index={i + 1}
+            multiclass
+            onName={setClassName}
+            onSubclass={(idx, v) =>
+              patchClass(idx, (c) => ({ ...c, subclass: v }))
+            }
+            onLevel={setClassLevel}
+          />
+          <button
+            type="button"
+            onClick={() => removeClass(i + 1)}
+            data-edit-only
+            aria-label={`Remove ${row.name.trim() || "this class"}`}
+            title="Remove this class and its levels"
+            className="mb-1 rounded border border-ink-700 px-2 py-0.5 text-xs text-ink-400 hover:border-red-400/60 hover:text-red-300"
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-400">
+        <button
+          type="button"
+          onClick={addClass}
+          disabled={sheet.level >= 20}
+          data-edit-only
+          title="Multiclass: add a level in another class"
+          className="rounded border border-ink-700 px-2 py-0.5 text-ink-300 hover:border-ember-500/60 hover:text-ember-200 disabled:opacity-40"
+        >
+          + Add a class
+        </button>
+        {multiclass && (
+          <span>
+            Character level {sheet.level} · proficiency {signed(pb)} · a
+            subclass is chosen by each class's own level
+          </span>
+        )}
       </div>
 
       <Grants sheet={sheet} />
@@ -543,7 +626,10 @@ export function CharacterSheet5e({
           value={signed(modifier(sheet.abilities.dex))}
         />
         <Derived label="Proficiency" value={signed(pb)} />
-        <Derived label="Hit die" value={hitDie ? `d${hitDie}` : "—"} />
+        <Derived
+          label={multiclass ? "Hit dice" : "Hit die"}
+          value={hitDiceText(sheet.classes)}
+        />
         <Derived
           label="Passive Perception"
           value={String(passivePerception(sheet))}
@@ -645,19 +731,76 @@ export function CharacterSheet5e({
 }
 
 /**
- * Keeps the spellcasting ability and slot maximums in step with class,
- * subclass and level, until the GM edits a maximum by hand.
+ * One class's fields: name, subclass and the levels taken in it. The first
+ * class sits in the identity row; later ones each get a line of their own.
  */
+function ClassFields({
+  row,
+  index,
+  multiclass,
+  onName,
+  onSubclass,
+  onLevel,
+}: {
+  row: ClassLevel;
+  index: number;
+  multiclass: boolean;
+  onName: (index: number, value: string) => void;
+  onSubclass: (index: number, value: string) => void;
+  onLevel: (index: number, value: number) => void;
+}) {
+  const cls = classByName(row.name);
+  const subAt = subclassLevel(row.name);
+  const tooEarly = cls !== undefined && row.level < subAt;
+  return (
+    <>
+      <Combo
+        label={index === 0 ? "Class" : `Class ${index + 1}`}
+        value={row.name}
+        onChange={(v) => onName(index, v)}
+        options={CLASSES.map((c) => c.name)}
+        width="w-32"
+        placeholder={index === 0 ? "Fighter" : "Rogue"}
+      />
+      <Combo
+        label="Subclass"
+        value={row.subclass}
+        onChange={(v) => onSubclass(index, v)}
+        options={cls?.subclasses ?? CLASSES.flatMap((c) => c.subclasses)}
+        width="w-44"
+        placeholder={
+          tooEarly
+            ? `at ${cls.name} level ${subAt}`
+            : (cls?.subclasses[0] ?? "Champion")
+        }
+      />
+      <label className={LABEL}>
+        {multiclass ? `${cls?.name ?? "Class"} level` : "Level"}
+        <input
+          type="number"
+          min={1}
+          max={20}
+          value={row.level}
+          onChange={(e) => onLevel(index, Number(e.target.value))}
+          className={`mt-1 block w-16 ${FIELD}`}
+        />
+      </label>
+    </>
+  );
+}
+
 function skillName(id: string): string {
   return SKILLS.find((s) => s.id === id)?.name ?? id;
 }
 
-/** What the chosen class, species and background give, in one glance. */
+/** What the chosen classes, species and background give, in one glance. */
 function Grants({ sheet }: { sheet: Sheet5e }) {
-  const cls = classByName(sheet.class);
+  const classes = sheet.classes
+    .map((c, i) => ({ info: classByName(c.name), index: i }))
+    .filter((c) => c.info !== undefined);
   const sp = speciesByName(sheet.species);
   const bg = backgroundByName(sheet.background);
-  if (!cls && !sp && !bg) return null;
+  if (classes.length === 0 && !sp && !bg) return null;
 
   const fixed = sp
     ? (Object.entries(sp.asi) as [Ability, number][])
@@ -667,17 +810,27 @@ function Grants({ sheet }: { sheet: Sheet5e }) {
 
   return (
     <div className="space-y-1.5 rounded-md border border-ink-800 bg-ink-900/60 px-3 py-2 text-[11px] leading-relaxed text-ink-400">
-      {cls && (
-        <GrantRow label={cls.name}>
-          Hit die d{cls.hitDie} · Saves{" "}
-          {cls.saves.map((a) => a.toUpperCase()).join(" and ")} · Skills: choose{" "}
-          {cls.skills.choose}
-          {cls.skills.from.length > 0
+      {classes.map(({ info, index }) => {
+        const cls = info!;
+        const from =
+          cls.skills.from.length > 0
             ? ` from ${cls.skills.from.map(skillName).join(", ")}`
-            : " of any"}{" "}
-          · Armour: {cls.armor} · Weapons: {cls.weapons}
-        </GrantRow>
-      )}
+            : " of any";
+        return index === 0 ? (
+          <GrantRow key={index} label={cls.name}>
+            Hit die d{cls.hitDie} · Saves{" "}
+            {cls.saves.map((a) => a.toUpperCase()).join(" and ")} · Skills:
+            choose {cls.skills.choose}
+            {from} · Armour: {cls.armor} · Weapons: {cls.weapons}
+          </GrantRow>
+        ) : (
+          <GrantRow key={index} label={`${cls.name} (multiclass)`}>
+            Hit die d{cls.hitDie} · No new saving throws ·{" "}
+            {multiclassSkillText(cls.name, from)} · Subclass at {cls.name} level{" "}
+            {subclassLevel(cls.name)}
+          </GrantRow>
+        );
+      })}
       {sp && (
         <GrantRow label={sp.name}>
           {fixed
@@ -712,6 +865,19 @@ function Grants({ sheet }: { sheet: Sheet5e }) {
       )}
     </div>
   );
+}
+
+/** The skills a class grants when taken after the first, by the book. */
+function multiclassSkillText(className: string, from: string): string {
+  switch (className) {
+    case "Bard":
+      return "Skills: choose 1 of any";
+    case "Ranger":
+    case "Rogue":
+      return `Skills: choose 1${from}`;
+    default:
+      return "No new skills";
+  }
 }
 
 function GrantRow({

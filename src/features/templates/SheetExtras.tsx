@@ -292,7 +292,17 @@ function Spellcasting({ sheet, update }: { sheet: Sheet5e; update: Update }) {
   const sc = sheet.spellcasting;
   const ability = sc.ability || null;
   const pb = proficiencyBonus(sheet.level);
-  const hasSlots = SLOT_LEVELS.some((l) => (sc.slots[l]?.max ?? 0) > 0);
+  const hasSlots =
+    SLOT_LEVELS.some((l) => (sc.slots[l]?.max ?? 0) > 0) || sc.pact !== null;
+  const setPact = (pact: Sheet5e["spellcasting"]["pact"], byHand = false) =>
+    update((s) => ({
+      ...s,
+      spellcasting: {
+        ...s.spellcasting,
+        pact,
+        slotsAuto: byHand ? false : s.spellcasting.slotsAuto,
+      },
+    }));
   const spells = [...sc.spells].sort(
     (a, b) => a.level - b.level || a.name.localeCompare(b.name),
   );
@@ -331,6 +341,9 @@ function Spellcasting({ sheet, update }: { sheet: Sheet5e; update: Update }) {
                       { ...r, used: 0 },
                     ]),
                   ),
+                  pact: s.spellcasting.pact
+                    ? { ...s.spellcasting.pact, used: 0 }
+                    : null,
                 },
               }));
             }}
@@ -385,7 +398,11 @@ function Spellcasting({ sheet, update }: { sheet: Sheet5e; update: Update }) {
         <div className="mb-1 text-[11px] text-ink-400">
           Spell slots
           <span className="ml-2 text-ink-600">
-            used / max · max follows class and level until you change it
+            used / max · max follows the classes and their levels until you
+            change it
+            {sheet.classes.length > 1
+              ? " · casting classes pool their levels; Pact Magic stays apart"
+              : ""}
           </span>
         </div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(4.75rem,1fr))] gap-1.5">
@@ -471,6 +488,92 @@ function Spellcasting({ sheet, update }: { sheet: Sheet5e; update: Update }) {
           })}
         </div>
       </div>
+
+      {/* Pact Magic: a warlock's own slots, all of one level, back on a short rest. */}
+      {sc.pact ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-ink-700 bg-ink-900 px-2.5 py-1.5 text-[11px] text-ink-400">
+          <span className="font-semibold text-ink-200">Pact Magic</span>
+          <span className="flex items-center gap-0.5">
+            <input
+              type="number"
+              min={0}
+              max={sc.pact.max}
+              value={sc.pact.used}
+              onChange={(e) =>
+                setPact({
+                  ...sc.pact!,
+                  used: Math.max(
+                    0,
+                    Math.min(sc.pact!.max, Number(e.target.value) || 0),
+                  ),
+                })
+              }
+              aria-label="Pact Magic slots used"
+              className="w-7 rounded border border-ink-700 bg-ink-850 px-0.5 text-center text-xs text-ink-200 outline-none focus:border-ember-500"
+            />
+            <span className="text-ink-600">/</span>
+            <input
+              type="number"
+              min={0}
+              max={9}
+              value={sc.pact.max}
+              onChange={(e) => {
+                const max = Math.max(0, Number(e.target.value) || 0);
+                setPact(
+                  max === 0
+                    ? null
+                    : { ...sc.pact!, max, used: Math.min(sc.pact!.used, max) },
+                  true,
+                );
+              }}
+              aria-label="Pact Magic slots"
+              className="w-7 rounded border border-ink-700 bg-ink-850 px-0.5 text-center text-xs text-ink-200 outline-none focus:border-ember-500"
+            />
+          </span>
+          <span className="flex items-center gap-1">
+            slots of level
+            <input
+              type="number"
+              min={1}
+              max={5}
+              value={sc.pact.level}
+              onChange={(e) =>
+                setPact(
+                  {
+                    ...sc.pact!,
+                    level: Math.max(
+                      1,
+                      Math.min(5, Number(e.target.value) || 1),
+                    ),
+                  },
+                  true,
+                )
+              }
+              aria-label="Pact Magic slot level"
+              className="w-7 rounded border border-ink-700 bg-ink-850 px-0.5 text-center text-xs text-ink-200 outline-none focus:border-ember-500"
+            />
+          </span>
+          <button
+            type="button"
+            onClick={() => setPact({ ...sc.pact!, used: 0 })}
+            data-edit-only
+            className="rounded border border-ink-700 px-2 py-0.5 text-[10px] text-ink-300 hover:bg-ink-800"
+          >
+            Short rest: restore pact slots
+          </button>
+        </div>
+      ) : (
+        !sc.slotsAuto && (
+          <button
+            type="button"
+            onClick={() => setPact({ level: 1, max: 1, used: 0 }, true)}
+            data-edit-only
+            className="text-[11px] text-ink-500 hover:text-ink-300"
+          >
+            + Pact Magic slots
+          </button>
+        )
+      )}
 
       {spells.length > 0 && (
         <div className={`${HEAD} ${SPELL_COLS}`}>
