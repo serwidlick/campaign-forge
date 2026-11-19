@@ -1236,6 +1236,7 @@
             headers: headers,
             body: opts.body,
             keepalive: !!opts.keepalive,
+            signal: opts.signal,
           });
         }
 
@@ -1564,13 +1565,20 @@
           $("campaign-name").textContent = state.info.name;
           $("player-name").textContent = " · " + state.name;
           state.stopped = false;
-          refresh().then(loop);
+          runTable(state.token);
         }
 
         function leave(message) {
           flushDraft();
           flushNote();
           state.stopped = true;
+          if (state.live) state.live.close();
+          state.live = null;
+          state.elements = [];
+          state.event = 0;
+          clearReader();
+          releaseAssets();
+          draft.id = null;
           state.token = null;
           state.playerId = null;
           draft.denied = {};
@@ -1592,42 +1600,126 @@
           leave();
         });
 
+        function clearReader() {
+          state.openId = null;
+          $("reader").replaceChildren();
+          $("reader").hidden = true;
+          $("list-view").hidden = false;
+          $("back").hidden = true;
+        }
+
+        function releaseAssets() {
+          Object.values(state.urls).forEach(function (pending) {
+            pending.then(URL.revokeObjectURL, function () {});
+          });
+          state.urls = {};
+        }
+
         function refresh() {
+          var token = state.token;
           return json("/api/elements").then(function (els) {
+            if (token !== state.token) return;
             state.elements = els;
             renderFilters();
             renderList();
-            if (state.openId) openElement(state.openId, true);
+            if (state.openId && !byId(state.openId)) clearReader();
+            else if (state.openId) openElement(state.openId, true);
           });
         }
 
-        function loop() {
-          if (state.stopped) return;
-          json("/api/version?after=" + state.version + "&event=" + state.event)
-            .then(function (v) {
-              if (state.stopped) return;
-              setNotice("");
-              if (v.closed) {
-                leave("The GM ended the table.");
-                return;
+        async function runTable(token) {
+          var failures = 0;
+          while (state.token === token) {
+            var socket;
+            try {
+              var protocol = state.info.liveProtocol;
+              var module;
+              if (protocol) {
+                if (protocol !== "table.ws.v1")
+                  throw new Error("Unsupported table protocol");
+                module = await import("/table-live.js");
+                var auth = await json("/api/live/ticket", {
+                  method: "POST",
+                  signal: AbortSignal.timeout(15000),
+                });
+                if (token !== state.token) return;
+                socket = module.tableSocket(auth.ticket, true);
+                state.live = socket;
+              } else {
+                await refresh();
               }
-              if (v.spotlightSeq > state.event) {
+              while (state.token === token) {
+                var v = socket
+                  ? await socket.next()
+                  : await json(
+                      "/api/version?after=" +
+                        state.version +
+                        "&event=" +
+                        state.event,
+                    );
+                if (state.token !== token) return;
+                if (v.closed) throw new Error("CLOSED");
+                if (failures) setNotice("");
+                failures = 0;
+                if (v.playerId !== undefined) state.playerId = v.playerId;
+                if (v.delta) {
+                  state.elements = module.applyDelta(state.elements, v.delta);
+                  if (
+                    v.delta.reset ||
+                    v.delta.removed.length ||
+                    v.delta.upserts.length
+                  )
+                    releaseAssets();
+                  renderFilters();
+                  renderList();
+                  if (state.openId && !byId(state.openId)) clearReader();
+                  else if (
+                    state.openId &&
+                    (v.delta.reset ||
+                      v.delta.upserts.some((e) => e.id === state.openId))
+                  ) {
+                    openElement(state.openId, true);
+                  }
+                } else if (!socket && v.version !== state.version) {
+                  await refresh();
+                  if (state.token !== token) return;
+                }
+                if (
+                  v.spotlightSeq !== state.event ||
+                  (v.delta && v.delta.reset) ||
+                  v.spotlight !== state.spotlight
+                ) {
+                  setNotice("");
+                  if (v.spotlight) offerSpotlight(v.spotlight);
+                }
                 state.event = v.spotlightSeq;
-                if (v.spotlight) offerSpotlight(v.spotlight);
+                state.spotlight = v.spotlight;
+                state.version = v.version;
               }
-              var changed = v.version > state.version;
-              state.version = v.version;
-              (changed ? refresh() : Promise.resolve()).then(loop);
-            })
-            .catch(function (e) {
-              if (state.stopped) return;
-              if (e.message === "CLOSED") {
-                leave("The GM ended the table.");
+            } catch (e) {
+              if (state.token !== token) return;
+              if (e.message === "CLOSED" || e.message === "UNAUTHORIZED") {
+                leave(
+                  e.message === "CLOSED"
+                    ? "The GM ended the table."
+                    : "Your table session has ended. Join again.",
+                );
                 return;
               }
               setNotice("Lost the GM. Trying again…");
-              setTimeout(loop, 3000);
-            });
+              failures++;
+            } finally {
+              if (socket) socket.close();
+              if (state.live === socket) state.live = null;
+            }
+            await new Promise((resolve) =>
+              setTimeout(
+                resolve,
+                Math.min(15000, 1000 * 2 ** Math.min(failures, 4)) +
+                  Math.random() * 500,
+              ),
+            );
+          }
         }
 
         function offerSpotlight(id) {
@@ -1773,7 +1865,8 @@
         // ---- Assets -----------------------------------------------------------
         function assetUrl(path) {
           if (state.urls[path]) return state.urls[path];
-          state.urls[path] = api("/api/assets/" + path)
+          var cache = state.urls;
+          cache[path] = api("/api/assets/" + path)
             .then(function (r) {
               if (!r.ok) throw new Error("no asset");
               return r.blob();
@@ -1782,7 +1875,7 @@
               return URL.createObjectURL(b);
             });
           state.urls[path].catch(function () {
-            delete state.urls[path];
+            delete cache[path];
           });
           return state.urls[path];
         }
@@ -1804,10 +1897,21 @@
           window.scrollTo(0, 0);
         });
 
+        var readGeneration = 0;
         function openElement(id, silent) {
+          var token = state.token;
+          var generation = ++readGeneration;
+          function current() {
+            return (
+              generation === readGeneration &&
+              state.openId === id &&
+              state.token === token
+            );
+          }
           state.openId = id;
           json("/api/elements/" + id)
             .then(function (el) {
+              if (!current()) return;
               renderElement(el);
               $("reader").hidden = false;
               $("list-view").hidden = true;
@@ -1815,7 +1919,9 @@
               if (!silent) window.scrollTo(0, 0);
             })
             .catch(function () {
-              if (!silent) setNotice("That is not shared any more.");
+              if (!current()) return;
+              clearReader();
+              setNotice("Could not open that shared page.");
             });
         }
 
@@ -2162,6 +2268,8 @@
             flushDraft();
             draft.id = el.id;
             draft.sheet = sheetParts(clone(el.sheet));
+            draft.version = el.version;
+            draft.conflict = false;
             draft.dirty = false;
             draft.saving = false;
             draft.failed = false;
@@ -2169,6 +2277,7 @@
           } else if (!draft.dirty && !draft.saving) {
             // Nothing of ours in flight: the GM's copy is the newer one.
             draft.sheet = sheetParts(clone(el.sheet));
+            draft.version = el.version;
           }
           var box = document.createElement("section");
           box.className = "sheet";
@@ -2911,7 +3020,16 @@
           el.classList.toggle("err", draft.failed);
           if (draft.failed) {
             el.appendChild(document.createTextNode(draft.error || "Not saved"));
-            el.appendChild(button(null, "Retry", flushDraft));
+            if (draft.conflict) {
+              el.appendChild(
+                button(null, "Discard draft and reload", function () {
+                  draft.dirty = false;
+                  draft.conflict = false;
+                  draft.failed = false;
+                  openElement(draft.id, true);
+                }),
+              );
+            } else el.appendChild(button(null, "Retry", flushDraft));
           } else if (draft.saving || draft.dirty) {
             el.textContent = "Saving…";
           } else if (draft.savedAt) {
@@ -2938,7 +3056,8 @@
             clearTimeout(draft.timer);
             draft.timer = null;
           }
-          if (!draft.dirty || !draft.id || !state.token) return;
+          if (!draft.dirty || !draft.id || !state.token || draft.conflict)
+            return;
           // One save at a time; the next goes once this one has answered.
           if (draft.saving) return;
           var id = draft.id;
@@ -2948,11 +3067,15 @@
           paintSaveState();
           api("/api/elements/" + id + "/sheet", {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "X-Base-Version": draft.version,
+            },
             body: JSON.stringify(draft.sheet),
             keepalive: keepalive === true,
           })
             .then(function (r) {
+              if (r.status === 409) throw new Error("CONFLICT");
               if (r.status === 403) throw new Error("DENIED");
               if (!r.ok) {
                 return r.json().then(
@@ -2968,12 +3091,13 @@
               }
               return r.json();
             })
-            .then(function () {
+            .then(function (saved) {
               // The GM's copy comes back through the version loop and is
               // adopted at the next repaint; swapping the draft here would
               // leave the painted fields reading a stale object.
               if (draft.id !== id) return;
               draft.saving = false;
+              draft.version = saved.version;
               draft.savedAt = Date.now();
               if (draft.dirty) flushDraft();
               else paintSaveState();
@@ -2990,9 +3114,11 @@
               }
               draft.dirty = true;
               draft.failed = true;
-              draft.error =
-                "Could not save: " +
-                (e.message === "Failed to fetch" ? "lost the GM" : e.message);
+              draft.conflict = e.message === "CONFLICT";
+              draft.error = draft.conflict
+                ? "The host changed this sheet. Your draft is still here."
+                : "Could not save: " +
+                  (e.message === "Failed to fetch" ? "lost the GM" : e.message);
               paintSaveState();
             });
         }

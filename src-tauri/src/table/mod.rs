@@ -128,21 +128,28 @@ pub async fn table_start_hosting(
     let code = join_code();
     let running = server::start(app.clone(), code.clone()).await?;
     let ips = discovery::lan_ipv4_addresses();
-    let addresses = ips
-        .iter()
-        .map(|ip| format!("{ip}:{}", running.port))
-        .collect();
-    let (registration, announce_error) =
-        match discovery::register(&meta.name, meta.system.as_deref(), &ips, running.port) {
-            Ok(r) => (Some(r), None),
-            Err(e) => (None, Some(e)),
-        };
+    let addresses = if let Some(origin) = &running.origin {
+        vec![origin.clone()]
+    } else {
+        ips.iter()
+            .map(|ip| format!("{ip}:{}", running.port))
+            .collect()
+    };
+    let (registration, announce_error) = match discovery::register(
+        &meta.name,
+        meta.system.as_deref(),
+        &ips,
+        running.port,
+        running.origin.as_deref(),
+    ) {
+        Ok(r) => (Some(r), None),
+        Err(e) => (None, Some(e)),
+    };
     let host = Host {
         port: running.port,
         code,
         addresses,
-        host_name: registration
-            .is_some()
+        host_name: (running.origin.is_none() && registration.is_some())
             .then(|| discovery::HOST_NAME.to_owned()),
         players: running.players,
         stop: running.stop,
@@ -207,7 +214,7 @@ impl TableState {
     pub fn bind_device(
         &self,
         app: &AppHandle,
-        token: &str,
+        connection_id: &str,
         player_id: Option<&str>,
         name: Option<&str>,
     ) -> CommandResult<HostStatus> {
@@ -221,7 +228,8 @@ impl TableState {
                 .lock()
                 .map_err(|_| "player list poisoned".to_owned())?;
             let p = players
-                .get(token)
+                .values()
+                .find(|p| p.connection_id == connection_id)
                 .ok_or_else(|| "that connection is gone".to_owned())?;
             let d = p.device.clone().ok_or_else(|| {
                 "that device cannot be paired (it joined from a browser)".to_owned()
@@ -242,7 +250,9 @@ impl TableState {
         )
         .map_err(|e| e.to_string())?;
         if let Ok(mut players) = host.players.lock()
-            && let Some(p) = players.get_mut(token)
+            && let Some(p) = players
+                .values_mut()
+                .find(|p| p.connection_id == connection_id)
         {
             p.player_id = Some(record.id.clone());
             p.name = record.name.clone();
@@ -312,13 +322,17 @@ pub async fn table_join(
 ) -> CommandResult<SessionInfo> {
     let session = client::Session::join(&address, &name, code.as_deref()).await?;
     let info = session.summary();
-    *lock(&table.client)? = Some(session);
+    if let Some(old) = lock(&table.client)?.replace(session) {
+        old.disconnect();
+    }
     Ok(info)
 }
 
 #[tauri::command]
 pub fn table_leave(table: State<'_, TableState>) -> CommandResult<()> {
-    *lock(&table.client)? = None;
+    if let Some(old) = lock(&table.client)?.take() {
+        old.disconnect();
+    }
     Ok(())
 }
 
@@ -354,8 +368,11 @@ pub async fn table_update_sheet(
     table: State<'_, TableState>,
     id: String,
     sheet: serde_json::Value,
+    base_version: String,
 ) -> CommandResult<Element> {
-    session(&table)?.update_sheet(&id, sheet).await
+    session(&table)?
+        .update_sheet(&id, sheet, &base_version)
+        .await
 }
 
 #[tauri::command]

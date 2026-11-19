@@ -355,7 +355,7 @@ export interface TablePlayer {
   name: string;
   joinedAt: string;
   lastSeen: string;
-  /** The connection's token; lets the GM's UI act on it (pairing). */
+  /** Opaque connection ID used by the GM for pairing. */
   token: string;
   /** Present when the app joined; a browser has no device key. */
   device: { fingerprint: string; publicKey: string; label: string } | null;
@@ -409,6 +409,7 @@ export interface FoundTable {
 }
 
 export interface TableInfo {
+  liveProtocol?: string | null;
   name: string;
   system: string | null;
   calendar: unknown;
@@ -424,6 +425,9 @@ export interface PlayerName {
 
 /** Answer to a version long-poll. */
 export interface TableChange {
+  playerId?: string | null;
+  delta?: { reset: boolean; upserts: ElementSummary[]; removed: string[] };
+
   version: number;
   /** The GM stopped hosting; leave the table. */
   closed: boolean;

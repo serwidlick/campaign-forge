@@ -46,6 +46,7 @@ pub fn campaign_exists(path: &str) -> bool {
 
 /// The currently open campaign, if any.
 struct OpenCampaign {
+    table_index: HashMap<String, TableEntry>,
     root: PathBuf,
     meta: CampaignMeta,
     /// element id -> absolute path of its Markdown file
@@ -54,6 +55,25 @@ struct OpenCampaign {
     /// The folder watcher uses it to tell the app's own writes apart from
     /// edits made elsewhere (a sync client, another program).
     seen: HashMap<PathBuf, String>,
+}
+
+/// Derived in memory alongside the path index. Markdown files remain authoritative.
+#[derive(Debug, Clone)]
+pub struct TableEntry {
+    pub summary: ElementSummary,
+    pub player_links: Vec<String>,
+    pub version: String,
+}
+
+impl From<&Element> for TableEntry {
+    fn from(element: &Element) -> Self {
+        let (body, _) = crate::table::share::player_body(&element.body);
+        Self {
+            summary: element.summary(),
+            player_links: extract_links(&body),
+            version: element.version.clone(),
+        }
+    }
 }
 
 /// What changed in the campaign, as a window that did not make the change
@@ -249,7 +269,17 @@ impl AppState {
         let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
         let (summaries, index) = elements::scan(&open.root)?;
         open.index = index;
-        Ok(summaries)
+        open.table_index = summaries
+            .iter()
+            .map(|entry| (entry.summary.meta.id.clone(), entry.clone()))
+            .collect();
+        Ok(summaries.into_iter().map(|entry| entry.summary).collect())
+    }
+
+    pub fn table_entries(&self) -> Result<Vec<TableEntry>, StorageError> {
+        let guard = self.lock()?;
+        let open = guard.as_ref().ok_or(StorageError::NoCampaignOpen)?;
+        Ok(open.table_index.values().cloned().collect())
     }
 
     pub fn read_element(&self, id: &str) -> Result<Element, StorageError> {
@@ -274,6 +304,8 @@ impl AppState {
         let path = open.root.join(&element.meta.path);
         open.seen.insert(path.clone(), element.version.clone());
         open.index.insert(element.meta.id.clone(), path);
+        open.table_index
+            .insert(element.meta.id.clone(), TableEntry::from(&element));
         drop(guard);
         let mut note = DiskChanges::element(&element.meta.id, &element.version);
         note.list_changed = true;
@@ -306,6 +338,8 @@ impl AppState {
             .ok_or_else(|| StorageError::ElementNotFound(input.id.clone()))?
             .clone();
         let saved = elements::save(&open.root, &path, input)?;
+        open.table_index
+            .insert(saved.meta.id.clone(), TableEntry::from(&saved));
         if record {
             open.seen.insert(path, saved.version.clone());
         }
@@ -328,6 +362,8 @@ impl AppState {
         open.seen.remove(&old);
         open.seen.insert(new.clone(), changed.version.clone());
         open.index.insert(id.to_owned(), new);
+        open.table_index
+            .insert(changed.meta.id.clone(), TableEntry::from(&changed));
         drop(guard);
         let mut note = DiskChanges::element(&changed.meta.id, &changed.version);
         note.list_changed = true;
@@ -340,10 +376,13 @@ impl AppState {
         let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
         let path = open
             .index
-            .remove(id)
+            .get(id)
+            .cloned()
             .ok_or_else(|| StorageError::ElementNotFound(id.to_owned()))?;
-        open.seen.remove(&path);
         elements::delete(&path)?;
+        open.index.remove(id);
+        open.seen.remove(&path);
+        open.table_index.remove(id);
         drop(guard);
         self.bump_with(DiskChanges::list());
         Ok(())
@@ -502,12 +541,16 @@ impl AppState {
     }
 
     fn set_open(&self, root: PathBuf, meta: CampaignMeta) -> Result<(), StorageError> {
-        let (_, index) = elements::scan(&root)?;
+        let (entries, index) = elements::scan(&root)?;
         let mut guard = self.lock()?;
         *guard = Some(OpenCampaign {
             root,
             meta,
             index,
+            table_index: entries
+                .into_iter()
+                .map(|entry| (entry.summary.meta.id.clone(), entry))
+                .collect(),
             seen: HashMap::new(),
         });
         drop(guard);
@@ -548,7 +591,14 @@ impl AppState {
                 // Gone. Only matters if it was an element we knew about; our
                 // own deletes already dropped it from the index.
                 let before = open.index.len();
-                open.index.retain(|_, p| p != path);
+                open.index.retain(|id, p| {
+                    if p == path {
+                        open.table_index.remove(id);
+                        false
+                    } else {
+                        true
+                    }
+                });
                 open.seen.remove(path);
                 if open.index.len() != before {
                     changes.list_changed = true;
@@ -566,7 +616,7 @@ impl AppState {
                 continue;
             }
             open.seen.insert(path.clone(), element.version.clone());
-            let id = element.meta.id;
+            let id = element.meta.id.clone();
             changes.versions.insert(id.clone(), element.version.clone());
             match open.index.get(&id) {
                 Some(known) if known == path => {}
@@ -581,6 +631,8 @@ impl AppState {
                     changes.list_changed = true;
                 }
             }
+            open.table_index
+                .insert(id.clone(), TableEntry::from(&element));
             if !changes.element_ids.contains(&id) {
                 changes.element_ids.push(id);
             }

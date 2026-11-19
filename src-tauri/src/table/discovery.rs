@@ -53,6 +53,7 @@ pub fn register(
     system: Option<&str>,
     ips: &[Ipv4Addr],
     port: u16,
+    origin: Option<&str>,
 ) -> Result<Registration, String> {
     let daemon = ServiceDaemon::new().map_err(|e| format!("mDNS unavailable: {e}"))?;
     let instance = campaign
@@ -67,6 +68,9 @@ pub fn register(
     };
     let host = format!("{HOST_NAME}.");
     let mut props: Vec<(&str, String)> = vec![("campaign", campaign.to_owned())];
+    if let Some(origin) = origin {
+        props.push(("https", origin.to_owned()));
+    }
     if let Some(system) = system {
         props.push(("system", system.to_owned()));
     }
@@ -111,6 +115,17 @@ impl Browser {
                             .map(|ip| format!("{ip}:{port}"))
                             .collect();
                         addresses.sort();
+                        if let Some(origin) = info.get_property_val_str("https") {
+                            // An advertised secure table always uses its certificate name.
+                            addresses = reqwest::Url::parse(origin)
+                                .ok()
+                                .filter(|url| {
+                                    url.scheme() == "https"
+                                        && url.origin().ascii_serialization() == origin
+                                })
+                                .map(|_| vec![origin.to_owned()])
+                                .unwrap_or_default();
+                        }
                         let fullname = info.get_fullname().to_owned();
                         let name = info
                             .get_property_val_str("campaign")

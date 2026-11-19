@@ -54,7 +54,7 @@ export function CharacterSheet5e({
 }: {
   element: Element;
   /** Where edits go; the GM's store by default, the table for a player. */
-  onSave?: (sheet: Sheet5e) => Promise<void>;
+  onSave?: (sheet: Sheet5e, baseVersion: string) => Promise<Element>;
   /**
    * A player looking at a character that is not theirs: the whole sheet,
    * scores, saves, skills and what to roll, with nothing to change.
@@ -76,8 +76,26 @@ export function CharacterSheet5e({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
 
+  const baseVersion = useRef(element.version ?? "");
+  const inFlight = useRef(false);
+  const acknowledgedFrom = useRef<string | undefined | null>(null);
+  const [saveError, setSaveError] = useState("");
+  const [pending, setPending] = useState(false);
+  const [seenVersion, setSeenVersion] = useState(element.version);
+  if (onSave && seenVersion !== element.version) {
+    setSeenVersion(element.version);
+    if (!pending) setSheet(readSheet5e(element.sheet) ?? EMPTY_SHEET);
+  }
+
   function update(fn: (s: Sheet5e) => Sheet5e) {
+    if (onSave && !dirty.current && !inFlight.current) {
+      // The rendered host copy is the base for a new editing session.
+      if (acknowledgedFrom.current !== element.version)
+        baseVersion.current = element.version ?? "";
+      latest.current = sheet;
+    }
     latest.current = fn(latest.current);
+    if (onSave) setPending(true);
     setSheet(latest.current);
     dirty.current = true;
     if (timer.current) clearTimeout(timer.current);
@@ -90,11 +108,25 @@ export function CharacterSheet5e({
       clearTimeout(timer.current);
       timer.current = null;
     }
-    if (!dirty.current) return;
+    if (!dirty.current || inFlight.current) return;
     dirty.current = false;
     const s = latest.current;
     if (onSave) {
-      void onSave(s);
+      inFlight.current = true;
+      void onSave(s, baseVersion.current)
+        .then((saved) => {
+          acknowledgedFrom.current = element.version;
+          baseVersion.current = saved.version ?? "";
+          inFlight.current = false;
+          setSaveError("");
+          if (dirty.current) flushRef.current();
+          else setPending(false);
+        })
+        .catch((err: unknown) => {
+          inFlight.current = false;
+          dirty.current = true;
+          setSaveError(String(err));
+        });
     } else {
       // The role used to live inside the sheet. Writing it at the top level
       // here means a pre-split character keeps its role once its sheet is
@@ -276,6 +308,28 @@ export function CharacterSheet5e({
         readOnly ? "sheet-readonly" : ""
       }`}
     >
+      {saveError && (
+        <div role="alert" className="text-sm text-ember-300">
+          Sheet not saved. {saveError}{" "}
+          <button type="button" onClick={() => flushRef.current()}>
+            Retry
+          </button>{" "}
+          <button
+            type="button"
+            onClick={() => {
+              dirty.current = false;
+              latest.current = readSheet5e(element.sheet) ?? EMPTY_SHEET;
+              setSheet(latest.current);
+              baseVersion.current = element.version ?? "";
+              acknowledgedFrom.current = null;
+              setPending(false);
+              setSaveError("");
+            }}
+          >
+            Discard draft and use host copy
+          </button>
+        </div>
+      )}
       {/* Identity */}
       <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
         {!onSave && !readOnly && (

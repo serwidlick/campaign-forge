@@ -12,6 +12,20 @@ Nothing, until you share it.
 - Session **beats** stay private even when the session is shared.
 - A **picture** or a document's **PDF** goes out only with its element.
 
+### Secure table connections
+
+For encrypted hosting, give the GM machine a stable DNS name that resolves to its LAN address. Use a certificate for that name that players' browsers and native devices already trust. Set these environment variables for the Campaign Forge process before launching the app.
+
+| Variable                  | Value                                                                                                     |
+| ------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `CAMPAIGN_FORGE_TLS_HOST` | The DNS name on the certificate, without a scheme, path or port                                           |
+| `CAMPAIGN_FORGE_TLS_CERT` | Path to the PEM certificate chain, leaf first                                                             |
+| `CAMPAIGN_FORGE_TLS_KEY`  | Path to the matching PEM private key, kept outside the campaign folder and readable only by the host user |
+
+Start hosting and use the **HTTPS address in the Table panel** for manual joins and QR codes. Supply local DNS at the venue if the table needs to work offline. Restart hosting after renewing the certificate. A change of browser origin can require pairing that browser again.
+
+Secure tables serve joins, saves, and files over HTTPS. Each current client receives live updates over one authenticated WebSocket. Reconnecting replaces its view with the host's current shared content. When all three settings are absent, this release retains the existing HTTP table and long polling for compatibility. Partial TLS settings or unreadable credentials stop secure hosting. Clients reconnect to the advertised transport after a network error. Older native clients that rewrite HTTPS addresses must upgrade to join secure tables. Older sheet editors that omit their base version must upgrade before saving sheets.
+
 ### Players know
 
 To share part of an element, put a heading named `## Players know` in its body. Players then receive only that section, up to the next heading of the same or a higher level; the rest of the body stays yours. Shared elements show a strip under the header saying which case applies, with a button that adds the heading for you. The headings "What players know", "What the players know" and "Player-facing" count too, at any level.

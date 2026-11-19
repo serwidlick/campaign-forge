@@ -112,7 +112,11 @@ async function webCommand(
     case "table_fetch_asset":
       return web.fetchAsset(args.path as string);
     case "table_update_sheet":
-      return web.updateSheet(args.id as string, args.sheet);
+      return web.updateSheet(
+        args.id as string,
+        args.sheet,
+        args.baseVersion as string,
+      );
     case "table_create_note":
       return web.createNote(args.input as NoteInput);
     case "table_update_note":
@@ -458,8 +462,8 @@ export const table = {
     return ipc<ArrayBuffer>("table_fetch_asset", { path });
   },
   /** Player: save the sheet of the character the GM assigned to you. */
-  updateSheet(id: string, sheet: unknown) {
-    return ipc<Element>("table_update_sheet", { id, sheet });
+  updateSheet(id: string, sheet: unknown, baseVersion: string) {
+    return ipc<Element>("table_update_sheet", { id, sheet, baseVersion });
   },
   /** Player: write a note into the GM's campaign folder, as yours. */
   createNote(input: NoteInput) {
