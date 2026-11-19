@@ -804,6 +804,32 @@
         font-size: 12px;
         color: var(--ink-500);
       }
+      .rows .row-name input {
+        width: 100%;
+        margin: 0;
+        padding: 8px 10px;
+        font-size: 15px;
+      }
+      .rows .row-name input + .row-note {
+        margin-top: 4px;
+      }
+      .rows button.remove {
+        flex: none;
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--ink-500);
+        font-size: 24px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .rows button.remove:hover,
+      .rows button.remove:focus-visible {
+        color: var(--red-text);
+      }
       .coins {
         display: grid;
         grid-template-columns: repeat(5, 1fr);
@@ -2065,6 +2091,26 @@
           return JSON.parse(JSON.stringify(v));
         }
 
+        /**
+         * An 8-hex id for a new row, like the app's newId(). randomUUID is
+         * not offered on a plain http page, which a LAN table is.
+         */
+        function newId() {
+          var bytes = new Uint8Array(4);
+          if (window.crypto && crypto.getRandomValues) {
+            crypto.getRandomValues(bytes);
+          } else {
+            for (var i = 0; i < bytes.length; i++) {
+              bytes[i] = Math.floor(Math.random() * 256);
+            }
+          }
+          var out = "";
+          for (var j = 0; j < bytes.length; j++) {
+            out += ("0" + bytes[j].toString(16)).slice(-2);
+          }
+          return out;
+        }
+
         function num(v, fallback) {
           var n = typeof v === "number" ? v : parseInt(v, 10);
           return isFinite(n) ? Math.round(n) : fallback;
@@ -2749,37 +2795,78 @@
             box.appendChild(spells);
           }
 
-          // Inventory counts.
-          if (sh.inventory.length) {
-            var inv = card("Inventory");
-            var items = h("div", "rows");
-            sh.inventory.forEach(function (item, i) {
-              if (!isObj(item)) return;
-              var line = h("div");
-              var name = h("div", "row-name", item.name || "Item");
-              if (item.notes)
-                name.appendChild(h("div", "row-note", item.notes));
-              line.appendChild(name);
-              line.appendChild(
-                stepper(
-                  "inventory." + (item.id || i),
-                  0,
-                  Infinity,
-                  function () {
-                    return Math.max(0, num(item.qty, 1));
-                  },
-                  function (v, repaint) {
-                    edit(function (s) {
-                      s.inventory[i].qty = v;
-                    }, repaint);
-                  },
-                ),
-              );
-              items.appendChild(line);
+          // Inventory: the owner adds, names, counts and drops items. Rows
+          // are edited by index; every add or remove repaints, so an index
+          // a row was painted with still points at that row.
+          var inv = card(
+            "Inventory",
+            button(null, "Add item", function () {
+              var id = newId();
+              edit(function (s) {
+                s.inventory.push({
+                  id: id,
+                  name: "",
+                  qty: 1,
+                  weight: "",
+                  notes: "",
+                });
+              });
+              restoreFocus($("sheet"), "inventory." + id + ".name");
+            }),
+          );
+          var items = h("div", "rows");
+          sh.inventory.forEach(function (item, i) {
+            if (!isObj(item)) return;
+            var key = "inventory." + (item.id || i);
+            var line = h("div");
+            var name = h("div", "row-name");
+            var nameInput = document.createElement("input");
+            nameInput.type = "text";
+            nameInput.placeholder = "Item";
+            nameInput.value = typeof item.name === "string" ? item.name : "";
+            nameInput.setAttribute("aria-label", "Item name");
+            nameInput.setAttribute("data-key", key + ".name");
+            nameInput.oninput = function () {
+              edit(function (s) {
+                s.inventory[i].name = nameInput.value;
+              }, false);
+              remove.setAttribute("aria-label", removeLabel());
+            };
+            name.appendChild(nameInput);
+            if (item.notes) name.appendChild(h("div", "row-note", item.notes));
+            line.appendChild(name);
+            line.appendChild(
+              stepper(
+                key,
+                0,
+                Infinity,
+                function () {
+                  return Math.max(0, num(item.qty, 1));
+                },
+                function (v, repaint) {
+                  edit(function (s) {
+                    s.inventory[i].qty = v;
+                  }, repaint);
+                },
+              ),
+            );
+            var remove = button("remove", "×", function () {
+              edit(function (s) {
+                s.inventory.splice(i, 1);
+              });
             });
-            inv.appendChild(items);
-            box.appendChild(inv);
+            var removeLabel = function () {
+              return "Remove " + (nameInput.value || "item");
+            };
+            remove.setAttribute("aria-label", removeLabel());
+            line.appendChild(remove);
+            items.appendChild(line);
+          });
+          if (!sh.inventory.length) {
+            items.appendChild(h("div", "row-note", "Nothing carried yet."));
           }
+          inv.appendChild(items);
+          box.appendChild(inv);
 
           // Coins.
           var money = card("Coins");
