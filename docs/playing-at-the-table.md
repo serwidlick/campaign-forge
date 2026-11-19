@@ -24,7 +24,9 @@ For encrypted hosting, give the GM machine a stable DNS name that resolves to it
 
 Start hosting and use the **HTTPS address in the Table panel** for manual joins and QR codes. Supply local DNS at the venue if the table needs to work offline. Restart hosting after renewing the certificate. A change of browser origin can require pairing that browser again.
 
-Secure tables serve joins, saves, and files over HTTPS. Each current client receives live updates over one authenticated WebSocket. Reconnecting replaces its view with the host's current shared content. When all three settings are absent, this release retains the existing HTTP table and long polling for compatibility. Partial TLS settings or unreadable credentials stop secure hosting. Clients reconnect to the advertised transport after a network error. Older native clients that rewrite HTTPS addresses must upgrade to join secure tables. Older sheet editors that omit their base version must upgrade before saving sheets.
+On a trusted LAN, start hosting with all three TLS settings unset. Current clients join over HTTP and receive updates over an authenticated WebSocket (`ws://`). This mode sends join codes, session credentials and campaign traffic without encryption. For encrypted connections configure TLS above. Clients then use HTTPS and `wss://` exclusively.
+
+Both modes replace the client's shared view on reconnect. Long polling remains available for older versions. A client that loses its WebSocket reconnects using the same transport. Partial TLS settings or unreadable credentials stop hosting. Older native clients that rewrite HTTPS addresses must upgrade to join secure tables. Older sheet editors that omit their base version must upgrade before saving sheets.
 
 ### Players know
 

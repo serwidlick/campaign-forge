@@ -1,10 +1,10 @@
 # Campaign Forge table communication
 
-**Decision, 19 November 2026.** The hosting GM remains authoritative. Use HTTPS for joining, snapshots, durable saves, GM commands, and file transfers. Give each joined native session or browser tab one authenticated WSS connection for live events. Deliver the first release with existing handouts, permissions, spotlight, and remote-GM synchronization. The later roster should include the host and all connected clients and be visible to everyone. Page activity and movable counters are future consumers of this connection.
+**Decision, 19 November 2026.** The hosting GM remains authoritative. Use HTTP and WebSockets by default on trusted LANs. With TLS configured, use HTTPS and WSS. Each native session or browser tab uses one authenticated WebSocket for live events. Joins, durable saves, GM commands, and file transfers use the same table’s HTTP API. Deliver the first release with existing handouts, permissions, spotlight, and remote-GM synchronization. The later roster should include the host and all connected clients and be visible to everyone. Page activity and movable counters are future consumers of this connection.
 
 ## First release scope
 
-Use the GM-provided certificate and hostname for native and browser clients. Each successful WSS subscription starts with the authorized snapshot as its first frame. The host subscribes to changes before projecting that snapshot and coalesces concurrent writes against the previous view. This release uses a fresh snapshot for every reconnect. Historical replay and native self-signed identity pairing remain follow-up work. The legacy listener stays available while the new onboarding path is being validated. See [secure table setup](../playing-at-the-table.md#secure-table-connections).
+For encrypted tables, use the GM-provided certificate and hostname for native and browser clients. Each successful WebSocket subscription starts with the authorized snapshot as its first frame. The host subscribes to changes before projecting that snapshot and coalesces concurrent writes against the previous view. This release uses a fresh snapshot for every reconnect. Historical replay and native self-signed identity pairing remain follow-up work. The legacy polling endpoint stays available for older clients. Current clients use WebSockets on both listeners. See [secure table setup](../playing-at-the-table.md#secure-table-connections).
 
 ## Implementation review
 

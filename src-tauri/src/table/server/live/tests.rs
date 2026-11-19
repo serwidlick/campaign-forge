@@ -32,13 +32,13 @@ async fn receive(socket: &mut ClientSocket) -> VersionResponse {
 }
 
 async fn connect(
-    address: &str,
+    origin: &str,
     http: &reqwest::Client,
-    connector: &Connector,
+    connector: Option<Connector>,
     token: &str,
 ) -> ClientSocket {
     let ticket: Value = http
-        .post(format!("https://{address}/api/live/ticket"))
+        .post(format!("{origin}/api/live/ticket"))
         .bearer_auth(token)
         .send()
         .await
@@ -48,7 +48,7 @@ async fn connect(
         .json()
         .await
         .unwrap();
-    let mut request = format!("wss://{address}/api/live")
+    let mut request = format!("{}/api/live", origin.replacen("http", "ws", 1))
         .into_client_request()
         .unwrap();
     request
@@ -56,15 +56,11 @@ async fn connect(
         .insert("sec-websocket-protocol", LIVE_PROTOCOL.parse().unwrap());
     request
         .headers_mut()
-        .insert("origin", format!("https://{address}").parse().unwrap());
-    let (mut socket, _) = tokio_tungstenite::connect_async_tls_with_config(
-        request,
-        None,
-        false,
-        Some(connector.clone()),
-    )
-    .await
-    .unwrap();
+        .insert("origin", origin.parse().unwrap());
+    let (mut socket, _) =
+        tokio_tungstenite::connect_async_tls_with_config(request, None, false, connector)
+            .await
+            .unwrap();
     socket
         .send(Frame::Text(
             json!({"ticket": ticket["ticket"], "player": true})
@@ -78,28 +74,48 @@ async fn connect(
 
 #[tokio::test]
 async fn trusted_table_reconnects_after_an_offline_unshare() {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let cert = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
-    let tls = RustlsConfig::from_pem(
-        cert.cert.pem().into_bytes(),
-        cert.signing_key.serialize_pem().into_bytes(),
-    )
-    .await
-    .unwrap();
-    let mut roots = rustls::RootCertStore::empty();
-    roots.add(cert.cert.der().clone()).unwrap();
-    let client_tls = rustls::ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    let connector = Connector::Rustls(Arc::new(client_tls));
-    let http = reqwest::Client::builder()
-        .no_proxy()
-        .add_root_certificate(reqwest::Certificate::from_der(cert.cert.der()).unwrap())
-        .build()
+    exercise_table(true).await;
+}
+
+#[tokio::test]
+async fn plain_lan_table_reconnects_after_an_offline_unshare() {
+    exercise_table(false).await;
+}
+
+async fn exercise_table(secure: bool) {
+    let (tls, connector, http) = if secure {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let cert = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+        let tls = RustlsConfig::from_pem(
+            cert.cert.pem().into_bytes(),
+            cert.signing_key.serialize_pem().into_bytes(),
+        )
+        .await
         .unwrap();
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(cert.cert.der().clone()).unwrap();
+        let client_tls = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let connector = Connector::Rustls(Arc::new(client_tls));
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .add_root_certificate(reqwest::Certificate::from_der(cert.cert.der()).unwrap())
+            .build()
+            .unwrap();
+        (Some(tls), Some(connector), http)
+    } else {
+        (
+            None,
+            None,
+            reqwest::Client::builder().no_proxy().build().unwrap(),
+        )
+    };
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let address = listener.local_addr().unwrap().to_string();
+    let scheme = if secure { "https" } else { "http" };
+    let origin = format!("{scheme}://{address}");
     let app = tauri::test::mock_app();
     app.manage(AppState::default());
     let campaign = app.state::<AppState>();
@@ -125,7 +141,11 @@ async fn trusted_table_reconnects_after_an_offline_unshare() {
         element: Some(visible.meta.id.clone()),
     });
     let served = Arc::new(ServerState {
-        origin: Some(format!("https://{address}")),
+        origins: browser_origins(
+            secure.then_some(origin.as_str()),
+            listener.local_addr().unwrap().port(),
+            &[],
+        ),
         app: app.handle().clone(),
         code: "123456".into(),
         players: Arc::default(),
@@ -142,11 +162,32 @@ async fn trusted_table_reconnects_after_an_offline_unshare() {
         .route("/api/live", get(upgrade))
         .route("/api/elements/{id}/sheet", put(update_sheet))
         .with_state(served.clone());
-    let server = axum_server::from_tcp_rustls(listener, tls).unwrap();
-    let task =
-        tokio::spawn(server.serve(router.into_make_service_with_connect_info::<SocketAddr>()));
+    let service = router.into_make_service_with_connect_info::<SocketAddr>();
+    let task = match tls {
+        Some(config) => tokio::spawn(
+            axum_server::from_tcp_rustls(listener, config)
+                .unwrap()
+                .serve(service),
+        ),
+        None => tokio::spawn(axum_server::from_tcp(listener).unwrap().serve(service)),
+    };
+    let mut foreign = format!("{}/api/live", origin.replacen("http", "ws", 1))
+        .into_client_request()
+        .unwrap();
+    foreign
+        .headers_mut()
+        .insert("sec-websocket-protocol", LIVE_PROTOCOL.parse().unwrap());
+    foreign
+        .headers_mut()
+        .insert("origin", "http://another-table.local".parse().unwrap());
+    let denied =
+        tokio_tungstenite::connect_async_tls_with_config(foreign, None, false, connector.clone())
+            .await;
+    assert!(
+        matches!(denied, Err(tokio_tungstenite::tungstenite::Error::Http(response)) if response.status() == StatusCode::FORBIDDEN)
+    );
     let joined: JoinResponse = http
-        .post(format!("https://{address}/api/join"))
+        .post(format!("{origin}/api/join"))
         .json(&json!({"name":"Mira","code":"123456"}))
         .send()
         .await
@@ -180,7 +221,7 @@ async fn trusted_table_reconnects_after_an_offline_unshare() {
         });
         assert_ne!(seat.connection_id, joined.token);
     }
-    let mut socket = connect(&address, &http, &connector, &joined.token).await;
+    let mut socket = connect(&origin, &http, connector.clone(), &joined.token).await;
     let first = receive(&mut socket).await;
     assert_eq!(first.spotlight.as_ref(), Some(&visible.meta.id));
     let snapshot = first.delta.unwrap();
@@ -199,7 +240,7 @@ async fn trusted_table_reconnects_after_an_offline_unshare() {
             .contains(&hidden.meta.id)
     );
     socket.close(None).await.unwrap();
-    let sheet_url = format!("https://{address}/api/elements/{}/sheet", visible.meta.id);
+    let sheet_url = format!("{origin}/api/elements/{}/sheet", visible.meta.id);
     let save = || {
         http.put(&sheet_url)
             .bearer_auth(&joined.token)
@@ -239,7 +280,7 @@ async fn trusted_table_reconnects_after_an_offline_unshare() {
             base_version: Some(handout.version),
         })
         .unwrap();
-    let mut socket = connect(&address, &http, &connector, &joined.token).await;
+    let mut socket = connect(&origin, &http, connector.clone(), &joined.token).await;
     let next = receive(&mut socket).await.delta.unwrap();
     assert!(next.reset && next.upserts.is_empty());
     let shared = campaign
@@ -263,7 +304,7 @@ async fn trusted_table_reconnects_after_an_offline_unshare() {
         .unwrap();
     assert!(!matches!(end, Some(Ok(Frame::Text(_)))));
     assert_eq!(
-        http.post(format!("https://{address}/api/live/ticket"))
+        http.post(format!("{origin}/api/live/ticket"))
             .bearer_auth(&joined.token)
             .send()
             .await

@@ -1,10 +1,11 @@
 /** One reader per joined browser tab. Queue overflow forces a fresh snapshot. */
 export function tableSocket(ticket, player = false) {
   const { location, WebSocket, clearTimeout, setTimeout } = globalThis;
-  if (location.protocol !== "https:")
-    throw new Error("Secure table requires HTTPS");
+  if (location.protocol !== "https:" && location.protocol !== "http:")
+    throw new Error("Unsupported table URL");
+  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(
-    "wss://" + location.host + "/api/live",
+    scheme + "//" + location.host + "/api/live",
     "table.ws.v1",
   );
   const queue = [];
