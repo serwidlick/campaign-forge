@@ -32,7 +32,11 @@ export interface PlayerSource {
   /** The campaign's paired players, for naming a sheet's owner. */
   players?: PlayerName[];
   /** Saves the sheet of a character this player owns. */
-  updateSheet?(id: string, sheet: unknown): Promise<Element>;
+  updateSheet?(
+    id: string,
+    sheet: unknown,
+    baseVersion: string,
+  ): Promise<Element>;
   /** Writes a new note, as this player, into the GM's campaign folder. */
   createNote?(input: NoteInput): Promise<Element>;
   /** Changes or shares a note this player wrote. */
@@ -89,7 +93,8 @@ export function remoteSource(
     playerName,
     playerId,
     players,
-    updateSheet: (id, sheet) => table.updateSheet(id, sheet),
+    updateSheet: (id, sheet, baseVersion) =>
+      table.updateSheet(id, sheet, baseVersion),
     createNote: (input) => table.createNote(input),
     updateNote: (id, input) => table.updateNote(id, input),
     deleteNote: (id) => table.deleteNote(id),

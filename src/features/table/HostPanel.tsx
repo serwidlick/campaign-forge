@@ -56,7 +56,9 @@ export function HostPanel({
     ? browserUrlOf(hosting.hostName, port)
     : null;
   const ipUrls = (hosting?.addresses ?? []).map((a) =>
-    browserUrlOf(a.split(":")[0] ?? a, port),
+    a.startsWith("https://")
+      ? a + "/"
+      : browserUrlOf(a.split(":")[0] ?? a, port),
   );
   const browserUrls = nameUrl ? [nameUrl, ...ipUrls] : ipUrls;
   const browserUrl =

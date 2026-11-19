@@ -112,26 +112,37 @@ pub fn shared_summaries(
     state: &AppState,
     viewer: Option<&Viewer<'_>>,
 ) -> Result<Vec<ElementSummary>, StorageError> {
-    let all = state.list_elements()?;
-    let visible = shared_ids(&all, viewer);
-    Ok(all
+    Ok(shared_versions(state, viewer)?
         .into_iter()
-        .filter(|e| visible.contains(&e.meta.id))
-        .map(|mut e| {
-            // Links are derived from what players actually get, so a mention
-            // in the GM-only part of a body never shows up as a backlink.
-            if let Ok(full) = state.read_element(&e.meta.id) {
-                let own = viewer.is_some_and(|v| is_own_note(&e.meta.kind, &e.meta.extra, v));
-                let body = if own {
-                    full.body
-                } else {
-                    player_body(&full.body).0
-                };
-                e.links = extract_links(&body);
-            }
-            sanitize_summary(e, &visible)
-        })
+        .map(|(summary, _)| summary)
         .collect())
+}
+
+pub(super) fn shared_versions(
+    state: &AppState,
+    viewer: Option<&Viewer<'_>>,
+) -> Result<Vec<(ElementSummary, String)>, StorageError> {
+    let entries = state.table_entries()?;
+    let visible: HashSet<_> = entries
+        .iter()
+        .filter(|entry| can_see(&entry.summary.meta.kind, &entry.summary.meta.extra, viewer))
+        .map(|entry| entry.summary.meta.id.clone())
+        .collect();
+    let mut summaries = Vec::new();
+    for entry in entries {
+        let mut summary = entry.summary;
+        if !visible.contains(&summary.meta.id) {
+            continue;
+        }
+        if !viewer.is_some_and(|v| is_own_note(&summary.meta.kind, &summary.meta.extra, v)) {
+            summary.links = entry.player_links;
+        }
+        summaries.push((sanitize_summary(summary, &visible), entry.version));
+    }
+    summaries.sort_by(|(a, _), (b, _)| {
+        (&a.meta.kind, &a.meta.name, &a.meta.id).cmp(&(&b.meta.kind, &b.meta.name, &b.meta.id))
+    });
+    Ok(summaries)
 }
 
 /// One shared element with its body, or `None` when it is not shared.
@@ -140,12 +151,19 @@ pub fn shared_element(
     id: &str,
     viewer: Option<&Viewer<'_>>,
 ) -> Result<Option<Element>, StorageError> {
-    let all = state.list_elements()?;
+    let all: Vec<_> = state
+        .table_entries()?
+        .into_iter()
+        .map(|entry| entry.summary)
+        .collect();
     let visible = shared_ids(&all, viewer);
     if !visible.contains(id) {
         return Ok(None);
     }
     let element = state.read_element(id)?;
+    if !can_see(&element.meta.kind, &element.meta.extra, viewer) {
+        return Ok(None);
+    }
     let own = viewer.is_some_and(|v| is_own_note(&element.meta.kind, &element.meta.extra, v));
     Ok(Some(sanitize_element(element, &visible, own)))
 }
@@ -198,7 +216,11 @@ pub fn create_note(
         extra: Some(created.meta.extra.clone()),
         base_version: Some(created.version.clone()),
     })?;
-    let all = state.list_elements()?;
+    let all: Vec<_> = state
+        .table_entries()?
+        .into_iter()
+        .map(|entry| entry.summary)
+        .collect();
     let visible = shared_ids(&all, Some(viewer));
     Ok(sanitize_element(saved, &visible, true))
 }
@@ -237,7 +259,11 @@ pub fn update_note(
         extra: Some(extra),
         base_version: input.base_version,
     })?;
-    let all = state.list_elements()?;
+    let all: Vec<_> = state
+        .table_entries()?
+        .into_iter()
+        .map(|entry| entry.summary)
+        .collect();
     let visible = shared_ids(&all, Some(viewer));
     Ok(Some(sanitize_element(saved, &visible, true)))
 }
@@ -284,6 +310,7 @@ pub fn update_sheet(
     id: &str,
     viewer: &Viewer<'_>,
     mut sheet: Value,
+    base_version: String,
 ) -> Result<Option<Element>, StorageError> {
     let element = match state.read_element(id) {
         Ok(e) => e,
@@ -307,9 +334,13 @@ pub fn update_sheet(
         tags: element.meta.tags.clone(),
         body: element.body.clone(),
         extra: Some(extra),
-        base_version: Some(element.version.clone()),
+        base_version: Some(base_version),
     })?;
-    let all = state.list_elements()?;
+    let all: Vec<_> = state
+        .table_entries()?
+        .into_iter()
+        .map(|entry| entry.summary)
+        .collect();
     let visible = shared_ids(&all, Some(viewer));
     Ok(Some(sanitize_element(saved, &visible, false)))
 }

@@ -8,13 +8,13 @@ use super::campaign::ELEMENTS_DIR;
 use super::error::StorageError;
 use super::frontmatter;
 use super::links::extract_links;
-use super::model::{
-    Element, ElementMeta, ElementSummary, Extra, SaveElementInput, new_id, now_rfc3339,
-};
+use super::model::{Element, ElementMeta, Extra, SaveElementInput, new_id, now_rfc3339};
 use super::slug::slugify;
 
 /// Walks `elements/` and returns every element's metadata plus an id -> path index.
-pub fn scan(root: &Path) -> Result<(Vec<ElementSummary>, HashMap<String, PathBuf>), StorageError> {
+pub fn scan(
+    root: &Path,
+) -> Result<(Vec<super::TableEntry>, HashMap<String, PathBuf>), StorageError> {
     let dir = root.join(ELEMENTS_DIR);
     let mut summaries = Vec::new();
     let mut index = HashMap::new();
@@ -42,10 +42,10 @@ pub fn scan(root: &Path) -> Result<(Vec<ElementSummary>, HashMap<String, PathBuf
                     if file_name_len(other) <= file_name_len(path) {
                         continue;
                     }
-                    summaries.retain(|s: &ElementSummary| s.meta.id != element.meta.id);
+                    summaries.retain(|s: &super::TableEntry| s.summary.meta.id != element.meta.id);
                 }
                 index.insert(element.meta.id.clone(), path.to_path_buf());
-                summaries.push(element.summary());
+                summaries.push(super::TableEntry::from(&element));
             }
             Err(StorageError::InvalidFrontmatter { .. }) => {
                 // Skip files we cannot parse rather than failing the whole scan.
@@ -57,10 +57,11 @@ pub fn scan(root: &Path) -> Result<(Vec<ElementSummary>, HashMap<String, PathBuf
     }
 
     summaries.sort_by(|a, b| {
-        a.meta
+        a.summary
+            .meta
             .kind
-            .cmp(&b.meta.kind)
-            .then_with(|| a.meta.name.cmp(&b.meta.name))
+            .cmp(&b.summary.meta.kind)
+            .then_with(|| a.summary.meta.name.cmp(&b.summary.meta.name))
     });
     Ok((summaries, index))
 }

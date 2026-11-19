@@ -1,3 +1,4 @@
+import { applyDelta } from "@/lib/table-live.js";
 import { create } from "zustand";
 
 import { inTauri, isMobile } from "@/lib/platform";
@@ -108,7 +109,8 @@ export const useTableStore = create<TableState>((set, get) => {
   async function runSyncLoop(generation: number, startVersion: number) {
     let version = startVersion;
     let event = 0;
-    let needFetch = true;
+    const live = !!get().session?.info.liveProtocol;
+    let needFetch = !live;
     while (generation === loopGeneration) {
       try {
         const gm = get().session?.gm ?? false;
@@ -126,6 +128,13 @@ export const useTableStore = create<TableState>((set, get) => {
         }
         set({ connection: "connected" });
         const session = get().session;
+        if (
+          session &&
+          next.playerId !== undefined &&
+          next.playerId !== session.playerId
+        ) {
+          set({ session: { ...session, playerId: next.playerId } });
+        }
         if (session && next.gm !== session.gm) {
           // The host granted or revoked GM standing while we are connected.
           if (!next.gm && !inTauri) {
@@ -133,7 +142,13 @@ export const useTableStore = create<TableState>((set, get) => {
             await detach(REVOKED_NOTICE);
             return;
           }
-          set({ session: { ...session, gm: next.gm } });
+          set({
+            session: {
+              ...session,
+              playerId: next.playerId ?? null,
+              gm: next.gm,
+            },
+          });
           // The phone app has no GM screen to load the campaign into.
           if (next.gm) {
             if (!isMobile) await enterGm();
@@ -141,9 +156,16 @@ export const useTableStore = create<TableState>((set, get) => {
             exitGm();
           }
           if (generation !== loopGeneration) return;
-          needFetch = true;
+          needFetch = !live;
         }
-        if (next.spotlightSeq > event) {
+        if (next.delta) {
+          set({ elements: applyDelta(get().elements, next.delta) });
+        }
+        if (!next.spotlight) set({ spotlight: null });
+        if (
+          next.spotlightSeq > event ||
+          (next.spotlight && next.delta?.reset)
+        ) {
           event = next.spotlightSeq;
           if (next.gm) {
             void get().refreshHost();
@@ -151,24 +173,32 @@ export const useTableStore = create<TableState>((set, get) => {
             set({ spotlight: { id: next.spotlight, seq: next.spotlightSeq } });
           }
         }
-        if (next.version > version) {
+        if (
+          next.version > version ||
+          next.delta?.reset ||
+          (live && next.changes)
+        ) {
           version = next.version;
           set({ version });
           if (next.gm) {
             if (next.changes) notifyFilesChanged(next.changes);
           } else {
-            needFetch = true;
+            needFetch = !live;
           }
         }
       } catch (err) {
         if (generation !== loopGeneration) return;
+        if (errorMessage(err) === "TABLE_UNAUTHORIZED") {
+          await detach("Your table session has ended. Join the table again.");
+          return;
+        }
         if (errorMessage(err) === CLOSED_ERROR) {
           await detach(CLOSED_NOTICE);
           return;
         }
         set({ connection: "reconnecting" });
-        needFetch = true;
-        await sleep(RETRY_MS);
+        needFetch = !live;
+        await sleep(RETRY_MS + Math.random() * 1000);
       }
     }
   }

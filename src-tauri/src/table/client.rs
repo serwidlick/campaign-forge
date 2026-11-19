@@ -4,8 +4,15 @@
 use std::path::Path;
 use std::time::Duration;
 
+use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::Value;
+use std::sync::Arc;
+use tokio::sync::{Mutex, watch};
+use tokio_tungstenite::{
+    MaybeTlsStream, WebSocketStream,
+    tungstenite::{Message, client::IntoClientRequest},
+};
 
 use crate::storage::{Element, ElementSummary, MAX_DOCUMENT_BYTES};
 
@@ -21,9 +28,13 @@ pub const CLOSED_ERROR: &str = "TABLE_CLOSED";
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// A joined table. Cheap to clone; the HTTP client is reference counted.
+type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+
 #[derive(Clone)]
 pub struct Session {
     http: reqwest::Client,
+    live: Arc<Mutex<Option<Socket>>>,
+    stop: watch::Sender<bool>,
     base: String,
     token: String,
     pub info: TableInfo,
@@ -48,16 +59,18 @@ pub struct SessionInfo {
 }
 
 fn normalise(address: &str) -> String {
-    let trimmed = address
-        .trim()
-        .trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .trim_end_matches('/');
+    let trimmed = address.trim().trim_end_matches('/');
+    if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+        return trimmed.to_owned();
+    }
     format!("http://{trimmed}")
 }
 
 async fn describe(resp: reqwest::Response) -> String {
     let status = resp.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        return "TABLE_UNAUTHORIZED".to_owned();
+    }
     if status == reqwest::StatusCode::GONE {
         return CLOSED_ERROR.to_owned();
     }
@@ -86,6 +99,7 @@ impl Session {
     ) -> Result<Session, String> {
         let base = normalise(address);
         let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
             // Long enough for the version long-poll, which answers within 25 s.
             .timeout(Duration::from_secs(40))
             .connect_timeout(Duration::from_secs(5))
@@ -128,6 +142,8 @@ impl Session {
         let joined: JoinResponse = resp.json().await.map_err(|e| e.to_string())?;
         Ok(Session {
             http,
+            live: Arc::default(),
+            stop: watch::channel(false).0,
             base,
             token: joined.token,
             info: joined.info,
@@ -137,6 +153,10 @@ impl Session {
             recognized: joined.recognized,
             gm: joined.gm,
         })
+    }
+
+    pub fn disconnect(&self) {
+        self.stop.send_replace(true);
     }
 
     pub fn summary(&self) -> SessionInfo {
@@ -203,11 +223,13 @@ impl Session {
         &self,
         id: &str,
         sheet: serde_json::Value,
+        base_version: &str,
     ) -> Result<Element, String> {
         let resp = self
             .http
             .put(format!("{}/api/elements/{id}/sheet", self.base))
             .bearer_auth(&self.token)
+            .header("x-base-version", base_version)
             .json(&sheet)
             .send()
             .await
@@ -352,10 +374,92 @@ impl Session {
         resp.json().await.map_err(|e| e.to_string())
     }
 
-    /// Returns once the GM's campaign has changed past `after` or the
-    /// spotlight has moved past `event`, or after the server's long-poll
-    /// window with the current version.
+    async fn connect_live(&self) -> Result<Socket, String> {
+        let host = self
+            .base
+            .strip_prefix("https://")
+            .ok_or("table requires HTTPS")?;
+        let response = self
+            .http
+            .post(format!("{}/api/live/ticket", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(connection_error)?;
+        if !response.status().is_success() {
+            return Err(describe(response).await);
+        }
+        #[derive(serde::Deserialize)]
+        struct Ticket {
+            ticket: String,
+        }
+        let ticket: Ticket = response.json().await.map_err(|e| e.to_string())?;
+        let mut request = format!("wss://{host}/api/live")
+            .into_client_request()
+            .map_err(|e| e.to_string())?;
+        request.headers_mut().insert(
+            "sec-websocket-protocol",
+            super::server::LIVE_PROTOCOL
+                .parse()
+                .expect("static protocol"),
+        );
+        let (mut socket, response) = tokio_tungstenite::connect_async(request)
+            .await
+            .map_err(|e| e.to_string())?;
+        if response
+            .headers()
+            .get("sec-websocket-protocol")
+            .and_then(|v| v.to_str().ok())
+            != Some(super::server::LIVE_PROTOCOL)
+        {
+            return Err("unsupported table protocol".into());
+        }
+        let hello = serde_json::json!({ "ticket": ticket.ticket, "player": cfg!(any(target_os="android", target_os="ios")) });
+        socket
+            .send(Message::Text(hello.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(socket)
+    }
+
+    async fn live_change(&self) -> Result<VersionResponse, String> {
+        let mut stop = self.stop.subscribe();
+        if *stop.borrow() {
+            return Err(CLOSED_ERROR.into());
+        }
+        let mut guard = self.live.lock().await;
+        tokio::select! {
+            _ = stop.changed() => Err(CLOSED_ERROR.into()),
+            result = async {
+                // Taking the socket also drops it on any error or cancelled read.
+                let mut socket = match guard.take() {
+                    Some(s) => s,
+                    None => tokio::time::timeout(Duration::from_secs(15), self.connect_live()).await.map_err(|_| "table connection timed out")??,
+                };
+                loop {
+                    match tokio::time::timeout(Duration::from_secs(55), socket.next()).await
+                        .map_err(|_| "table connection timed out")?.transpose().map_err(|e| e.to_string())? {
+                        Some(Message::Text(text)) if text == "heartbeat" => {}
+                        Some(Message::Text(text)) => {
+                            let change = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+                            *guard = Some(socket);
+                            return Ok(change);
+                        }
+                        Some(Message::Ping(_)) => socket.flush().await.map_err(|e| e.to_string())?,
+                        _ => return Err("table disconnected".into()),
+                    }
+                }
+            } => result,
+        }
+    }
+
     pub async fn wait_for_change(&self, after: u64, event: u64) -> Result<VersionResponse, String> {
+        if let Some(protocol) = &self.info.live_protocol {
+            if protocol != super::server::LIVE_PROTOCOL {
+                return Err("unsupported table protocol".into());
+            }
+            return self.live_change().await;
+        }
         let resp = self
             .get(&format!("/api/version?after={after}&event={event}"))
             .send()
