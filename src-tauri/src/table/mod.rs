@@ -411,8 +411,17 @@ pub async fn table_wait_for_change(
     table: State<'_, TableState>,
     after: u64,
     event: u64,
+    subscribe: Option<bool>,
 ) -> CommandResult<VersionResponse> {
-    session(&table)?.wait_for_change(after, event).await
+    let reader = {
+        let mut guard = lock(&table.client)?;
+        let session = guard.as_mut().ok_or("not joined to a table")?;
+        if subscribe == Some(true) {
+            session.restart_reader();
+        }
+        session.clone()
+    };
+    reader.wait_for_change(after, event).await
 }
 
 // ---- Working as a GM from another machine ---------------------------------

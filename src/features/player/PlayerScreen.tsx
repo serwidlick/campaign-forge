@@ -169,12 +169,12 @@ export function PlayerScreen({
   }, [selectedId, source]);
 
   const open = useCallback((id: string) => setSelectedId(id), []);
-  const element =
-    opened &&
-    opened.id === selectedId &&
-    source.elements.some((item) => item.id === selectedId)
-      ? opened.element
-      : undefined;
+  const listed = elements.some((item) => item.id === selectedId);
+  const element = listed
+    ? opened?.id === selectedId
+      ? opened?.element
+      : undefined
+    : null;
   const narrow = useNarrow();
 
   const createNote = source.createNote;

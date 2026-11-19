@@ -68,7 +68,7 @@ jobs:
           workspaces: src-tauri
       - run: cargo fmt --check
         working-directory: src-tauri
-      - run: cargo test --lib --locked
+      - run: cargo test --lib --locked --config .cargo/windows-tests.toml
         working-directory: src-tauri
       - run: cargo clippy -- -D warnings
         working-directory: src-tauri

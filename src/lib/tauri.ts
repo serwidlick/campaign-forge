@@ -124,7 +124,11 @@ async function webCommand(
     case "table_delete_note":
       return web.deleteNote(args.id as string);
     case "table_wait_for_change":
-      return web.waitForChange(args.after as number, args.event as number);
+      return web.waitForChange(
+        args.after as number,
+        args.event as number,
+        args.subscribe === true,
+      );
     case "table_gm_call":
       return web.gmCall(args.command as string, args.args);
     case "table_gm_asset":
@@ -479,8 +483,12 @@ export const table = {
   },
   /** Resolves when the GM's version passes `after`, after ~25 s, or when
    *  the GM stops hosting (`closed`). */
-  waitForChange(after: number, event: number) {
-    return ipc<TableChange>("table_wait_for_change", { after, event });
+  waitForChange(after: number, event: number, subscribe: boolean) {
+    return ipc<TableChange>("table_wait_for_change", {
+      after,
+      event,
+      subscribe,
+    });
   },
   /** Show an element on every player's screen; null clears it. */
   spotlight(id: string | null) {

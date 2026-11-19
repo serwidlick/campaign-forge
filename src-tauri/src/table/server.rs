@@ -530,21 +530,22 @@ fn served(content_type: &'static str, body: impl IntoResponse, csp: Option<&str>
     response
 }
 
+fn socket_csp(policy: &str, origin: Option<&str>) -> String {
+    match origin {
+        Some(origin) => policy.replace(
+            "connect-src ",
+            &format!("connect-src {} ", origin.replacen("https:", "wss:", 1)),
+        ),
+        None => policy.to_owned(),
+    }
+}
+
 async fn live_script() -> Response {
     served(JS, include_str!("../../../src/lib/table-live.js"), None)
 }
 
 async fn player_page(State(s): State<Served>) -> Response {
-    let csp = match &s.origin {
-        Some(origin) => page_csp().replace(
-            "connect-src 'self'",
-            &format!(
-                "connect-src 'self' {}",
-                origin.replacen("https:", "wss:", 1)
-            ),
-        ),
-        None => page_csp().to_owned(),
-    };
+    let csp = socket_csp(page_csp(), s.origin.as_deref());
     served("text/html; charset=utf-8", PLAYER_PAGE, Some(&csp))
 }
 
@@ -575,8 +576,8 @@ async fn player_icon() -> Response {
 
 /// The app's CSP from `tauri.conf.json` comes with the HTML, as the app's
 /// own window gets it; the browser is told the same.
-fn app_asset_response(app: &AppHandle, path: &str) -> Option<Response> {
-    let asset = app.asset_resolver().get(path.to_owned())?;
+fn app_asset_response(s: &Served, path: &str) -> Option<Response> {
+    let asset = s.app.asset_resolver().get(path.to_owned())?;
     let mut response = asset.bytes.into_response();
     let headers = response.headers_mut();
     if let Ok(mime) = HeaderValue::from_str(&asset.mime_type) {
@@ -586,16 +587,17 @@ fn app_asset_response(app: &AppHandle, path: &str) -> Option<Response> {
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    if let Some(csp) = asset.csp_header.as_deref()
-        && let Ok(value) = HeaderValue::from_str(csp)
-    {
-        headers.insert(header::CONTENT_SECURITY_POLICY, value);
+    if let Some(csp) = asset.csp_header.as_deref() {
+        let csp = socket_csp(csp, s.origin.as_deref());
+        if let Ok(value) = HeaderValue::from_str(&csp) {
+            headers.insert(header::CONTENT_SECURITY_POLICY, value);
+        }
     }
     Some(response)
 }
 
 async fn gm_page(State(s): State<Served>) -> Response {
-    app_asset_response(&s.app, "/index.html").unwrap_or_else(|| {
+    app_asset_response(&s, "/index.html").unwrap_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             "The GM page is not built into this copy of Campaign Forge. In development, run `pnpm build` once so the dist folder exists.",
@@ -606,7 +608,7 @@ async fn gm_page(State(s): State<Served>) -> Response {
 
 /// Scripts, styles and images the GM page refers to by absolute path.
 async fn app_asset(State(s): State<Served>, uri: axum::http::Uri) -> Response {
-    app_asset_response(&s.app, uri.path())
+    app_asset_response(&s, uri.path())
         .unwrap_or_else(|| (StatusCode::NOT_FOUND, "not found").into_response())
 }
 

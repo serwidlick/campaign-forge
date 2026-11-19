@@ -161,7 +161,7 @@ pub fn shared_element(
         return Ok(None);
     }
     let element = state.read_element(id)?;
-    if !can_see(&element.meta.kind, &element.meta.extra, viewer) {
+    if element.meta.id != id || !can_see(&element.meta.kind, &element.meta.extra, viewer) {
         return Ok(None);
     }
     let own = viewer.is_some_and(|v| is_own_note(&element.meta.kind, &element.meta.extra, v));

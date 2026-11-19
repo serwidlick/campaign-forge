@@ -273,7 +273,12 @@ export const web = {
     await request(`/api/notes/${id}`, { method: "DELETE" });
   },
 
-  async waitForChange(after: number, event: number): Promise<TableChange> {
+  async waitForChange(
+    after: number,
+    event: number,
+    subscribe: boolean,
+  ): Promise<TableChange> {
+    if (subscribe) closeLive();
     const seat = current;
     if (seat?.session.info.liveProtocol) {
       if (seat.session.info.liveProtocol !== "table.ws.v1")

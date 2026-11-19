@@ -159,6 +159,13 @@ impl Session {
         self.stop.send_replace(true);
     }
 
+    /// A reloaded webview needs a snapshot even when Rust still owns its old reader.
+    pub fn restart_reader(&mut self) {
+        self.disconnect();
+        self.stop = watch::channel(false).0;
+        self.live = Arc::default();
+    }
+
     pub fn summary(&self) -> SessionInfo {
         SessionInfo {
             address: self.address.clone(),
