@@ -92,10 +92,12 @@ Players only need the same installer, or the Android app on a phone. They do not
 
 ### Making a release
 
-Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub Actions for Windows, macOS (Apple Silicon) and Linux, plus the Android player APK. Bump the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, commit, then tag and push:
+Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub Actions for Windows, macOS (Apple Silicon) and Linux, plus the Android player APK. Include the version bump in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` in a PR to `development`. Once the release is ready, open a PR from `development` to `master` and use **Create a merge commit** to preserve the shared history for the next release. After it merges, tag the promoted commit on `master`. For example, for version `0.5.0`:
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+git fetch origin
+git tag v0.5.0 origin/master
+git push origin v0.5.0
 ```
 
 **Update signing.** Every release must be signed with the updater key or the workflow fails, because installed copies would refuse the update. The key pair was made with `pnpm tauri signer generate`; the public half is in `src-tauri/tauri.conf.json`, the private half lives outside the repository and in these secrets:
@@ -127,9 +129,21 @@ Losing the private key means installed copies can never update again; a new key 
 | `ANDROID_KEY_ALIAS`         | The key's alias, e.g. `campaign-forge`                          |
 | `ANDROID_KEY_PASSWORD`      | The key's password (often the same as the keystore's)           |
 
-The workflow publishes the release with all installers attached, and the download page picks it up by itself. The page lives in `site/` and is deployed to GitHub Pages by the [Pages workflow](.github/workflows/pages.yml) whenever it changes. Both need the repository to be public. To build an installer for the current machine only, run `pnpm tauri:build`; it lands in `src-tauri/target/release/bundle/`.
+The workflow publishes the release with all installers attached, and the download page picks it up by itself. The page lives in `site/` and is deployed to GitHub Pages by the [Pages workflow](.github/workflows/pages.yml) when changes reach `master`. For a manual Pages deployment, select `master` in **Run workflow**. Choosing another branch skips deployment. Both need the repository to be public. To build an installer for the current machine only, run `pnpm tauri:build`; it lands in `src-tauri/target/release/bundle/`.
 
 ## Development
+
+Start each feature or fix from the latest `origin/development` and open its PR against `development`. For example:
+
+```bash
+git fetch origin
+git switch -c feat/my-change origin/development --no-track
+# Commit your changes, then publish the feature branch.
+git push -u origin feat/my-change
+gh pr create --base development
+```
+
+CI checks pull requests and pushes to both long-lived branches. GitHub administrators can enforce this workflow by setting `development` as the default branch, requiring pull requests on both `development` and `master`, and making the **branch target** check required on `master`.
 
 Prerequisites: Node 22, pnpm, a Rust toolchain, and on Windows the Visual Studio C++ build tools. See the [Tauri prerequisites](https://tauri.app/start/prerequisites/).
 
