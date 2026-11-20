@@ -12,6 +12,7 @@ import {
   placeOnEdge,
   snapToEdge,
 } from "../src/lib/presence/dock.js";
+import { SHUFFLE, tripFrames } from "../src/lib/presence/motion.js";
 import { defineStatus, statusOf } from "../src/lib/presence/statuses.js";
 import { elapsedSince, formatDuration } from "../src/lib/presence/time.js";
 
@@ -128,4 +129,32 @@ test("activities are a registry with animations aimed away from the edge", () =>
   assert.equal(activityOf("rolling").target, "face");
   assert.equal(activityOf("nothing"), null);
   assert.deepEqual(inwardFrom("top"), { x: 0, y: 1 });
+});
+
+test("each bubble's shuffle trip starts where it was and lands in place", () => {
+  const frames = tripFrames(-120, 300, 0);
+  assert.equal(frames[0].transform, "translate(-120px, 300px) scale(1)");
+  assert.equal(frames[2].transform, "translate(0px, 0px) scale(1)");
+  assert.equal(frames[1].offset, 0.5);
+  assert.ok(frames[1].transform.endsWith(`scale(${SHUFFLE.squeeze})`));
+});
+
+test("neighbours bow to opposite sides, by at most the arc limit", () => {
+  const mid = (index) => {
+    const [x, y] = tripFrames(0, 400, index)[1]
+      .transform.match(/-?[\d.]+(?=px)/g)
+      .map(Number);
+    return { x, y };
+  };
+  // A trip straight down bows sideways, half way along.
+  assert.equal(mid(0).y, 200);
+  assert.equal(Math.abs(mid(0).x), SHUFFLE.maxArc);
+  assert.equal(mid(0).x, -mid(1).x);
+  // A short trip bows in proportion, and no trip bows at all on the spot.
+  const short = tripFrames(50, 0, 0)[1].transform;
+  assert.ok(short.startsWith("translate(25px, 7px)"));
+  assert.equal(
+    tripFrames(0, 0, 3)[1].transform,
+    "translate(0px, 0px) scale(0.88)",
+  );
 });

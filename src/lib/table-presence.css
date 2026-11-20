@@ -56,11 +56,6 @@
   will-change: transform;
 }
 
-/* Gliding onto an edge after a drag, or when moved with the keyboard. */
-.anchor.settling {
-  transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
 /* ---- The group: just bubbles, no box ------------------------------------ */
 
 .group {
@@ -126,6 +121,14 @@
 
 .dragging .bubble:nth-child(n + 4) {
   transition-delay: 0.06s;
+}
+
+/* On its way out (presence/motion.js): pinned where it was, outside the
+   group's layout, and no longer a target, while it plays out. */
+.bubble.exiting {
+  position: absolute;
+  margin: 0;
+  pointer-events: none;
 }
 
 .bubble.enter {
@@ -526,8 +529,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  .anchor.settling {
+  * {
     animation: none !important;
     transition: none !important;
   }

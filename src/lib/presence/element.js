@@ -6,6 +6,8 @@
  * - statuses.js    what each state looks like (active, away, disconnected)
  * - activities.js  animated things people do (sending a message, ...)
  * - dock.js        edge geometry: placing, clamping, snapping
+ * - motion.js      every change animates: shuffles between edges, hiding
+ *                  into the eye, opening "+N", people arriving and leaving
  * - drag.js        press-and-drag with taps left as taps
  * - prefs.js       per-device choices (edge, hidden)
  *
@@ -17,6 +19,7 @@
 import { playActivity } from "./activities.js";
 import { createBubble, paintCounter, paintEye, paintPerson } from "./bubble.js";
 import { DragController } from "./drag.js";
+import { emerge, measure, revive, shuffle, slide, vanish } from "./motion.js";
 import {
   SIDES,
   clampToArea,
@@ -42,8 +45,6 @@ const BUBBLES_NARROW = 4;
 const NARROW = "(max-width: 480px)";
 /** How long a tapped bubble shows its name on a touch screen. */
 const TIP_MS = 2500;
-/** How long the glide onto an edge takes; matches the stylesheet. */
-const SETTLE_MS = 260;
 /** How often "away for 7 min" is brought up to date. */
 const TICK_MS = 30_000;
 
@@ -63,7 +64,11 @@ export class TablePresence extends HTMLElement {
   /** The bubble showing its name after a tap, and the timer that hides it. */
   #tipped = null;
   #tipTimer = 0;
-  #settleTimer = 0;
+  /** The bubbles' trips of the last shuffle, cancelled if another starts. */
+  #shuffles = [];
+  /** The bubble whose press caused the next render (the eye or "+N"):
+   *  arrivals come out of it and departures fold into it. */
+  #motion = null;
   #ticker = 0;
   /** Bubbles by roster key, kept across updates so focus, animation and
    *  the pop-in stay with the right person. */
@@ -181,10 +186,14 @@ export class TablePresence extends HTMLElement {
     this.hidden = !visible;
     if (!visible) {
       this.#expanded = false;
+      this.#motion = null;
       this.#hideTip();
       this.#tick(false);
       return;
     }
+    // Where every bubble is laid out now, so whatever changes below can
+    // animate from here (presence/motion.js).
+    const before = measure([...this.#group.children], this.#layoutRect);
     const roster = this.#roster;
     const max = this.#narrow?.matches ? BUBBLES_NARROW : BUBBLES;
     const folds = roster.length > max;
@@ -212,8 +221,8 @@ export class TablePresence extends HTMLElement {
         folded: roster.length - shown.length,
         expanded: this.#expanded,
       });
-    } else if (this.#more) {
-      this.#more.remove();
+    } else {
+      // Gone from the order below, so it leaves with the rest.
       this.#more = null;
     }
     this.#eye ??= createBubble("toggle");
@@ -224,37 +233,72 @@ export class TablePresence extends HTMLElement {
     const order = this.#concealed
       ? [this.#eye]
       : [this.#eye, ...people, ...(this.#more ? [this.#more] : [])];
-    this.#arrange(order);
+    const leaving = this.#arrange(order);
     this.#group.setAttribute("aria-label", "At the table, " + roster.length);
     this.#tick(roster.some((e) => statusOf(e.state).ticks));
     this.#place();
+    this.#move(order, leaving, before);
   }
 
-  /** Drops bubbles for people who left, stopping anything they played. */
+  /**
+   * Animates what the render changed. Bubbles that stayed slide to their
+   * new places. Arrivals come out of the eye (shown again) or "+N"
+   * (opened) when that is what was pressed, else they pop in. Departures
+   * fold into the eye or "+N" (hidden, closed), or shrink where they stood
+   * (someone left).
+   */
+  #move(order, leaving, before) {
+    const cause = this.#motion;
+    this.#motion = null;
+    const stayed = order.filter((el) => before.has(el));
+    const arrived = order.filter((el) => !before.has(el));
+    slide(stayed, before, this.#layoutRect);
+    const origin = cause?.isConnected ? this.#layoutRect(cause) : null;
+    if (origin) emerge(arrived, origin, this.#layoutRect);
+    vanish(leaving, before, this.#anchor, origin);
+  }
+
+  /** Where a bubble is laid out, in screen pixels, ignoring any animation
+   *  in flight: its offset within the group plus where the group sits. */
+  #layoutRect = (el) => ({
+    left: this.#pos.x + el.offsetLeft,
+    top: this.#pos.y + el.offsetTop,
+    width: el.offsetWidth,
+    height: el.offsetHeight,
+  });
+
+  /** Forgets bubbles for people who left, stopping anything they played;
+   *  the render then plays them out. */
   #forget(keep) {
     for (const [key, bubble] of this.#bubbles) {
       if (keep.has(key)) continue;
       if (this.#tipped === bubble) this.#hideTip();
       this.#playing.get(key)?.stop();
       this.#playing.delete(key);
-      bubble.remove();
       this.#bubbles.delete(key);
     }
   }
 
   /** Puts bubbles in order, moving only those out of place (moving a
-   *  focused element would drop its focus), and removes the rest. */
+   *  focused element would drop its focus). Returns the bubbles that are no
+   *  longer wanted, taken out of the group for the render to play out. A
+   *  bubble on its way out comes back if wanted again. */
   #arrange(order) {
+    const wanted = new Set(order);
+    const leaving = [...this.#group.children].filter((el) => !wanted.has(el));
+    for (const el of leaving) {
+      if (this.#tipped === el) this.#hideTip();
+      el.remove();
+    }
     order.forEach((bubble, index) => {
+      // Wanted again while leaving: cancel the exit. Others keep whatever
+      // they are playing (a pop-in, a shuffle).
+      if (bubble.classList.contains("exiting")) revive(bubble);
       if (this.#group.children[index] !== bubble) {
         this.#group.insertBefore(bubble, this.#group.children[index] ?? null);
       }
     });
-    while (this.#group.children.length > order.length) {
-      const extra = this.#group.lastElementChild;
-      if (this.#tipped === extra) this.#hideTip();
-      extra.remove();
-    }
+    return leaving;
   }
 
   /** Starts, keeps or stops the animation of someone's activity. */
@@ -322,27 +366,29 @@ export class TablePresence extends HTMLElement {
     this.#anchor.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
   }
 
-  /** Glides the group to its spot instead of jumping. */
-  #settle() {
-    this.#anchor.classList.add("settling");
+  /**
+   * Moves the group to `spot` with the shuffle: every bubble is measured
+   * where it is now (mid-flight, if a shuffle is still running), the group
+   * is laid out in its new place at once, and each bubble then travels
+   * there on its own (presence/motion.js).
+   */
+  #relocate(spot, before = measure([...this.#group.children])) {
+    for (const trip of this.#shuffles) trip.cancel();
+    this.#spot = spot;
+    writeDock(spot);
     this.#place();
-    clearTimeout(this.#settleTimer);
-    this.#settleTimer = setTimeout(
-      () => this.#anchor.classList.remove("settling"),
-      SETTLE_MS,
-    );
+    this.#shuffles = shuffle([...before.keys()], before);
   }
 
   #moveToSide(side) {
-    this.#spot = { side, t: this.#spot.t };
-    writeDock(this.#spot);
-    this.#settle();
+    this.#relocate({ side, t: this.#spot.t });
   }
 
   #dragStart = () => {
     this.#dragFrom = { ...this.#pos };
     this.#hideTip();
-    this.#anchor.classList.remove("settling");
+    for (const trip of this.#shuffles) trip.cancel();
+    this.#shuffles = [];
     this.#anchor.classList.add("dragging");
   };
 
@@ -371,9 +417,11 @@ export class TablePresence extends HTMLElement {
       width: this.#group.offsetWidth,
       height: this.#group.offsetHeight,
     };
-    this.#spot = snapToEdge(area, rect, (side) => this.#layoutFor(side, area));
-    writeDock(this.#spot);
-    this.#settle();
+    // Where everyone is as dropped, before the group is laid out for its
+    // new edge: the shuffle starts from here.
+    const before = measure([...this.#group.children]);
+    const spot = snapToEdge(area, rect, (side) => this.#layoutFor(side, area));
+    this.#relocate(spot, before);
   };
 
   // ---- Interaction ----------------------------------------------------------
@@ -395,12 +443,14 @@ export class TablePresence extends HTMLElement {
     const bubble = event.target.closest?.(".bubble");
     if (!bubble) return;
     if (bubble === this.#eye) {
+      this.#motion = bubble;
       this.#concealed = !this.#concealed;
       writeHidden(this.#concealed);
       this.#expanded = false;
       this.#hideTip();
       this.#render();
     } else if (bubble === this.#more) {
+      this.#motion = bubble;
       this.#expanded = !this.#expanded;
       this.#hideTip();
       this.#render();
@@ -421,6 +471,7 @@ export class TablePresence extends HTMLElement {
       event.stopPropagation();
       this.#hideTip();
       if (this.#expanded) {
+        this.#motion = this.#more;
         this.#expanded = false;
         this.#render();
       }

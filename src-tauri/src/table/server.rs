@@ -706,6 +706,10 @@ const PRESENCE_MODULES: &[(&str, &str)] = &[
     ("dock.js", include_str!("../../../src/lib/presence/dock.js")),
     ("drag.js", include_str!("../../../src/lib/presence/drag.js")),
     (
+        "motion.js",
+        include_str!("../../../src/lib/presence/motion.js"),
+    ),
+    (
         "element.js",
         include_str!("../../../src/lib/presence/element.js"),
     ),
