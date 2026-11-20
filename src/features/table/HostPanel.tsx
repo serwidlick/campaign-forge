@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/Button";
 import { isShared } from "@/features/player/player-model";
+import { inTauri } from "@/lib/platform";
+import { table } from "@/lib/tauri";
 import type { PlayerRecord, TablePlayer } from "@/lib/types";
 
 import { playersOf, shortFingerprint } from "./players-model";
@@ -292,6 +294,7 @@ export function HostPanel({
                     void updateCampaignSettings({ gmName: gmName || null })
                   }
                 />
+                <PlayerMessagesToggle />
               </div>
               {hosting.players.length === 0 ? (
                 <p className="text-sm text-ink-500">
@@ -640,6 +643,43 @@ function GmNameField({
         }}
         className="w-40 rounded border border-ink-700 bg-ink-900 px-2 py-1 text-sm text-ink-100 placeholder:text-ink-600"
       />
+    </label>
+  );
+}
+
+/**
+ * Whether players may message each other (they can always message the GM,
+ * and the GM anyone). Only the hosting machine decides it: a GM's second
+ * device does not see the switch.
+ */
+function PlayerMessagesToggle() {
+  const hostingHere = useTableStore((s) => inTauri && s.session === null);
+  // Read from the host status, never through the chat snapshot: that would
+  // restart the hosting window's message cursor.
+  const fromHost = useTableStore(
+    (s) => s.hosting?.messageRules?.playersMayMessage,
+  );
+  const refreshHost = useTableStore((s) => s.refreshHost);
+  const [pending, setPending] = useState<boolean | null>(null);
+  if (!hostingHere || fromHost === undefined) return null;
+  const allowed = pending ?? fromHost;
+  return (
+    <label className="flex items-center gap-2 text-xs text-ink-400">
+      <input
+        type="checkbox"
+        checked={allowed}
+        onChange={(e) => {
+          const next = e.target.checked;
+          setPending(next);
+          void table
+            .setMessageRules(next)
+            .then(() => refreshHost())
+            .catch(() => {})
+            .finally(() => setPending(null));
+        }}
+        className="accent-ember-400"
+      />
+      Players can message each other
     </label>
   );
 }

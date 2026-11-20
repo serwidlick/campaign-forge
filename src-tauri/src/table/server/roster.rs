@@ -136,17 +136,21 @@ pub(super) async fn run<R: tauri::Runtime>(s: Served<R>) {
     }
 }
 
-/// Snapshots the seats, then the campaign, never holding both, and publishes
-/// the roster if it changed. Returns when the next disconnected entry
-/// expires.
+/// Builds the roster from the seats and the campaign and publishes it if it
+/// changed. Returns when the next disconnected entry expires.
+///
+/// The seats lock is held while the roster is built and handed to the
+/// message hub, so no seat can change (a reconnect, a pairing) between the
+/// snapshot and ending the conversations of anyone it no longer lists. The
+/// order is seats, then hub, as everywhere.
+///
+/// The campaign (the player registry and the GM's name) is read first,
+/// outside the seats lock: reading it waits on storage, which a settings
+/// save holds while it writes, and joins and message commands must not
+/// wait on that. A pairing saves the registry before it changes the seat
+/// and then wakes this task, so a registry read a moment early is followed
+/// at once by a build with the new one.
 fn publish<R: tauri::Runtime>(s: &Served<R>) -> Option<Instant> {
-    let seats: Vec<share::RosterSeat> = s
-        .players
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .values()
-        .map(Player::roster_seat)
-        .collect();
     let state = s.app.state::<AppState>();
     let registry = players::load(&state);
     let gm_name = state.current_campaign().and_then(|meta| {
@@ -155,6 +159,8 @@ fn publish<R: tauri::Runtime>(s: &Served<R>) -> Option<Instant> {
             .and_then(Value::as_str)
             .map(str::to_owned)
     });
+    let seats_guard = s.players.lock().unwrap_or_else(PoisonError::into_inner);
+    let seats: Vec<share::RosterSeat> = seats_guard.values().map(Player::roster_seat).collect();
     let host = share::RosterHost {
         name: gm_name.as_deref(),
         away_since: *s
@@ -165,6 +171,10 @@ fn publish<R: tauri::Runtime>(s: &Served<R>) -> Option<Instant> {
     };
     let (roster, expiry) =
         share::build_roster(&seats, &registry, host, s.roster.grace, s.roster.now());
+    // Before anyone sees this roster, end the conversations of everyone it
+    // no longer lists.
+    s.messages.set_present(&roster);
+    drop(seats_guard);
     let changed = s.roster.tx.send_if_modified(|current| {
         if *current == roster {
             return false;

@@ -1,4 +1,4 @@
-import type { RosterEntry } from "./types";
+import type { RosterEntry, TableChange, TableCommand } from "./types";
 
 export const TAG: "table-presence";
 
@@ -17,7 +17,83 @@ export class TablePresence extends HTMLElement {
   /** Plays an activity (see `defineActivity`) on someone's bubble; `null`
    *  stops it. */
   setActivity(key: string, activity: string | null): void;
+  /** Hands a card section its state (`TableChat` does this for messages). */
+  setSectionState(id: string, value: unknown): void;
+  /** Unread messages by person key, and in all. */
+  setUnread(per: Record<string, number>, total?: number): void;
+  /** Messages arrived live from `from`: an envelope travels to your bubble
+   *  unless their card is open. */
+  messageArrived(from: string, count?: number): void;
+  /** Opens someone's card, as pressing their bubble does. */
+  openCard(key: string): void;
+  closeCard(): void;
 }
+
+/**
+ * Table messages for a page: conversation state, resends, Seen and unread,
+ * and the card's events. Lives with the connection; attach it to the
+ * bubbles whenever they exist.
+ */
+export class TableChat {
+  constructor(options: {
+    /** Hands one command to the table: true/false for went out or not, or
+     *  a promise of that, or of the ack for a send. */
+    send: (command: TableCommand) => unknown;
+    now?: () => number;
+  });
+  /** This device's person, when the frames do not say ("host" hosting). */
+  you: string | null;
+  /** Every frame from the table. */
+  receive(frame: Partial<TableChange> | null | undefined): void;
+  /** The socket dropped (false) or a new one is up (true). */
+  connected(on: boolean): void;
+  sendMessage(to: string, text: string): string | null;
+  attach(element: TablePresence | null): void;
+  detach(): void;
+  dispose(): void;
+}
+
+/** Context card sections and actions are given. */
+export interface CardContext {
+  you: string | null;
+  me: RosterEntry | null;
+  now: number;
+  offset: number;
+  state(id: string): unknown;
+}
+
+export interface CardApi {
+  emit(name: string, detail?: Record<string, unknown>): void;
+  state(id: string): unknown;
+  announce(text: string): void;
+  signal: AbortSignal | null;
+}
+
+/** Adds or replaces a section of the person card. */
+export function defineCardSection<H = unknown>(
+  id: string,
+  def: {
+    order?: number;
+    when?: (
+      entry: RosterEntry & { self?: boolean },
+      ctx: CardContext,
+    ) => boolean;
+    mount: (root: HTMLElement, entry: RosterEntry, api: CardApi) => H;
+    update?: (handle: H, entry: RosterEntry, ctx: CardContext) => void;
+    unmount?: (handle: H) => void;
+  },
+): void;
+
+/** Adds or replaces a button in the person card's header. */
+export function defineCardAction(
+  id: string,
+  def: {
+    label: string;
+    icon?: string | null;
+    when?: (entry: RosterEntry, ctx: CardContext) => boolean;
+    run: (entry: RosterEntry, api: CardApi) => void;
+  },
+): void;
 
 /** Registers `<table-presence>` once; safe to call more than once. */
 export function defineTablePresence(): void;

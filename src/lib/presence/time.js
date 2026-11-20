@@ -25,3 +25,40 @@ export function formatDuration(ms) {
 export function elapsedSince(since, now = Date.now(), offset = 0) {
   return now - offset - since;
 }
+
+function startOfDay(ms) {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** Which day `at` falls on, relative to `now` (both this device's clock):
+ *  0 today, 1 yesterday, and so on. Calendar days, not 24-hour spans. */
+export function daysAgo(at, now = Date.now()) {
+  return Math.round((startOfDay(now) - startOfDay(at)) / DAY);
+}
+
+/** When a message was sent, as people say it: "4:32 PM" today,
+ *  "Yesterday 4:32 PM", the weekday within the week, else the date. */
+export function formatClock(at, now = Date.now(), locale) {
+  const time = new Date(at).toLocaleTimeString(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const days = daysAgo(at, now);
+  if (days <= 0) return time;
+  if (days === 1) return "Yesterday " + time;
+  if (days < 7) {
+    return (
+      new Date(at).toLocaleDateString(locale, { weekday: "long" }) + " " + time
+    );
+  }
+  return (
+    new Date(at).toLocaleDateString(locale, {
+      day: "numeric",
+      month: "short",
+    }) +
+    " " +
+    time
+  );
+}

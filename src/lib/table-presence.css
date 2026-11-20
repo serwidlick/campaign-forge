@@ -99,6 +99,13 @@
   outline-offset: 3px;
 }
 
+/* The bubble being read (hovered or focused) sits above its neighbours,
+   so its tips are never covered by the next bubble's badges. */
+.bubble:hover,
+.bubble:focus-visible {
+  z-index: 3;
+}
+
 @media (hover: hover) {
   .bubble:hover {
     transform: scale(1.07);
@@ -326,8 +333,15 @@
   position: absolute;
   right: -1px;
   bottom: -1px;
-  z-index: 1;
+  /* Above the "You" tag, and while its tip shows, above every neighbouring
+     bubble too: the tip lives inside the badge, so it can only be as high
+     as the badge is. */
+  z-index: 2;
   border-radius: 50%;
+}
+
+.status:hover {
+  z-index: 5;
 }
 
 /* A bigger target than it looks, so its own tip is easy to hover. */
@@ -528,19 +542,18 @@
   --tp-tip-x: 0px;
 }
 
-.bubble.tip-on .tip,
 .bubble:focus-visible .tip {
   z-index: 3;
   opacity: 1;
 }
 
-.side-left .bubble:is(.tip-on, :focus-visible) .tip,
-.side-right .bubble:is(.tip-on, :focus-visible) .tip {
+.side-left .bubble:focus-visible .tip,
+.side-right .bubble:focus-visible .tip {
   --tp-tip-x: 0px;
 }
 
-.side-top .bubble:is(.tip-on, :focus-visible) .tip,
-.side-bottom .bubble:is(.tip-on, :focus-visible) .tip {
+.side-top .bubble:focus-visible .tip,
+.side-bottom .bubble:focus-visible .tip {
   --tp-tip-y: 0px;
 }
 
@@ -565,6 +578,15 @@
   opacity: 0 !important;
 }
 
+/* With their card open, the card says it all: no hover tips on that bubble
+   (its name, or the status badge's "Away for …"). Only the card sets
+   aria-controls on a bubble. */
+.bubble[aria-controls="tp-card"] .tip,
+.bubble[aria-controls="tp-card"] .badge-tip {
+  opacity: 0 !important;
+  visibility: hidden;
+}
+
 @media (max-width: 480px) {
   :host {
     --tp-size: 38px;
@@ -575,5 +597,468 @@
   * {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* ---- Unread messages ------------------------------------------------------ */
+
+/* How many messages from them wait unread, top left of their bubble. */
+.unread {
+  position: absolute;
+  top: -6px;
+  left: -7px;
+  z-index: 2;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--tp-accent);
+  box-shadow: 0 0 0 2px var(--tp-surface);
+  color: #1c1208;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 17px;
+  text-align: center;
+}
+
+.unread.pop {
+  animation: tp-pop 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.35);
+}
+
+/* Beside the eye while everyone is hidden: messages waiting unread. */
+.face.inbox {
+  background: color-mix(in srgb, var(--tp-surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--tp-accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--tp-accent) 55%, transparent),
+    0 8px 20px -8px rgb(0 0 0 / 0.55);
+}
+
+.inbox-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.tally.pop {
+  animation: tp-pop 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.35);
+}
+
+/* An envelope on its way from one bubble to another (card-motion.js). */
+.envelope {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--tp-accent);
+  box-shadow: 0 6px 14px -4px rgb(0 0 0 / 0.6);
+  color: #1c1208;
+  pointer-events: none;
+}
+
+.envelope svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* ---- A person's card ------------------------------------------------------ */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The layer the card (and envelopes) sit in: the whole window, letting
+   every press through except on the card itself. */
+.card-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  max-height: min(460px, calc(100% - 24px));
+  border: 1px solid color-mix(in srgb, var(--tp-line) 80%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--tp-surface) 96%, transparent);
+  box-shadow:
+    0 24px 48px -16px rgb(0 0 0 / 0.65),
+    0 4px 12px rgb(0 0 0 / 0.3);
+  color: var(--tp-text);
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: auto;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.card.sheet {
+  max-height: min(70%, 520px);
+}
+
+.card[inert] {
+  pointer-events: none;
+}
+
+.card-top {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+}
+
+.card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.card-close,
+.card-action {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--tp-muted);
+  cursor: pointer;
+}
+
+.card-close:hover,
+.card-action:hover {
+  background: var(--tp-raised);
+  color: var(--tp-text);
+}
+
+.card-close svg,
+.card-action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.card button:focus-visible,
+.card textarea:focus-visible,
+.thread:focus-visible {
+  outline: 2px solid var(--tp-accent);
+  outline-offset: 2px;
+}
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.card-body.card-gone {
+  opacity: 0.6;
+}
+
+.card-left {
+  margin: 0 14px 14px;
+  color: var(--tp-muted);
+}
+
+/* The built-in header: their face, name, role and status. */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 44px 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--tp-line) 70%, transparent);
+}
+
+/* Nothing below it (your own card): no divider along the card's edge. */
+.section-header:last-child {
+  border-bottom: 0;
+}
+
+.card-face {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--tp-colour);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.card-words {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.card-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-detail {
+  color: var(--tp-muted);
+  font-size: 12px;
+}
+
+/* ---- Messages ------------------------------------------------------------- */
+
+.section-message {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  min-height: 72px;
+  max-height: 260px;
+  padding: 10px 12px 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.card.sheet .thread {
+  max-height: 40vh;
+}
+
+.thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.thread-note,
+.thread-empty {
+  margin: 0 0 8px;
+  color: var(--tp-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* When the conversation was: above the first message and after a pause. */
+.thread-time {
+  align-self: center;
+  margin: 6px 0 0;
+  color: var(--tp-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.thread-time:first-child {
+  margin-top: 0;
+}
+
+.msg {
+  max-width: 82%;
+  padding: 6px 10px;
+  border-radius: 14px;
+  overflow-wrap: anywhere;
+}
+
+.msg-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.msg.theirs {
+  align-self: flex-start;
+  border-bottom-left-radius: 5px;
+  background: var(--tp-raised);
+}
+
+.msg.mine {
+  align-self: flex-end;
+  border-bottom-right-radius: 5px;
+  background: color-mix(in srgb, var(--tp-accent) 85%, #000);
+  color: #1c1208;
+}
+
+.msg.pending {
+  opacity: 0.7;
+}
+
+.msg.failed {
+  background: color-mix(in srgb, #f87171 30%, var(--tp-raised));
+  color: var(--tp-text);
+}
+
+.msg-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.msg-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--tp-text) 30%, transparent);
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.msg-actions svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* "Sending…", "Sent", "Seen", under your newest message. */
+.msg-status {
+  align-self: flex-end;
+  margin: -2px 2px 0;
+  color: var(--tp-muted);
+  font-size: 11px;
+}
+
+.msg-status.seen {
+  color: var(--tp-here);
+}
+
+.msg-status.failed {
+  color: #f87171;
+}
+
+/* Three dots while they type to you. */
+.typing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 14px 6px;
+  color: var(--tp-muted);
+  font-size: 12px;
+}
+
+.typing[hidden] {
+  display: none;
+}
+
+.dots {
+  display: inline-flex;
+  gap: 3px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--tp-raised);
+}
+
+.dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--tp-muted);
+  animation: tp-dot 1.1s ease-in-out infinite;
+}
+
+.dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes tp-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--tp-line) 70%, transparent);
+}
+
+.composer-box {
+  flex: 1;
+  min-height: 34px;
+  max-height: 120px;
+  padding: 7px 10px;
+  border: 1px solid var(--tp-line);
+  border-radius: 10px;
+  background: var(--tp-raised);
+  color: var(--tp-text);
+  font: inherit;
+  resize: none;
+}
+
+.composer-box::placeholder {
+  color: var(--tp-muted);
+}
+
+.composer-box:disabled {
+  opacity: 0.55;
+}
+
+.composer-send {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--tp-accent);
+  color: #1c1208;
+  cursor: pointer;
+}
+
+.composer-send:disabled {
+  background: var(--tp-raised);
+  color: var(--tp-muted);
+  cursor: default;
+}
+
+.composer-send svg {
+  width: 16px;
+  height: 16px;
+}
+
+.composer-reason {
+  margin: -4px 12px 10px;
+  color: var(--tp-muted);
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dots span,
+  .unread.pop,
+  .tally.pop {
+    animation: none;
   }
 }

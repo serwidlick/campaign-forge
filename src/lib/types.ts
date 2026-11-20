@@ -420,6 +420,8 @@ export interface HostStatus {
   spotlight: string | null;
   /** Who is at the table, as everyone there sees it. */
   roster: RosterEntry[];
+  /** Whether players may message each other (the host panel's switch). */
+  messageRules?: MessageRules;
 }
 
 export interface FoundTable {
@@ -468,7 +470,75 @@ export interface TableChange {
   serverTime?: number;
   /** Sent with the roster: which entry is the device receiving the frame. */
   you?: string;
+  /** Sent with `you`: the seat's identity epoch, for message commands. */
+  epoch?: number;
+  /** This person's conversations: the whole set, or what changed. */
+  chats?: Chats;
+  /** Answers to this socket's sends. */
+  acks?: ChatAck[];
+  /** Who is typing to this person now. */
+  typing?: string[];
+  /** Whether players may message each other. */
+  messageRules?: MessageRules;
+  /** The hosting window's message frames: the hub revision they show. */
+  revision?: number;
 }
+
+/** One message. Mirrors `ChatMessage` in src-tauri/src/table/server/messages.rs. */
+export interface ChatMessage {
+  id: string;
+  /** Counts within the conversation only. */
+  seq: number;
+  from: string;
+  text: string;
+  /** Unix ms, host clock. */
+  at: number;
+  /** Only on the sender's own copies. */
+  clientId?: string;
+}
+
+export interface ChatConversation {
+  cid: string;
+  with: string;
+  messages: ChatMessage[];
+  seenByMe: number;
+  seenByThem: number;
+  /** Messages from them not yet seen, counted by the host. */
+  unread: number;
+  ended?: boolean;
+  trimmed?: boolean;
+}
+
+export interface Chats {
+  snapshot?: boolean;
+  conversations: ChatConversation[];
+}
+
+export interface ChatAck {
+  clientId: string;
+  id?: string;
+  cid?: string;
+  seq?: number;
+  error?: string;
+  retryAfter?: number;
+}
+
+export interface MessageRules {
+  playersMayMessage: boolean;
+}
+
+/** A message command a device sends on its live socket. */
+export type TableCommand =
+  | {
+      t: "send";
+      epoch: number;
+      to: string;
+      cid?: string;
+      clientId: string;
+      text: string;
+    }
+  | { t: "typing"; epoch: number; to: string; on: boolean }
+  | { t: "seen"; epoch: number; cid: string; seq: number };
 
 /**
  * What a player sends to write or change a note of their own at the table.
