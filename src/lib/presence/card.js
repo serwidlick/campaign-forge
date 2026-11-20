@@ -13,7 +13,7 @@
 import { cardActions, cardSections } from "./card-sections.js";
 import * as motion from "./card-motion.js";
 import { icon } from "./icons.js";
-import { placeCard } from "./placement.js";
+import { CARD_GAP, SHEET_BELOW, placeCard } from "./placement.js";
 
 const FOCUSABLE =
   "button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -283,11 +283,15 @@ export class Card {
     const card = this.#card;
     const bubble = this.#host.bubbleFor(this.#entry.key);
     const area = this.#host.area();
-    card.classList.remove("sheet");
-    card.style.width = "";
-    // Never taller than what is on screen (a phone's keyboard included);
-    // the conversation scrolls inside.
-    card.style.maxHeight = Math.max(160, area.height - 24) + "px";
+    // Take the final shape first (a sheet on a narrow screen, never taller
+    // than what is on screen, a phone's keyboard included), then measure:
+    // the conversation scrolls inside whatever is left.
+    const sheet = area.width < SHEET_BELOW;
+    card.classList.toggle("sheet", sheet);
+    card.style.width = sheet
+      ? Math.max(0, area.width - 2 * CARD_GAP) + "px"
+      : "";
+    card.style.maxHeight = Math.max(160, area.height - 2 * CARD_GAP) + "px";
     const size = { width: card.offsetWidth, height: card.offsetHeight };
     const rect = bubble
       ? bubble.getBoundingClientRect()
@@ -298,8 +302,6 @@ export class Card {
           height: 0,
         };
     const spot = placeCard(area, rect, this.#host.side(), size);
-    card.classList.toggle("sheet", spot.sheet);
-    if (spot.sheet) card.style.width = spot.width + "px";
     card.style.left = Math.round(spot.x) + "px";
     card.style.top = Math.round(spot.y) + "px";
     return bubble ? spot.origin : null;

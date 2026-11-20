@@ -215,29 +215,28 @@ export class TableChat {
   /** Sends what is due, schedules any wait, and repaints. */
   #flush() {
     if (this.#disposed) return;
+    // One clock reading for both: what goes now and what waits.
+    const now = this.#now();
     if (this.#online) {
-      for (const command of dueSends(
-        this.#state,
-        this.#connection,
-        this.#now(),
-      )) {
+      for (const command of dueSends(this.#state, this.#connection, now)) {
         this.#command(command);
       }
     }
     clearTimeout(this.#timer);
     // Only a wait that can end in a send is timed: offline, or before the
-    // new socket's snapshot, the reconnect itself flushes again.
+    // new socket's snapshot, the reconnect itself flushes again. A send that
+    // went out has its deadline cleared, so whatever still has one is
+    // waiting (or came due since, and goes on the next turn).
     let wake = Infinity;
-    const now = this.#now();
     if (this.#online && this.#state.synced) {
       for (const p of this.#state.pending.values()) {
-        if (p.status === "sending" && p.retryAt > now) {
+        if (p.status === "sending" && p.retryAt > 0) {
           wake = Math.min(wake, p.retryAt);
         }
       }
     }
     if (wake < Infinity) {
-      this.#timer = setTimeout(() => this.#flush(), wake - now);
+      this.#timer = setTimeout(() => this.#flush(), Math.max(0, wake - now));
     }
     this.#publish();
   }

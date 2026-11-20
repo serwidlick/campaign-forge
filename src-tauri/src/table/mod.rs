@@ -398,11 +398,7 @@ pub fn table_message_rules(
 pub fn table_chats(table: State<'_, TableState>) -> CommandResult<server::messages::ChatFrame> {
     let guard = hosting(&table)?;
     let host = guard.as_ref().expect("checked");
-    Ok(host.messages.frame_for(
-        server::messages::HOST_KEY,
-        &mut server::messages::ChatView::default(),
-        std::time::Instant::now(),
-    ))
+    Ok(host.messages.host_snapshot(std::time::Instant::now()))
 }
 
 // ---- Discovery ------------------------------------------------------------

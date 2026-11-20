@@ -378,14 +378,13 @@ pub async fn run<R: tauri::Runtime>(
 ) {
     use tauri::Emitter;
     let mut revision = hub.subscribe();
-    let mut view = ChatView::changes_only();
     loop {
         if *closing.borrow_and_update() {
             break;
         }
         let now = Instant::now();
         let next = hub.expire(now);
-        let frame = hub.frame_for(HOST_KEY, &mut view, now);
+        let frame = hub.host_changes(now);
         if !frame.is_empty() {
             let _ = app.emit(CHATS_EVENT, &frame);
         }
@@ -427,6 +426,10 @@ impl ChatFrame {
 
 pub struct MessageHub {
     inner: Mutex<Hub>,
+    /// What the hosting window has been told: its snapshot and its change
+    /// events share this one cursor, so nothing falls between them. Locked
+    /// before the hub, never after.
+    host_view: Mutex<ChatView>,
     /// Bumped on every change; sockets and the hosting window's task watch
     /// it and work out for themselves whether anything concerns them. Never
     /// sent anywhere.
@@ -437,6 +440,7 @@ impl Default for MessageHub {
     fn default() -> Self {
         Self {
             inner: Mutex::default(),
+            host_view: Mutex::new(ChatView::changes_only()),
             revision: watch::channel(0).0,
         }
     }
@@ -464,6 +468,26 @@ impl MessageHub {
 
     pub fn subscribe(&self) -> watch::Receiver<u64> {
         self.revision.subscribe()
+    }
+
+    /// The hosting window's whole set, and from here on its change events
+    /// carry what changed since (`host_changes`).
+    pub fn host_snapshot(&self, now: Instant) -> ChatFrame {
+        let mut view = self
+            .host_view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        view.reset();
+        self.frame_for(HOST_KEY, &mut view, now)
+    }
+
+    /// What changed for the hosting window since it was last told.
+    pub fn host_changes(&self, now: Instant) -> ChatFrame {
+        let mut view = self
+            .host_view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        self.frame_for(HOST_KEY, &mut view, now)
     }
 
     /// Replaces the present set from the roster just built, ending every
@@ -740,7 +764,23 @@ impl MessageHub {
             sends.retain(|t| now.saturating_duration_since(*t) < SEND_WINDOW);
             !sends.is_empty()
         });
-        let next = hub.leases.values().map(|l| l.expires).min();
+        // Wake again for whichever runs out first: a typing lease, or the
+        // window of a de-duplication record or a send limit.
+        let next = hub
+            .leases
+            .values()
+            .map(|l| l.expires)
+            .chain(
+                hub.dedupe
+                    .values()
+                    .flat_map(|r| r.front().map(|r| r.at + DEDUPE_TTL)),
+            )
+            .chain(
+                hub.sends
+                    .values()
+                    .flat_map(|s| s.front().map(|t| *t + SEND_WINDOW)),
+            )
+            .min();
         if changed {
             self.commit(hub);
         }
@@ -1115,6 +1155,36 @@ mod tests {
         let h = hub.hub();
         assert!(h.dedupe.is_empty(), "dedupe records outlived their window");
         assert!(h.sends.is_empty(), "send buckets outlived their window");
+    }
+
+    #[test]
+    fn the_hosting_window_misses_nothing_between_snapshot_and_changes() {
+        let hub = table();
+        let now = Instant::now();
+        // A conversation starts and is in the snapshot...
+        let cid = send(&hub, "player:a", HOST_KEY, "m1", "hi").cid.unwrap();
+        let snap = hub.host_snapshot(now).chats.unwrap();
+        assert!(snap.snapshot);
+        assert_eq!(snap.conversations[0].cid, cid);
+        // ...and ends before the change publisher has looked: its end is
+        // still announced, because both share one cursor.
+        hub.set_present(&[entry(HOST_KEY, RosterRole::Host)]);
+        let changes = hub.host_changes(now).chats.unwrap();
+        assert!(
+            changes
+                .conversations
+                .iter()
+                .any(|c| c.ended && c.cid == cid)
+        );
+    }
+
+    #[test]
+    fn clean_up_wakes_when_a_record_expires() {
+        let hub = table();
+        let now = Instant::now();
+        send(&hub, "player:a", HOST_KEY, "m1", "hi");
+        let next = hub.expire(now).expect("a wake is due");
+        assert!(next <= now + DEDUPE_TTL);
     }
 
     #[test]
