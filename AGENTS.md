@@ -33,7 +33,7 @@ Commit subjects follow `type: subject` and are enforced by commitlint + husky. T
 
 ## Git
 
-Start work on a feature branch from `origin/development` and target `development` when opening a PR. Promote a tested release with a merge-commit PR from `development` to `master`. Tag releases on `master` after promotion.
+Start work on a feature branch from `origin/development` and target `development` when opening a PR. Promote a tested release with a PR from `development` to `master`. A repository ruleset protects `master`: changes land only through a pull request that is squash-merged, up to date with `master` and passing every CI job, and the branch cannot be force-pushed or deleted. After the squash lands, merge `origin/master` back into `development` so the next promotion shows only new work. Tag releases on `master` after promotion.
 
 Do not commit, push, tag, merge, rebase, or open PRs unless the user asks for it in the current session. Stop at "files edited, checks pass" and summarise. When asked to commit, use the format above. Commits are authored only by real people: never add a `Co-Authored-By` trailer for Codex or any other AI tool to a commit message or PR description, including messages drafted for the user to paste.
 
