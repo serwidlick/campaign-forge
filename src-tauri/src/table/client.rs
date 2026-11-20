@@ -36,6 +36,7 @@ pub struct Session {
     live: Arc<Mutex<Option<Socket>>>,
     stop: watch::Sender<bool>,
     base: String,
+    endpoints: Vec<std::net::SocketAddr>,
     token: String,
     pub info: TableInfo,
     pub address: String,
@@ -106,9 +107,17 @@ impl Session {
         address: &str,
         player_name: &str,
         code: Option<&str>,
+        endpoints: Vec<std::net::SocketAddr>,
     ) -> Result<Session, String> {
         let base = normalise(address);
-        let http = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder();
+        if !endpoints.is_empty() {
+            let url = reqwest::Url::parse(&base).map_err(|e| e.to_string())?;
+            let host = url.host_str().ok_or("missing table host")?;
+            // Resolving here would let an untrusted TXT hostname redirect the join.
+            builder = builder.no_proxy().resolve_to_addrs(host, &endpoints);
+        }
+        let http = builder
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(40))
             .connect_timeout(Duration::from_secs(5))
@@ -168,6 +177,7 @@ impl Session {
             live: Arc::default(),
             stop: watch::channel(false).0,
             base,
+            endpoints,
             token: joined.token,
             info: joined.info,
             address: address.trim().to_owned(),
@@ -422,9 +432,15 @@ impl Session {
                 .parse()
                 .expect("static protocol"),
         );
-        let (mut socket, response) = tokio_tungstenite::connect_async(request)
-            .await
-            .map_err(|e| e.to_string())?;
+        let (mut socket, response) = if self.endpoints.is_empty() {
+            tokio_tungstenite::connect_async(request).await
+        } else {
+            let tcp = tokio::net::TcpStream::connect(&self.endpoints[..])
+                .await
+                .map_err(|e| e.to_string())?;
+            tokio_tungstenite::client_async_tls(request, tcp).await
+        }
+        .map_err(|e| e.to_string())?;
         if response
             .headers()
             .get("sec-websocket-protocol")
@@ -490,8 +506,13 @@ mod tests {
         let task = tokio::spawn(async move {
             axum::serve(listener, server).await.unwrap();
         });
-        let result = Session::join(&address, "Mira", Some("123456")).await;
+        let result = Session::join(&address, "Mira", Some("123456"), Vec::new()).await;
         assert!(matches!(result, Err(message) if message.contains("Update the GM")));
+        // An unresolvable certificate name still reaches the discovered endpoint.
+        let endpoint: std::net::SocketAddr = address.parse().unwrap();
+        let alias = format!("http://table.invalid:{}", endpoint.port());
+        let discovered = Session::join(&alias, "Mira", None, vec![endpoint]).await;
+        assert!(matches!(discovered, Err(message) if message.contains("Update the GM")));
         task.abort();
     }
 }

@@ -402,6 +402,7 @@ export interface HostStatus {
 }
 
 export interface FoundTable {
+  endpoints: string[];
   id: string;
   name: string;
   system: string | null;

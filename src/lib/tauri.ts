@@ -430,8 +430,9 @@ export const table = {
     return ipc<void>("table_discover_stop");
   },
   /** Joins; the code is only needed the first time from a device. */
-  join(address: string, name: string, code?: string) {
+  join(address: string, name: string, code?: string, endpoints?: string[]) {
     return ipc<TableSession>("table_join", {
+      endpoints,
       address,
       name,
       code: code ?? null,

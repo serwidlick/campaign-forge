@@ -46,6 +46,35 @@ pub struct PlayerRecord {
     pub gm: bool,
 }
 
+/// Authorization only needs the current owner and role of each paired device.
+#[derive(Default)]
+pub(crate) struct DeviceRegistry(std::collections::HashMap<String, (String, String, bool)>);
+
+impl DeviceRegistry {
+    pub(crate) fn from_meta(meta: &crate::storage::CampaignMeta) -> Self {
+        let mut registry = Self::default();
+        let records = meta
+            .extra
+            .get("players")
+            .and_then(|value| Vec::<PlayerRecord>::deserialize(value).ok())
+            .unwrap_or_default();
+        for record in records {
+            for device in record.devices {
+                registry
+                    .0
+                    .entry(device.fingerprint)
+                    .or_insert_with(|| (record.id.clone(), record.name.clone(), record.gm));
+            }
+        }
+        registry
+    }
+
+    pub(crate) fn identity(&self, fingerprint: &str, id: &str) -> Option<(String, bool)> {
+        let (owner, name, gm) = self.0.get(fingerprint)?;
+        (owner == id).then(|| (name.clone(), *gm))
+    }
+}
+
 /// The registry of the open campaign; empty when none is open.
 pub fn load(state: &AppState) -> Vec<PlayerRecord> {
     state
