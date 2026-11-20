@@ -13,7 +13,27 @@ permissions:
   contents: write
 
 jobs:
+  release-source:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify release comes from master
+        run: |
+          case "$GITHUB_REF" in
+            refs/heads/master|refs/tags/v*) ;;
+            *) echo "::error::Select master or a version tag on master to publish a release."; exit 1 ;;
+          esac
+          if ! git merge-base --is-ancestor HEAD origin/master; then
+            echo "::error::Merge development into master before releasing this commit."
+            exit 1
+          fi
+
   build:
+    needs: release-source
     strategy:
       fail-fast: false
       matrix:
@@ -93,8 +113,8 @@ jobs:
   # otherwise with a throwaway debug key: that APK installs, but a phone will
   # not upgrade from it to a later, properly signed one without a reinstall.
   android:
-    needs: build
-    if: ${{ !cancelled() }}
+    needs: [release-source, build]
+    if: ${{ !cancelled() && needs.release-source.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       NDK_VERSION: 27.0.12077973
