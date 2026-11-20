@@ -129,7 +129,7 @@ Losing the private key means installed copies can never update again; a new key 
 | `ANDROID_KEY_ALIAS`         | The key's alias, e.g. `campaign-forge`                          |
 | `ANDROID_KEY_PASSWORD`      | The key's password (often the same as the keystore's)           |
 
-The workflow publishes the release with all installers attached, and the download page picks it up by itself. The page lives in `site/` and is deployed to GitHub Pages by the [Pages workflow](.github/workflows/pages.yml) whenever it changes. Both need the repository to be public. To build an installer for the current machine only, run `pnpm tauri:build`; it lands in `src-tauri/target/release/bundle/`.
+The workflow publishes the release with all installers attached, and the download page picks it up by itself. The page lives in `site/` and is deployed to GitHub Pages by the [Pages workflow](.github/workflows/pages.yml) when changes reach `master`. For a manual Pages deployment, select `master` in **Run workflow**. Choosing another branch skips deployment. Both need the repository to be public. To build an installer for the current machine only, run `pnpm tauri:build`; it lands in `src-tauri/target/release/bundle/`.
 
 ## Development
 
