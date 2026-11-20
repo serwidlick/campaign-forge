@@ -14,11 +14,11 @@ use tokio_tungstenite::{
     tungstenite::{Message, client::IntoClientRequest},
 };
 
-use crate::storage::{Element, ElementSummary, MAX_DOCUMENT_BYTES};
+use crate::storage::{Element, MAX_DOCUMENT_BYTES};
 
 use crate::identity::{DeviceKey, device_label};
 
-use super::server::{Challenge, JoinResponse, TableInfo, VersionResponse};
+use super::server::{Challenge, JoinResponse, TableChange, TableInfo};
 use super::share::NoteInput;
 
 /// Error text the frontend recognises as "the table closed".
@@ -91,6 +91,16 @@ fn connection_error(e: reqwest::Error) -> String {
     }
 }
 
+fn require_live_host(info: &TableInfo) -> Result<(), String> {
+    if info.live_protocol.as_deref() == Some(super::server::LIVE_PROTOCOL) {
+        return Ok(());
+    }
+    Err(
+        "Update the GM’s host and your client to compatible WebSocket versions to join this table."
+            .into(),
+    )
+}
+
 impl Session {
     pub async fn join(
         address: &str,
@@ -100,11 +110,22 @@ impl Session {
         let base = normalise(address);
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            // Long enough for the version long-poll, which answers within 25 s.
             .timeout(Duration::from_secs(40))
             .connect_timeout(Duration::from_secs(5))
             .build()
             .map_err(|e| e.to_string())?;
+
+        // Check the host before signing a challenge or creating a seat.
+        let response = http
+            .get(format!("{base}/api/table"))
+            .send()
+            .await
+            .map_err(connection_error)?;
+        if !response.status().is_success() {
+            return Err(describe(response).await);
+        }
+        let host: TableInfo = response.json().await.map_err(|e| e.to_string())?;
+        require_live_host(&host)?;
 
         // Prove this device: sign the nonce the table hands out.
         let challenge: Challenge = {
@@ -129,6 +150,7 @@ impl Session {
         let resp = http
             .post(format!("{base}/api/join"))
             .json(&serde_json::json!({
+                "liveProtocol": super::server::LIVE_PROTOCOL,
                 "name": player_name,
                 "code": code,
                 "device": device,
@@ -140,6 +162,7 @@ impl Session {
             return Err(describe(resp).await);
         }
         let joined: JoinResponse = resp.json().await.map_err(|e| e.to_string())?;
+        require_live_host(&joined.info)?;
         Ok(Session {
             http,
             live: Arc::default(),
@@ -181,18 +204,6 @@ impl Session {
         self.http
             .get(format!("{}{}", self.base, path))
             .bearer_auth(&self.token)
-    }
-
-    pub async fn elements(&self) -> Result<Vec<ElementSummary>, String> {
-        let resp = self
-            .get("/api/elements")
-            .send()
-            .await
-            .map_err(connection_error)?;
-        if !resp.status().is_success() {
-            return Err(describe(resp).await);
-        }
-        resp.json().await.map_err(|e| e.to_string())
     }
 
     pub async fn element(&self, id: &str) -> Result<Option<Element>, String> {
@@ -430,7 +441,7 @@ impl Session {
         Ok(socket)
     }
 
-    async fn live_change(&self) -> Result<VersionResponse, String> {
+    pub async fn next_event(&self) -> Result<TableChange, String> {
         let mut stop = self.stop.subscribe();
         if *stop.borrow() {
             return Err(CLOSED_ERROR.into());
@@ -460,29 +471,27 @@ impl Session {
             } => result,
         }
     }
+}
 
-    pub async fn wait_for_change(&self, after: u64, event: u64) -> Result<VersionResponse, String> {
-        if let Some(protocol) = &self.info.live_protocol {
-            if protocol != super::server::LIVE_PROTOCOL {
-                return Err("unsupported table protocol".into());
-            }
-            return self.live_change().await;
-        }
-        let resp = self
-            .get(&format!("/api/version?after={after}&event={event}"))
-            .send()
-            .await
-            .map_err(connection_error)?;
-        if resp.status() == reqwest::StatusCode::GONE {
-            return Ok(VersionResponse {
-                version: after,
-                closed: true,
-                ..VersionResponse::default()
-            });
-        }
-        if !resp.status().is_success() {
-            return Err(describe(resp).await);
-        }
-        resp.json().await.map_err(|e| e.to_string())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn an_older_host_returns_upgrade_guidance_before_joining() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let server = axum::Router::new().route(
+            "/api/table",
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({"name":"Old table","version":1}))
+            }),
+        );
+        let task = tokio::spawn(async move {
+            axum::serve(listener, server).await.unwrap();
+        });
+        let result = Session::join(&address, "Mira", Some("123456")).await;
+        assert!(matches!(result, Err(message) if message.contains("Update the GM")));
+        task.abort();
     }
 }

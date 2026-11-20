@@ -21,11 +21,11 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::watch;
 
-use crate::storage::{AppState, Element, ElementSummary};
+use crate::storage::{AppState, Element};
 
 pub use client::SessionInfo;
 pub use discovery::FoundTable;
-pub use server::{Player, VersionResponse};
+pub use server::{Player, TableChange};
 
 /// Everything about hosting and joining, managed by Tauri.
 #[derive(Default)]
@@ -349,13 +349,6 @@ fn session(table: &TableState) -> CommandResult<client::Session> {
 }
 
 #[tauri::command]
-pub async fn table_fetch_elements(
-    table: State<'_, TableState>,
-) -> CommandResult<Vec<ElementSummary>> {
-    session(&table)?.elements().await
-}
-
-#[tauri::command]
 pub async fn table_fetch_element(
     table: State<'_, TableState>,
     id: String,
@@ -407,21 +400,19 @@ pub async fn table_fetch_asset(
 }
 
 #[tauri::command]
-pub async fn table_wait_for_change(
+pub async fn table_next_event(
     table: State<'_, TableState>,
-    after: u64,
-    event: u64,
-    subscribe: Option<bool>,
-) -> CommandResult<VersionResponse> {
+    subscribe: bool,
+) -> CommandResult<TableChange> {
     let reader = {
         let mut guard = lock(&table.client)?;
         let session = guard.as_mut().ok_or("not joined to a table")?;
-        if subscribe == Some(true) {
+        if subscribe {
             session.restart_reader();
         }
         session.clone()
     };
-    reader.wait_for_change(after, event).await
+    reader.next_event().await
 }
 
 // ---- Working as a GM from another machine ---------------------------------

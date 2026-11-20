@@ -105,8 +105,6 @@ async function webCommand(
       return;
     case "table_session":
       return web.session();
-    case "table_fetch_elements":
-      return web.fetchElements();
     case "table_fetch_element":
       return web.fetchElement(args.id as string);
     case "table_fetch_asset":
@@ -123,12 +121,8 @@ async function webCommand(
       return web.updateNote(args.id as string, args.input as NoteInput);
     case "table_delete_note":
       return web.deleteNote(args.id as string);
-    case "table_wait_for_change":
-      return web.waitForChange(
-        args.after as number,
-        args.event as number,
-        args.subscribe === true,
-      );
+    case "table_next_event":
+      return web.nextEvent(args.subscribe === true);
     case "table_gm_call":
       return web.gmCall(args.command as string, args.args);
     case "table_gm_asset":
@@ -456,9 +450,6 @@ export const table = {
   session() {
     return ipc<TableSession | null>("table_session");
   },
-  fetchElements() {
-    return ipc<ElementSummary[]>("table_fetch_elements");
-  },
   fetchElement(id: string) {
     return ipc<Element | null>("table_fetch_element", { id });
   },
@@ -481,14 +472,9 @@ export const table = {
   deleteNote(id: string) {
     return ipc<void>("table_delete_note", { id });
   },
-  /** Resolves when the GM's version passes `after`, after ~25 s, or when
-   *  the GM stops hosting (`closed`). */
-  waitForChange(after: number, event: number, subscribe: boolean) {
-    return ipc<TableChange>("table_wait_for_change", {
-      after,
-      event,
-      subscribe,
-    });
+  /** Read the next WebSocket event. A fresh subscription starts with a snapshot. */
+  nextEvent(subscribe: boolean) {
+    return ipc<TableChange>("table_next_event", { subscribe });
   },
   /** Show an element on every player's screen; null clears it. */
   spotlight(id: string | null) {

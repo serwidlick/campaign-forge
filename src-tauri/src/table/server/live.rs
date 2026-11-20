@@ -239,7 +239,7 @@ async fn live<R: tauri::Runtime>(
         let visible_spot = spotlight.map(|id| (spot.seq, id));
         let spotlight_changed = previous_spot != visible_spot;
         if reset || delta.is_some() || (who.gm && changed) || spotlight_changed {
-            let response = VersionResponse {
+            let response = TableChange {
                 version: current,
                 gm: who.gm,
                 player_id: who.player_id,

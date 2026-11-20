@@ -1,5 +1,7 @@
 import type { ElementSummary, TableChange } from "./types";
 
+export const LIVE_PROTOCOL: "table.ws.v1";
+
 export function tableSocket(
   ticket: string,
   player?: boolean,

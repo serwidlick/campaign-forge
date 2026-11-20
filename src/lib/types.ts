@@ -423,7 +423,7 @@ export interface PlayerName {
   name: string;
 }
 
-/** Answer to a version long-poll. */
+/** An authorized update from the table WebSocket. */
 export interface TableChange {
   playerId?: string | null;
   delta?: { reset: boolean; upserts: ElementSummary[]; removed: string[] };

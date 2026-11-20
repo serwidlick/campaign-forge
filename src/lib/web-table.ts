@@ -10,10 +10,9 @@
  */
 import nacl from "tweetnacl";
 
-import { tableSocket } from "./table-live.js";
+import { LIVE_PROTOCOL, tableSocket } from "./table-live.js";
 import type {
   Element,
-  ElementSummary,
   NoteInput,
   TableChange,
   TableInfo,
@@ -154,6 +153,13 @@ function postJson(body: unknown): RequestInit {
   };
 }
 
+const UPGRADE_HOST =
+  "Update the GM’s host and your client to compatible WebSocket versions to join this table.";
+
+function requireLiveHost(info: TableInfo) {
+  if (info.liveProtocol !== LIVE_PROTOCOL) throw UPGRADE_HOST;
+}
+
 export const web = {
   /**
    * Sits down at this page's own table as a GM. The browser's key is the
@@ -164,6 +170,7 @@ export const web = {
   async join(name: string): Promise<TableSession> {
     closeLive();
     current = null;
+    requireLiveHost(await json<TableInfo>("/api/table"));
     const key = deviceKey();
     if (!key) {
       throw "this browser cannot make a device key, so the GM cannot pair it; try another browser";
@@ -185,8 +192,9 @@ export const web = {
     }
     const joined = await json<JoinResponse>(
       "/api/join",
-      postJson({ name, device, gmOnly: true }),
+      postJson({ name, device, gmOnly: true, liveProtocol: LIVE_PROTOCOL }),
     );
+    requireLiveHost(joined.info);
     const session: TableSession = {
       address: location.host,
       playerName: joined.name,
@@ -204,7 +212,10 @@ export const web = {
   async session(): Promise<TableSession | null> {
     if (!current) return null;
     // A seat from before this page became GM-only is no seat here.
-    if (!current.session.gm) {
+    if (
+      !current.session.gm ||
+      current.session.info.liveProtocol !== LIVE_PROTOCOL
+    ) {
       current = null;
       remember(null);
       return null;
@@ -227,10 +238,6 @@ export const web = {
     closeLive();
     current = null;
     remember(null);
-  },
-
-  fetchElements(): Promise<ElementSummary[]> {
-    return json("/api/elements");
   },
 
   async fetchElement(id: string): Promise<Element | null> {
@@ -273,33 +280,25 @@ export const web = {
     await request(`/api/notes/${id}`, { method: "DELETE" });
   },
 
-  async waitForChange(
-    after: number,
-    event: number,
-    subscribe: boolean,
-  ): Promise<TableChange> {
+  async nextEvent(subscribe: boolean): Promise<TableChange> {
     if (subscribe) closeLive();
     const seat = current;
-    if (seat?.session.info.liveProtocol) {
-      if (seat.session.info.liveProtocol !== "table.ws.v1")
-        throw "unsupported table protocol";
-      if (!live) {
-        const { ticket } = await json<{ ticket: string }>("/api/live/ticket", {
-          method: "POST",
-          signal: AbortSignal.timeout(15000),
-        });
-        if (seat !== current) throw CLOSED_ERROR;
-        live = tableSocket(ticket);
-      }
-      const socket = live;
-      try {
-        return await socket.next();
-      } catch (err) {
-        if (live === socket) closeLive();
-        throw err;
-      }
+    if (!seat) throw "TABLE_UNAUTHORIZED";
+    if (!live) {
+      const { ticket } = await json<{ ticket: string }>("/api/live/ticket", {
+        method: "POST",
+        signal: AbortSignal.timeout(15000),
+      });
+      if (seat !== current) throw CLOSED_ERROR;
+      live = tableSocket(ticket);
     }
-    return json(`/api/version?after=${after}&event=${event}`);
+    const socket = live;
+    try {
+      return await socket.next();
+    } catch (err) {
+      if (live === socket) closeLive();
+      throw err;
+    }
   },
 
   // ---- A GM's browser -------------------------------------------------------

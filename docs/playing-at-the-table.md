@@ -26,7 +26,7 @@ Start hosting and use the **HTTPS address in the Table panel** for manual joins 
 
 On a trusted LAN, start hosting with all three TLS settings unset. Current clients join over HTTP and receive updates over an authenticated WebSocket (`ws://`). This mode sends join codes, session credentials and campaign traffic without encryption. For encrypted connections configure TLS above. Clients then use HTTPS and `wss://` exclusively.
 
-Both modes replace the client's shared view on reconnect. Long polling remains available for older versions. A client that loses its WebSocket reconnects using the same transport. Partial TLS settings or unreadable credentials stop hosting. Older native clients that rewrite HTTPS addresses must upgrade to join secure tables. Older sheet editors that omit their base version must upgrade before saving sheets.
+Both modes use WebSockets for live updates. Reconnecting replaces the client’s view with the current shared content. The host and native clients must support `table.ws.v1`. Update an older host or native client before joining. Browser players can reload the page served by the updated host. Partial TLS settings or unreadable credentials stop hosting.
 
 ### Players know
 
