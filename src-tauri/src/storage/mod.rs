@@ -46,6 +46,7 @@ pub fn campaign_exists(path: &str) -> bool {
 
 /// The currently open campaign, if any.
 struct OpenCampaign {
+    devices: crate::table::players::DeviceRegistry,
     table_index: HashMap<String, TableEntry>,
     root: PathBuf,
     meta: CampaignMeta,
@@ -67,10 +68,15 @@ pub struct TableEntry {
 
 impl From<&Element> for TableEntry {
     fn from(element: &Element) -> Self {
-        let (body, _) = crate::table::share::player_body(&element.body);
+        let player_links =
+            if !element.links.is_empty() && crate::table::share::is_shared(&element.meta.extra) {
+                extract_links(&crate::table::share::player_body(&element.body).0)
+            } else {
+                Vec::new()
+            };
         Self {
             summary: element.summary(),
-            player_links: extract_links(&body),
+            player_links,
             version: element.version.clone(),
         }
     }
@@ -215,6 +221,15 @@ impl AppState {
         out
     }
 
+    pub(crate) fn paired_identity(&self, fingerprint: &str, id: &str) -> Option<(String, bool)> {
+        self.inner
+            .lock()
+            .ok()?
+            .as_ref()?
+            .devices
+            .identity(fingerprint, id)
+    }
+
     pub fn current_campaign(&self) -> Option<CampaignMeta> {
         self.inner
             .lock()
@@ -258,6 +273,7 @@ impl AppState {
             system.as_ref().map(|s| s.as_deref()),
             extra,
         )?;
+        open.devices = crate::table::players::DeviceRegistry::from_meta(&meta);
         open.meta = meta.clone();
         drop(guard);
         self.bump_with(DiskChanges::campaign());
@@ -265,15 +281,38 @@ impl AppState {
     }
 
     pub fn list_elements(&self) -> Result<Vec<ElementSummary>, StorageError> {
+        self.scan_elements(true)
+    }
+
+    pub(crate) fn refresh_table(&self) -> Result<(), StorageError> {
+        self.scan_elements(false).map(|_| ())
+    }
+
+    fn scan_elements(&self, return_summaries: bool) -> Result<Vec<ElementSummary>, StorageError> {
         let mut guard = self.lock()?;
         let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
-        let (summaries, index) = elements::scan(&open.root)?;
+        let (entries, index) = elements::scan(&open.root)?;
+        let changed = open.index != index
+            || entries.iter().any(|entry| {
+                open.table_index
+                    .get(&entry.summary.meta.id)
+                    .is_none_or(|old| old.version != entry.version)
+            });
+        let mut summaries = Vec::new();
         open.index = index;
-        open.table_index = summaries
-            .iter()
-            .map(|entry| (entry.summary.meta.id.clone(), entry.clone()))
-            .collect();
-        Ok(summaries.into_iter().map(|entry| entry.summary).collect())
+        open.table_index.clear();
+        for entry in entries {
+            if return_summaries {
+                summaries.push(entry.summary.clone());
+            }
+            open.table_index
+                .insert(entry.summary.meta.id.clone(), entry);
+        }
+        drop(guard);
+        if changed {
+            self.bump_with(DiskChanges::list());
+        }
+        Ok(summaries)
     }
 
     pub fn table_entries(&self) -> Result<Vec<TableEntry>, StorageError> {
@@ -544,6 +583,7 @@ impl AppState {
         let (entries, index) = elements::scan(&root)?;
         let mut guard = self.lock()?;
         *guard = Some(OpenCampaign {
+            devices: crate::table::players::DeviceRegistry::from_meta(&meta),
             root,
             meta,
             index,
@@ -577,6 +617,7 @@ impl AppState {
                 if let Ok(meta) = campaign::open(&open.root)
                     && serde_json::to_value(&meta).ok() != serde_json::to_value(&open.meta).ok()
                 {
+                    open.devices = crate::table::players::DeviceRegistry::from_meta(&meta);
                     open.meta = meta;
                     changes.campaign_changed = true;
                 }
@@ -589,6 +630,11 @@ impl AppState {
             }
             let element = match elements::read(&open.root, path) {
                 Ok(element) => element,
+                Err(StorageError::Io { source, .. })
+                    if source.kind() != std::io::ErrorKind::NotFound =>
+                {
+                    continue;
+                }
                 Err(StorageError::InvalidFrontmatter { .. } | StorageError::Io { .. }) => {
                     // A deletion or partial external rewrite must withdraw the old
                     // publication until a valid file can be read at this path.
@@ -606,7 +652,12 @@ impl AppState {
                 }
                 Err(other) => return Err(other),
             };
-            if open.seen.get(path) == Some(&element.version) {
+            if open.seen.get(path) == Some(&element.version)
+                && open
+                    .table_index
+                    .get(&element.meta.id)
+                    .is_some_and(|entry| entry.version == element.version)
+            {
                 continue;
             }
             open.seen.insert(path.clone(), element.version.clone());
@@ -1032,6 +1083,47 @@ mod tests {
             .save_element(save_input(&created, "mine", None))
             .unwrap();
         assert!(std::fs::read_to_string(&file).unwrap().contains("mine"));
+    }
+
+    #[test]
+    fn missed_unshare_withdraws_summaries_and_assets_without_a_watcher_event() {
+        use crate::table::share::{shared_asset_paths, shared_element, shared_summaries};
+        let root = TempRoot::new("missed-unshare");
+        let state = AppState::default();
+        state
+            .create_campaign(root.path(), "Watch".into(), None)
+            .unwrap();
+        let item = state
+            .create_element(
+                "npc",
+                "Harbor",
+                Some(
+                    serde_json::from_value(
+                        serde_json::json!({"shared": true, "portrait":"images/public.png"}),
+                    )
+                    .unwrap(),
+                ),
+            )
+            .unwrap();
+        let path = root.0.join(&item.meta.path);
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, text.replace("shared: true", "shared: false")).unwrap();
+        let before = state.version();
+        assert!(shared_asset_paths(&state, None).unwrap().is_empty());
+        assert!(state.version() > before);
+        assert!(shared_summaries(&state, None).unwrap().is_empty());
+        assert!(
+            shared_element(&state, &item.meta.id, None)
+                .unwrap()
+                .is_none()
+        );
+        let after = state.version();
+        state.refresh_table().unwrap();
+        assert_eq!(state.version(), after);
+        // Invalid UTF-8 is a non-NotFound I/O error on every platform.
+        std::fs::write(&path, [0xff]).unwrap();
+        assert!(state.apply_disk_changes(&[path]).unwrap().is_empty());
+        assert_eq!(state.table_entries().unwrap().len(), 1);
     }
 
     #[test]

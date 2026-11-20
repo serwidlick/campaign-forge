@@ -22,7 +22,7 @@ For encrypted hosting, give the GM machine a stable DNS name that resolves to it
 | `CAMPAIGN_FORGE_TLS_CERT` | Path to the PEM certificate chain, leaf first                                                             |
 | `CAMPAIGN_FORGE_TLS_KEY`  | Path to the matching PEM private key, kept outside the campaign folder and readable only by the host user |
 
-Start hosting and use the **HTTPS address in the Table panel** for manual joins and QR codes. Supply local DNS at the venue if the table needs to work offline. Restart hosting after renewing the certificate. A change of browser origin can require pairing that browser again.
+Start hosting and use the **HTTPS address in the Table panel** for manual joins and QR codes. Discovered tables connect directly to the private or link-local IPv4 endpoints announced on the LAN and use the HTTPS name for certificate verification. If that name is malformed, discovery offers the HTTPS IP address, which requires a certificate valid for that IP. For a certificate issued only to a hostname, enter the GM’s HTTPS address manually. Supply local DNS at the venue if the table needs to work offline. Restart hosting after renewing the certificate. A change of browser origin can require pairing that browser again.
 
 On a trusted LAN, start hosting with all three TLS settings unset. Current clients join over HTTP and receive updates over an authenticated WebSocket (`ws://`). This mode sends join codes, session credentials and campaign traffic without encryption. For encrypted connections configure TLS above. Clients then use HTTPS and `wss://` exclusively.
 

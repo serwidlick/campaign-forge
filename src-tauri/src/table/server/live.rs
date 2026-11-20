@@ -100,12 +100,8 @@ pub(super) async fn issue_ticket<R: tauri::Runtime>(
     State(s): State<Served<R>>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    authed(&s, &headers)?;
-    let token = headers[header::AUTHORIZATION]
-        .to_str()
-        .unwrap_or("")
-        .trim_start_matches("Bearer ")
-        .trim();
+    let token = bearer(&headers);
+    authorize(&s, token, true)?;
     let ticket = s
         .tickets
         .lock()
@@ -130,7 +126,7 @@ pub(super) async fn upgrade<R: tauri::Runtime>(
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
     if let Some(origin) = headers.get(header::ORIGIN)
-        && request_origin(&s.origins, &headers)
+        && request_origin(s.secure, &headers)
             .is_none_or(|expected| origin.as_bytes() != expected.as_bytes())
     {
         return Err(ApiError(
@@ -199,6 +195,14 @@ async fn live<R: tauri::Runtime>(
         return;
     };
     let state = s.app.state::<AppState>();
+    // Reconcile missed external edits before taking the first snapshot.
+    let app = s.app.clone();
+    if !matches!(
+        tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().refresh_table()).await,
+        Ok(Ok(()))
+    ) {
+        return;
+    }
     let mut versions = state.changes();
     let mut spots = s.spotlight.clone();
     let mut closed = s.closing.clone();
