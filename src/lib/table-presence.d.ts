@@ -8,6 +8,12 @@ export class TablePresence extends HTMLElement {
   roster: RosterEntry[];
   /** How far this device's clock is ahead of the host's, in ms. */
   clockOffset: number;
+  /** The roster key of the person at this device: their bubble is marked
+   *  "you" and never folded into "+N". */
+  you: string | null;
+  /** True while this device cannot reach the host: the host shows as
+   *  disconnected, everyone else as last seen. Only changes act. */
+  offline: boolean;
   /** Plays an activity (see `defineActivity`) on someone's bubble; `null`
    *  stops it. */
   setActivity(key: string, activity: string | null): void;
@@ -62,6 +68,8 @@ export interface ActivityDefinition {
     | ((ctx: { side: string; inward: { x: number; y: number } }) => Keyframe[]);
   /** Duration, iterations (Infinity loops until stopped), easing, ... */
   options?: KeyframeAnimationOptions;
+  /** A buzz (see `defineHaptic`) when it starts on your own bubble. */
+  haptic?: string | null;
 }
 
 /** Adds or replaces an activity bubbles can play. */
@@ -84,3 +92,15 @@ export function watchIdle(options: {
 
 /** "just now", "7 min", "2 h 5 min", "3 days". */
 export function formatDuration(ms: number): string;
+
+/** Adds or replaces a kind of buzz: a vibration pattern in ms. Built in:
+ *  "pick", "snap", "tap", "notice", "warn". */
+export function defineHaptic(kind: string, pattern: number | number[]): void;
+/** Buzzes for `kind` if it is known and haptics are on. Never throws. */
+export function haptic(kind: string): boolean;
+/** Replaces how a buzz is made (say, a native bridge); `null` restores the
+ *  Vibration API. */
+export function setHapticDriver(
+  driver: ((kind: string, pattern: number[]) => void) | null,
+): void;
+export function setHapticsEnabled(on: boolean): void;

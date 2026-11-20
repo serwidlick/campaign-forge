@@ -1221,6 +1221,10 @@
           roster: [],
           /** How far this clock is ahead of the host's. */
           rosterOffset: 0,
+          /** Which roster entry is this phone's person, as the host said. */
+          you: null,
+          /** True while the host cannot be reached (between retries). */
+          offline: false,
         };
 
         var $ = function (id) {
@@ -1599,6 +1603,8 @@
           state.token = null;
           state.playerId = null;
           state.roster = [];
+          state.you = null;
+          state.offline = false;
           stopWatchingIdle();
           renderRoster();
           draft.denied = {};
@@ -1632,6 +1638,8 @@
         function renderRoster() {
           if (presence) {
             presence.clockOffset = state.rosterOffset;
+            presence.you = state.you;
+            presence.offline = state.offline;
             presence.roster = state.roster;
             watchIdleOnce();
             return;
@@ -1708,6 +1716,10 @@
                 if (v.closed) throw new Error("CLOSED");
                 if (failures) setNotice("");
                 failures = 0;
+                if (state.offline) {
+                  state.offline = false;
+                  renderRoster();
+                }
                 if (v.playerId !== undefined) state.playerId = v.playerId;
                 if (v.delta) {
                   if (v.delta.reset) {
@@ -1744,6 +1756,7 @@
                     typeof v.serverTime === "number"
                       ? Date.now() - v.serverTime
                       : 0;
+                  state.you = typeof v.you === "string" ? v.you : null;
                   renderRoster();
                 }
                 if (
@@ -1768,6 +1781,11 @@
               }
               setNotice("Lost the GM. Trying again…");
               failures++;
+              // The bubbles show the GM as gone until the table is back.
+              if (!state.offline) {
+                state.offline = true;
+                renderRoster();
+              }
             } finally {
               if (socket) socket.close();
               if (state.live === socket) state.live = null;

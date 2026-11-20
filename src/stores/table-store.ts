@@ -42,6 +42,8 @@ interface TableState {
   roster: RosterEntry[];
   /** How far this clock is ahead of the joined host's, for "away for". */
   rosterOffset: number;
+  /** Which roster entry is this device's person, as the joined host said. */
+  rosterYou: string | null;
 
   error: string | null;
 
@@ -163,6 +165,7 @@ export const useTableStore = create<TableState>((set, get) => {
             roster: next.roster,
             rosterOffset:
               next.serverTime === undefined ? 0 : Date.now() - next.serverTime,
+            rosterYou: next.you ?? null,
           });
         }
         if (!next.spotlight) set({ spotlight: null });
@@ -207,6 +210,7 @@ export const useTableStore = create<TableState>((set, get) => {
       notice,
       spotlight: null,
       roster: [],
+      rosterYou: null,
     });
     try {
       await table.leave();
@@ -221,6 +225,7 @@ export const useTableStore = create<TableState>((set, get) => {
       session,
       elements: [],
       roster: [],
+      rosterYou: null,
       version: session.info.version,
       connection: "connected",
       error: null,
@@ -248,6 +253,7 @@ export const useTableStore = create<TableState>((set, get) => {
     spotlight: null,
     roster: [],
     rosterOffset: 0,
+    rosterYou: null,
     error: null,
 
     async restore() {
@@ -376,4 +382,20 @@ const NO_ONE: RosterEntry[] = [];
  *  joined host's, or none on the hosting machine itself. */
 export function useRosterOffset(): number {
   return useTableStore((s) => (s.session ? s.rosterOffset : 0));
+}
+
+/** Which roster entry is the person at this window: what the joined host
+ *  said, or the host's own entry on the hosting machine. */
+export function useRosterYou(): string | null {
+  return useTableStore((s) =>
+    s.session ? s.rosterYou : s.hosting ? "host" : null,
+  );
+}
+
+/** True while a joined table cannot be reached ("trying to reconnect"):
+ *  the bubbles then show its host as disconnected. */
+export function useTableOffline(): boolean {
+  return useTableStore(
+    (s) => s.session !== null && s.connection === "reconnecting",
+  );
 }

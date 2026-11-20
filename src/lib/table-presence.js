@@ -6,6 +6,8 @@
  *   const el = mountTablePresence({ stylesheet: "/table-presence.css" });
  *   el.roster = entries;            // from the table's live frames
  *   el.clockOffset = offset;        // when the roster came from another machine
+ *   el.you = key;                   // this device's person: marked "you"
+ *   el.offline = true;              // while the host cannot be reached
  *   el.setActivity(key, "messaging");   // see presence/activities.js
  *
  * Statuses and activities are registries: add one with `defineStatus` or
@@ -27,3 +29,9 @@ export { defineActivity, activityOf } from "./presence/activities.js";
 export { defineIcon } from "./presence/icons.js";
 export { IDLE_AFTER, watchIdle } from "./presence/idle.js";
 export { formatDuration } from "./presence/time.js";
+export {
+  defineHaptic,
+  haptic,
+  setHapticDriver,
+  setHapticsEnabled,
+} from "./presence/haptics.js";

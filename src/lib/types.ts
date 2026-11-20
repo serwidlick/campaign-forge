@@ -466,6 +466,8 @@ export interface TableChange {
   roster?: RosterEntry[];
   /** The host's clock (Unix ms) when a frame with the roster was sent. */
   serverTime?: number;
+  /** Sent with the roster: which entry is the device receiving the frame. */
+  you?: string;
 }
 
 /**

@@ -74,6 +74,12 @@ Each bubble shows how its person is:
 - **Away**: a moon, and the bubble turns grey. Their device has had no input for five minutes. Hover over the moon to see how long they have been away ("Away for 7 min"); it updates as time passes. Using the device again makes them active.
 - **Disconnected**: a crossed-out Wi-Fi sign and a dashed ring. Their connection dropped; a phone that locks or a laptop that changes Wi-Fi comes back without anyone noticing. If they are not back within a minute, they leave the list. Leaving the table works the same way. A device that walks out of Wi-Fi range without closing can take up to another minute to be noticed.
 
+Your own bubble has a light ring around it and a **You** tag. It comes right after the GM, so the order is the GM, you, then everyone else in the order they arrived, and it always shows, even when the rest fold into **+N**.
+
+If your device loses the GM (the bar at the top says it is trying to reconnect), the GM's bubble and yours show as disconnected straight away, and everyone else fades: what you see of them is only how they were when you last heard. Everything comes back as it was once the table is reached again.
+
+On an Android phone the bubbles give a light buzz when you pick them up, when they snap to an edge, when you press the eye or **+N**, and when the connection to the GM is lost. iPhones do not let web pages vibrate, so the phone page there is silent.
+
 The GM's own bubble goes away and comes back the same way. The roster shows names, roles and these statuses only; it never shows devices or addresses.
 
 ## Players and devices

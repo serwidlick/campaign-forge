@@ -70,7 +70,9 @@ function statusBadge(status, entry, ctx) {
 
 /**
  * Paints one person: initials in their colour, a crown for a GM, their
- * status badge and, while they are doing something, its badge.
+ * status badge and, while they are doing something, its badge. Your own
+ * bubble (`entry.self`, see view.js) gets a ring and a "You" tag; an entry
+ * not known to be current (`entry.stale`) is dimmed and says so.
  * `ctx` is `{ now, offset, activity }`.
  */
 export function paintPerson(bubble, entry, ctx) {
@@ -88,10 +90,12 @@ export function paintPerson(bubble, entry, ctx) {
   if (activity?.badge) {
     face.appendChild(el("span", "activity")).appendChild(icon(activity.badge));
   }
+  if (entry.self) face.appendChild(el("span", "you", "You"));
+  const detail = status.detail(entry, ctx);
   const label = [
-    entry.name,
+    entry.self ? entry.name + " (you)" : entry.name,
     roleOf(entry),
-    status.detail(entry, ctx),
+    entry.stale ? detail + " when last seen" : detail,
     activity?.label ?? "",
   ]
     .filter(Boolean)
@@ -99,6 +103,8 @@ export function paintPerson(bubble, entry, ctx) {
   setTip(bubble, label);
   bubble.setAttribute("aria-label", label);
   bubble.dataset.state = entry.state;
+  bubble.classList.toggle("me", Boolean(entry.self));
+  bubble.classList.toggle("stale", Boolean(entry.stale));
   bubble.removeAttribute("aria-expanded");
   bubble.removeAttribute("aria-pressed");
 }

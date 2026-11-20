@@ -12,9 +12,16 @@ import {
   placeOnEdge,
   snapToEdge,
 } from "../src/lib/presence/dock.js";
+import {
+  defineHaptic,
+  haptic,
+  setHapticDriver,
+  setHapticsEnabled,
+} from "../src/lib/presence/haptics.js";
 import { SHUFFLE, tripFrames } from "../src/lib/presence/motion.js";
 import { defineStatus, statusOf } from "../src/lib/presence/statuses.js";
 import { elapsedSince, formatDuration } from "../src/lib/presence/time.js";
+import { shownEntries, viewRoster } from "../src/lib/presence/view.js";
 
 const area = {
   left: 10,
@@ -157,4 +164,87 @@ test("neighbours bow to opposite sides, by at most the arc limit", () => {
     tripFrames(0, 0, 3)[1].transform,
     "translate(0px, 0px) scale(0.88)",
   );
+});
+
+const table = [
+  { key: "host", name: "Ava", role: "host", state: "away", awaySince: 5 },
+  { key: "guest:a", name: "Bo", role: "guest", state: "active" },
+  {
+    key: "player:c",
+    name: "Cy",
+    role: "player",
+    state: "active",
+    activity: "messaging",
+  },
+];
+
+test("your own entry is marked, and nothing else changes while online", () => {
+  const seen = viewRoster(table, { you: "player:c" });
+  assert.deepEqual(
+    seen.map((e) => e.key),
+    ["host", "player:c", "guest:a"],
+    "host first, then you, then the rest in the host's order",
+  );
+  assert.equal(seen[1].self, true);
+  assert.equal(
+    seen[0],
+    table[0],
+    "other entries are passed through as they are",
+  );
+  assert.deepEqual(viewRoster(table, {}), table);
+  assert.equal(table[2].self, undefined, "the stored roster is never changed");
+});
+
+test("offline, the host and you are disconnected and the rest are last seen", () => {
+  const seen = viewRoster(table, { you: "player:c", offline: true });
+  assert.equal(seen[0].state, "disconnected");
+  assert.equal(seen[0].awaySince, undefined);
+  assert.equal(seen[1].state, "disconnected");
+  assert.equal(seen[1].activity, undefined);
+  assert.equal(seen[1].self, true);
+  assert.equal(seen[2].state, "active");
+  assert.equal(seen[2].stale, true);
+  assert.equal(table[0].state, "away");
+});
+
+test("you come right after the host, so +N never folds you away", () => {
+  const many = Array.from({ length: 9 }, (_, i) => ({
+    key: i ? "guest:" + i : "host",
+    role: i ? "guest" : "host",
+  }));
+  const seen = viewRoster(many, { you: "guest:7" });
+  assert.deepEqual(
+    shownEntries(seen, 4, false).map((e) => e.key),
+    ["host", "guest:7", "guest:1"],
+  );
+  // Without a host (a test page, say), you lead.
+  assert.equal(viewRoster(many.slice(1), { you: "guest:7" })[0].key, "guest:7");
+  assert.equal(shownEntries(seen, 4, true).length, 9);
+  assert.equal(shownEntries(many.slice(0, 4), 4, false).length, 4);
+});
+
+test("haptics are named patterns through a replaceable driver", () => {
+  const felt = [];
+  setHapticDriver((kind, pattern) => felt.push([kind, pattern]));
+  try {
+    assert.equal(haptic("snap"), true);
+    assert.equal(haptic("nothing"), false);
+    defineHaptic("dice", [12, 40, 12]);
+    haptic("dice");
+    setHapticsEnabled(false);
+    assert.equal(haptic("snap"), false);
+    setHapticsEnabled(true);
+    setHapticDriver(() => {
+      throw new Error("no motor");
+    });
+    assert.equal(haptic("tap"), false, "a failing driver never throws");
+  } finally {
+    setHapticDriver(null);
+  }
+  assert.deepEqual(felt, [
+    ["snap", [12]],
+    ["dice", [12, 40, 12]],
+  ]);
+  // Without a Vibration API (Node, iOS Safari) the default is a quiet no.
+  assert.equal(haptic("snap"), true);
 });

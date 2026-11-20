@@ -647,6 +647,43 @@ async fn pairing_a_guest_changes_their_roster_entry() {
 }
 
 #[tokio::test]
+async fn each_socket_is_told_which_roster_entry_is_its_own() {
+    let table = plain_table().await;
+    let cy = table.seat("Cy").await;
+    let mut socket = connect(&table.origin, &table.http, None, &cy.token, true).await;
+    let first = receive(&mut socket).await;
+    let guest = first.you.clone().expect("the first frame says who you are");
+    assert!(guest.starts_with("guest:"), "{guest}");
+    // The key is the one the roster uses for this seat.
+    roster_until(&mut socket, first.roster.unwrap(), |r| {
+        r.iter().any(|e| e.key == guest && e.name == "Cy")
+    })
+    .await;
+    // Paired mid-socket: the next roster frame names the new entry.
+    let id = table.pair(&cy.token, "Cy", false);
+    let paired = format!("player:{id}");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let frame = receive(&mut socket).await;
+            if frame.roster.is_some() {
+                assert!(
+                    frame.you.is_some(),
+                    "a roster frame always says who you are"
+                );
+            } else {
+                assert!(frame.you.is_none(), "only roster frames say who you are");
+            }
+            if frame.you.as_deref() == Some(paired.as_str()) {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("told the paired key");
+    table.close().await;
+}
+
+#[tokio::test]
 async fn a_seat_removed_after_its_ticket_gets_no_presence() {
     let table = plain_table().await;
     let dee = table.seat("Dee").await;

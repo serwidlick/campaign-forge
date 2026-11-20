@@ -10,15 +10,19 @@
  *                  into the eye, opening "+N", people arriving and leaving
  * - drag.js        press-and-drag with taps left as taps
  * - prefs.js       per-device choices (edge, hidden)
+ * - view.js        the roster as this device sees it: you, and while offline
+ * - haptics.js     a light buzz on phones for picks, snaps and taps
  *
  * The page sets `.roster` (and `.clockOffset` when the roster came from
- * another machine); everything else happens here. Names only ever go in as
+ * another machine), `.you` (which entry is this device's person) and
+ * `.offline` (while it cannot reach the host); everything else happens here. Names only ever go in as
  * text.
  */
 
 import { playActivity } from "./activities.js";
 import { createBubble, paintCounter, paintEye, paintPerson } from "./bubble.js";
 import { DragController } from "./drag.js";
+import { haptic } from "./haptics.js";
 import { emerge, measure, revive, shuffle, slide, vanish } from "./motion.js";
 import {
   SIDES,
@@ -29,6 +33,7 @@ import {
 } from "./dock.js";
 import { readDock, readHidden, writeDock, writeHidden } from "./prefs.js";
 import { statusOf } from "./statuses.js";
+import { shownEntries, viewRoster } from "./view.js";
 
 export const TAG = "table-presence";
 
@@ -51,6 +56,8 @@ const TICK_MS = 30_000;
 export class TablePresence extends HTMLElement {
   #roster = [];
   #clockOffset = 0;
+  #you = null;
+  #offline = false;
   #spot = readDock();
   #pos = { x: 0, y: 0 };
   #concealed = readHidden();
@@ -108,6 +115,34 @@ export class TablePresence extends HTMLElement {
 
   set clockOffset(ms) {
     this.#clockOffset = Number.isFinite(ms) ? ms : 0;
+    if (this.#built) this.#render();
+  }
+
+  /** The roster key of the person at this device, so their own bubble is
+   *  marked "you" (and never folded into "+N"); `null` for none. */
+  get you() {
+    return this.#you;
+  }
+
+  set you(key) {
+    const next = typeof key === "string" && key ? key : null;
+    if (next === this.#you) return;
+    this.#you = next;
+    if (this.#built) this.#render();
+  }
+
+  /** True while this device cannot reach the host: the host shows as
+   *  disconnected and everyone else as last known (see view.js). Only a
+   *  change does anything, so a page may set it on every retry. */
+  get offline() {
+    return this.#offline;
+  }
+
+  set offline(on) {
+    const next = Boolean(on);
+    if (next === this.#offline) return;
+    this.#offline = next;
+    if (next && this.#roster.length) haptic("warn");
     if (this.#built) this.#render();
   }
 
@@ -194,11 +229,14 @@ export class TablePresence extends HTMLElement {
     // Where every bubble is laid out now, so whatever changes below can
     // animate from here (presence/motion.js).
     const before = measure([...this.#group.children], this.#layoutRect);
-    const roster = this.#roster;
+    const roster = viewRoster(this.#roster, {
+      you: this.#you,
+      offline: this.#offline,
+    });
     const max = this.#narrow?.matches ? BUBBLES_NARROW : BUBBLES;
     const folds = roster.length > max;
     if (!folds) this.#expanded = false;
-    const shown = folds && !this.#expanded ? roster.slice(0, max - 1) : roster;
+    const shown = shownEntries(roster, max, this.#expanded);
     const ctx = { now: Date.now(), offset: this.#clockOffset };
 
     const people = shown.map((entry) => {
@@ -210,7 +248,7 @@ export class TablePresence extends HTMLElement {
       const activity =
         this.#activities.get(entry.key) ?? entry.activity ?? null;
       paintPerson(bubble, entry, { ...ctx, activity });
-      this.#animate(entry.key, bubble, activity);
+      this.#animate(entry.key, bubble, activity, entry.self === true);
       return bubble;
     });
     this.#forget(new Set(shown.map((e) => e.key)));
@@ -302,7 +340,7 @@ export class TablePresence extends HTMLElement {
   }
 
   /** Starts, keeps or stops the animation of someone's activity. */
-  #animate(key, bubble, activity) {
+  #animate(key, bubble, activity, self) {
     const playing = this.#playing.get(key);
     if (playing?.id === activity) return;
     playing?.stop();
@@ -310,7 +348,7 @@ export class TablePresence extends HTMLElement {
     if (activity) {
       this.#playing.set(
         key,
-        playActivity(bubble, activity, { side: this.#spot.side }),
+        playActivity(bubble, activity, { side: this.#spot.side, self }),
       );
     }
   }
@@ -390,6 +428,7 @@ export class TablePresence extends HTMLElement {
     for (const trip of this.#shuffles) trip.cancel();
     this.#shuffles = [];
     this.#anchor.classList.add("dragging");
+    haptic("pick");
   };
 
   // Free while carried; the edge is chosen on release.
@@ -422,6 +461,7 @@ export class TablePresence extends HTMLElement {
     const before = measure([...this.#group.children]);
     const spot = snapToEdge(area, rect, (side) => this.#layoutFor(side, area));
     this.#relocate(spot, before);
+    haptic("snap");
   };
 
   // ---- Interaction ----------------------------------------------------------
@@ -448,11 +488,13 @@ export class TablePresence extends HTMLElement {
       writeHidden(this.#concealed);
       this.#expanded = false;
       this.#hideTip();
+      haptic("tap");
       this.#render();
     } else if (bubble === this.#more) {
       this.#motion = bubble;
       this.#expanded = !this.#expanded;
       this.#hideTip();
+      haptic("tap");
       this.#render();
     } else if (this.#tipped === bubble) {
       this.#hideTip();

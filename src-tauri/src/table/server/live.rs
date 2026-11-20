@@ -271,6 +271,7 @@ async fn live<R: tauri::Runtime>(
                 closed: false,
                 roster: send_roster.then(|| roster.borrow_and_update().clone()),
                 server_time: send_roster.then(super::unix_ms),
+                you: send_roster.then(|| who.roster_key.clone()),
             };
             let Ok(json) = serde_json::to_string(&response) else {
                 break;

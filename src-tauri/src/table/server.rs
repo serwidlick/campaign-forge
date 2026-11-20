@@ -389,6 +389,11 @@ pub struct TableChange {
     /// own clock says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_time: Option<u64>,
+    /// Which roster entry is the device receiving this frame, sent with the
+    /// roster so its bubble can be marked as "you". A guest's key is opaque,
+    /// so the device could not work it out for itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub you: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -695,6 +700,10 @@ const PRESENCE_MODULES: &[(&str, &str)] = &[
     ("dock.js", include_str!("../../../src/lib/presence/dock.js")),
     ("drag.js", include_str!("../../../src/lib/presence/drag.js")),
     (
+        "haptics.js",
+        include_str!("../../../src/lib/presence/haptics.js"),
+    ),
+    (
         "motion.js",
         include_str!("../../../src/lib/presence/motion.js"),
     ),
@@ -716,6 +725,7 @@ const PRESENCE_MODULES: &[(&str, &str)] = &[
         include_str!("../../../src/lib/presence/statuses.js"),
     ),
     ("time.js", include_str!("../../../src/lib/presence/time.js")),
+    ("view.js", include_str!("../../../src/lib/presence/view.js")),
 ];
 
 async fn presence_module(Path(file): Path<String>) -> Response {
@@ -892,6 +902,7 @@ fn authorize<R: tauri::Runtime>(s: &Served<R>, token: &str, seen: bool) -> Resul
         name: p.name.clone(),
         player_id: p.player_id.clone(),
         gm: p.gm,
+        roster_key: share::roster::person_key(p.player_id.as_deref(), &p.roster_key),
     })
 }
 
@@ -900,6 +911,8 @@ struct Who {
     name: String,
     player_id: Option<String>,
     gm: bool,
+    /// The roster entry that is this connection's person.
+    roster_key: String,
 }
 
 impl Who {
@@ -1558,5 +1571,24 @@ mod tests {
                 BASE64_STANDARD.encode(Sha256::digest("\nlet a = 1;\nlet b = 2;\n"))
             )
         );
+    }
+
+    #[test]
+    fn every_presence_module_is_served() {
+        // Phones load the bubbles from the host; one missing module and the
+        // whole component fails to import there, silently.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/presence");
+        let mut on_disk: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".js"))
+            .collect();
+        on_disk.sort();
+        let mut served: Vec<String> = PRESENCE_MODULES
+            .iter()
+            .map(|(name, _)| (*name).to_owned())
+            .collect();
+        served.sort();
+        assert_eq!(served, on_disk);
     }
 }

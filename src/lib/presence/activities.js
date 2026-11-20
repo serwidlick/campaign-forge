@@ -12,6 +12,8 @@
  *     keyframes: ({ inward }) => [...], // Web Animations keyframes, or a
  *                                       // function of { side, inward }
  *     options: { duration: 900, iterations: Infinity, easing: "ease-in-out" },
+ *     haptic: "notice",                 // optional: a buzz (see haptics.js) when
+ *                                       // it starts on your own bubble
  *   });
  *
  * `inward` points from the bubbles' edge towards the middle of the screen,
@@ -20,6 +22,8 @@
  * strict CSP is fine with them) and are skipped for people who ask for
  * reduced motion; the badge still shows.
  */
+
+import { haptic } from "./haptics.js";
 
 /** @type {Map<string, object>} */
 const ACTIVITIES = new Map();
@@ -31,6 +35,7 @@ export function defineActivity(id, def) {
     target: "face",
     keyframes: [],
     options: { duration: 1000, iterations: 1 },
+    haptic: null,
     ...def,
   });
 }
@@ -64,10 +69,12 @@ function prefersReducedMotion() {
 /**
  * Plays an activity on a bubble and returns a handle to stop it. A finite
  * animation ends by itself; `iterations: Infinity` runs until stopped.
+ * On your own bubble (`self`) it also buzzes, if the activity says how.
  */
-export function playActivity(bubble, id, { side = "left" } = {}) {
+export function playActivity(bubble, id, { side = "left", self = false } = {}) {
   const def = activityOf(id);
   if (!def) return { id, stop() {} };
+  if (self && def.haptic) haptic(def.haptic);
   const target =
     def.target === "bubble"
       ? bubble
@@ -123,4 +130,6 @@ defineActivity("messaged", {
     easing: "ease-out",
     composite: "add",
   },
+  // Felt as well as seen, on the phone being messaged.
+  haptic: "notice",
 });

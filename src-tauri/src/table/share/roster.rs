@@ -19,6 +19,16 @@ pub const DEFAULT_GM_NAME: &str = "Game Master";
 /// What someone is called when their name has nothing printable in it.
 const FALLBACK_NAME: &str = "Player";
 
+/// The roster key for a seat: `player:<id>` once paired, else
+/// `guest:<opaque id>`. The roster and each connection's own "this is you"
+/// both come from here, so they always agree.
+pub fn person_key(player_id: Option<&str>, roster_key: &str) -> String {
+    match player_id {
+        Some(id) => format!("player:{id}"),
+        None => format!("guest:{roster_key}"),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RosterEntry {
@@ -138,10 +148,14 @@ pub fn build_roster(
                 } else {
                     RosterRole::Player
                 };
-                (format!("player:{id}"), record.name.clone(), role)
+                (
+                    person_key(Some(id), &seat.roster_key),
+                    record.name.clone(),
+                    role,
+                )
             }
             None => (
-                format!("guest:{}", seat.roster_key),
+                person_key(None, &seat.roster_key),
                 seat.name.clone(),
                 RosterRole::Guest,
             ),
