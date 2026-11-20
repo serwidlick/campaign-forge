@@ -93,3 +93,54 @@ export function applyDelta(elements, delta) {
       a.id.localeCompare(b.id),
   );
 }
+
+/**
+ * Roster icon backgrounds, shared by the app and the phone page so a person
+ * has the same colour everywhere. Each meets WCAG 4.5:1 with white initials
+ * (tests/table-live.test.mjs checks it).
+ */
+export const ROSTER_PALETTE = Object.freeze([
+  "#b42318",
+  "#b54708",
+  "#027a48",
+  "#107569",
+  "#026aa2",
+  "#175cd3",
+  "#5925dc",
+  "#c11574",
+]);
+
+function firstGrapheme(word) {
+  const { Intl } = globalThis;
+  if (Intl && typeof Intl.Segmenter === "function") {
+    const first = new Intl.Segmenter(undefined, { granularity: "grapheme" })
+      .segment(word)
+      [Symbol.iterator]()
+      .next();
+    return first.done ? "" : first.value.segment;
+  }
+  return Array.from(word)[0] ?? "";
+}
+
+/** Up to two letters, whole graphemes, from the first and last words. */
+export function rosterInitials(name) {
+  const words = String(name ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return "?";
+  const first = firstGrapheme(words[0]);
+  const last = words.length > 1 ? firstGrapheme(words[words.length - 1]) : "";
+  return (first + last).toLocaleUpperCase();
+}
+
+/** 32-bit FNV-1a of the roster key into the palette: stable everywhere. */
+export function rosterColour(key) {
+  let hash = 0x811c9dc5;
+  const text = String(key);
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return ROSTER_PALETTE[hash % ROSTER_PALETTE.length];
+}

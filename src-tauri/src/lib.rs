@@ -82,6 +82,7 @@ pub fn run() {
             table::table_create_note,
             table::table_update_note,
             table::table_delete_note,
+            table::table_report_presence,
             table::table_next_event,
             table::table_gm_call,
             table::table_gm_asset,

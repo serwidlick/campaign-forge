@@ -45,6 +45,7 @@ struct Host {
     players: server::Players,
     stop: watch::Sender<bool>,
     spotlight: watch::Sender<server::Spotlight>,
+    roster: std::sync::Arc<server::RosterHub>,
     /// Kept alive while hosting; dropping it unregisters the service.
     _registration: Option<discovery::Registration>,
     announce_error: Option<String>,
@@ -64,6 +65,8 @@ pub struct HostStatus {
     pub announce_error: Option<String>,
     /// Element currently shown to everyone, if any.
     pub spotlight: Option<String>,
+    /// Who is at the table, as everyone there sees it.
+    pub roster: Vec<share::RosterEntry>,
 }
 
 impl Host {
@@ -82,6 +85,7 @@ impl Host {
             players,
             announce_error: self.announce_error.clone(),
             spotlight: self.spotlight.borrow().element.clone(),
+            roster: self.roster.current(),
         }
     }
 }
@@ -154,6 +158,7 @@ pub async fn table_start_hosting(
         players: running.players,
         stop: running.stop,
         spotlight: running.spotlight,
+        roster: running.roster,
         _registration: registration,
         announce_error,
     };
@@ -258,6 +263,8 @@ impl TableState {
             p.name = record.name.clone();
             p.gm = record.gm;
         }
+        // The registry was saved before the seat changed; rebuild from both.
+        host.roster.wake();
         Ok(host.status())
     }
 }
@@ -383,6 +390,20 @@ pub async fn table_update_note(
     input: share::NoteInput,
 ) -> CommandResult<Element> {
     session(&table)?.update_note(&id, &input).await
+}
+
+/// This window's user went idle, or came back: shown to everyone at the
+/// table. Hosting, it is the GM's own status; joined, it goes to the host.
+#[tauri::command]
+pub async fn table_report_presence(table: State<'_, TableState>, away: bool) -> CommandResult<()> {
+    if let Some(host) = lock(&table.host)?.as_ref() {
+        host.roster.set_host_away(away);
+    }
+    let joined = lock(&table.client)?.clone();
+    if let Some(session) = joined {
+        session.report_presence(away).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

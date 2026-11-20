@@ -29,6 +29,9 @@
 
 mod live;
 use live::{Tickets, issue_ticket, load_tls, upgrade};
+mod roster;
+use roster::ROSTER_GRACE;
+pub use roster::RosterHub;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -101,6 +104,57 @@ pub struct Player {
     pub player_id: Option<String>,
     /// The paired player is a GM: this connection gets the GM API.
     pub gm: bool,
+    /// At least one live socket is open for this seat right now.
+    pub online: bool,
+    /// Live-socket accounting, kept under the same lock as the seat so a
+    /// removed seat takes its presence with it.
+    #[serde(skip)]
+    pub(super) presence: Presence,
+    /// Opaque id the public roster uses for a guest seat. Never the bearer
+    /// token or the management `connection_id`.
+    #[serde(skip)]
+    pub(super) roster_key: String,
+}
+
+/// Live sockets for one seat, and when they came and went.
+#[derive(Debug, Clone, Default)]
+pub(super) struct Presence {
+    pub sockets: u32,
+    pub first_connected: Option<Instant>,
+    pub last_closed: Option<Instant>,
+    /// When the device reported going idle (Unix ms); `None` while in use.
+    pub away_since: Option<u64>,
+}
+
+impl Player {
+    /// Whether this seat still holds its name: heard from recently (an HTTP
+    /// request or a heartbeat), a socket open, or a socket closed within the
+    /// roster's grace period. A name is never released before the roster
+    /// stops showing it.
+    fn holds_name(&self, now: Instant, grace: Duration) -> bool {
+        let cutoff = chrono::Utc::now() - SEAT_TIMEOUT;
+        let heard_from = chrono::DateTime::parse_from_rfc3339(&self.last_seen)
+            .is_ok_and(|t| t.with_timezone(&chrono::Utc) >= cutoff);
+        heard_from
+            || self.presence.sockets > 0
+            || self
+                .presence
+                .last_closed
+                .is_some_and(|closed| now.saturating_duration_since(closed) < grace)
+    }
+
+    fn roster_seat(&self) -> share::RosterSeat {
+        share::RosterSeat {
+            roster_key: self.roster_key.clone(),
+            name: self.name.clone(),
+            player_id: self.player_id.clone(),
+            fingerprint: self.device.as_ref().map(|d| d.fingerprint.clone()),
+            sockets: self.presence.sockets,
+            first_connected: self.presence.first_connected,
+            last_closed: self.presence.last_closed,
+            away_since: self.presence.away_since,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -208,24 +262,49 @@ fn name_taken(
     registry: &[players::PlayerRecord],
     seated: &HashMap<String, Player>,
     name: &str,
+    now: Instant,
+    grace: Duration,
 ) -> Option<&'static str> {
-    let same = |other: &str| other.trim().eq_ignore_ascii_case(name.trim());
-    if registry.iter().any(|p| same(&p.name)) {
+    if registry.iter().any(|p| same_name(&p.name, name)) {
         return Some(
             "that is a paired player's name: use another, or have the GM pair this device as them",
         );
     }
-    let cutoff = chrono::Utc::now() - SEAT_TIMEOUT;
-    let present = |p: &Player| {
-        chrono::DateTime::parse_from_rfc3339(&p.last_seen)
-            .is_ok_and(|t| t.with_timezone(&chrono::Utc) >= cutoff)
-    };
-    if seated.values().any(|p| same(&p.name) && present(p)) {
+    if seated
+        .values()
+        .any(|p| same_name(&p.name, name) && p.holds_name(now, grace))
+    {
         return Some(
             "someone is already at the table under that name: use another, or wait a minute if that was you",
         );
     }
     None
+}
+
+/// Names compare as notes authorize them: trimmed, ignoring ASCII case.
+fn same_name(a: &str, b: &str) -> bool {
+    a.trim().eq_ignore_ascii_case(b.trim())
+}
+
+/// Admits a guest under `name` and seats them, in one critical section so
+/// two joins cannot both pass the check. Older guest seats under the same
+/// name hold it no longer (or the join is refused), so they are removed:
+/// one name, one live holder. Their tokens stop working and any ticket
+/// issued to them fails to register.
+fn seat_guest(
+    seats: &mut HashMap<String, Player>,
+    registry: &[players::PlayerRecord],
+    token: String,
+    player: Player,
+    now: Instant,
+    grace: Duration,
+) -> Result<(), &'static str> {
+    if let Some(why) = name_taken(registry, seats, &player.name, now, grace) {
+        return Err(why);
+    }
+    seats.retain(|_, p| !(p.player_id.is_none() && same_name(&p.name, &player.name)));
+    seats.insert(token, player);
+    Ok(())
 }
 
 pub type Players = Arc<Mutex<HashMap<String, Player>>>;
@@ -301,6 +380,15 @@ pub struct TableChange {
     pub delta: Option<PlayerDelta>,
     #[serde(default)]
     pub player_id: Option<String>,
+    /// Who is at the table. Present on a socket's first frame and whenever
+    /// it changes; a frame without it leaves the client's copy alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roster: Option<Vec<share::RosterEntry>>,
+    /// The host's clock (Unix ms) when a frame carrying the roster was sent,
+    /// so clients can turn `awaySince` into "away for 7 min" whatever their
+    /// own clock says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_time: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -326,6 +414,8 @@ struct ServerState<R: tauri::Runtime> {
     nonces: Arc<Mutex<HashMap<String, Instant>>>,
     /// Wrong join codes by address, for the lockout.
     failures: Arc<Mutex<HashMap<IpAddr, CodeFailures>>>,
+    /// Who is at the table, published by the roster task.
+    roster: Arc<RosterHub>,
 }
 
 /// A running server; dropping the stop sender ends it.
@@ -335,6 +425,7 @@ pub struct Running {
     pub players: Players,
     pub stop: watch::Sender<bool>,
     pub spotlight: watch::Sender<Spotlight>,
+    pub roster: Arc<RosterHub>,
 }
 
 /// Ports tried in order. 80 first: phones then open the table at a bare
@@ -380,6 +471,7 @@ pub async fn start(
     let players: Players = Arc::default();
     let (stop, mut stop_rx) = watch::channel(false);
     let (spotlight, spotlight_rx) = watch::channel(Spotlight::default());
+    let roster = Arc::new(RosterHub::new(ROSTER_GRACE));
 
     let origin = tls.as_ref().map(|(host, _)| {
         if port == 443 {
@@ -399,7 +491,9 @@ pub async fn start(
         spotlight: spotlight_rx,
         nonces: Arc::default(),
         failures: Arc::default(),
+        roster: roster.clone(),
     });
+    tauri::async_runtime::spawn(roster::run(served.clone()));
     let router = Router::new()
         .route("/", get(player_page))
         .route("/marked.umd.js", get(player_script))
@@ -417,7 +511,11 @@ pub async fn start(
         .route("/api/assets/{*path}", get(asset))
         .route("/api/live/ticket", post(issue_ticket))
         .route("/api/live", get(upgrade))
+        .route("/api/presence", post(report_presence))
         .route("/table-live.js", get(live_script))
+        .route("/table-presence.js", get(presence_script))
+        .route("/table-presence.css", get(presence_style))
+        .route("/presence/{file}", get(presence_module))
         .route("/api/gm/call", post(gm_call))
         .route("/api/gm/assets/{*path}", get(gm_asset))
         .route("/api/gm/upload/{kind}", post(gm_upload))
@@ -449,6 +547,7 @@ pub async fn start(
         players,
         stop,
         spotlight,
+        roster,
     })
 }
 
@@ -465,6 +564,7 @@ const PLAYER_PURIFY: &str = include_str!("../../web/purify.min.js");
 const PLAYER_ICON: &[u8] = include_bytes!("../../icons/128x128.png");
 
 const JS: &str = "application/javascript; charset=utf-8";
+const CSS: &str = "text/css; charset=utf-8";
 
 /// The phone page's Content Security Policy. Only the page's own scripts
 /// run: the files it ships and its two inline blocks, allowed by hash, so
@@ -576,6 +676,60 @@ fn socket_csp(policy: &str, origins: &[String]) -> String {
 
 async fn live_script() -> Response {
     served(JS, include_str!("../../../src/lib/table-live.js"), None)
+}
+
+/// The self-contained "who is at the table" bubbles, shared with the app:
+/// the entry module, its stylesheet and the modules it is built from.
+async fn presence_script() -> Response {
+    served(JS, include_str!("../../../src/lib/table-presence.js"), None)
+}
+
+async fn presence_style() -> Response {
+    served(
+        CSS,
+        include_str!("../../../src/lib/table-presence.css"),
+        None,
+    )
+}
+
+/// The presence modules, compiled in. Only these names are served, so the
+/// route cannot reach anything else.
+const PRESENCE_MODULES: &[(&str, &str)] = &[
+    (
+        "activities.js",
+        include_str!("../../../src/lib/presence/activities.js"),
+    ),
+    (
+        "bubble.js",
+        include_str!("../../../src/lib/presence/bubble.js"),
+    ),
+    ("dock.js", include_str!("../../../src/lib/presence/dock.js")),
+    ("drag.js", include_str!("../../../src/lib/presence/drag.js")),
+    (
+        "element.js",
+        include_str!("../../../src/lib/presence/element.js"),
+    ),
+    (
+        "icons.js",
+        include_str!("../../../src/lib/presence/icons.js"),
+    ),
+    ("idle.js", include_str!("../../../src/lib/presence/idle.js")),
+    (
+        "prefs.js",
+        include_str!("../../../src/lib/presence/prefs.js"),
+    ),
+    (
+        "statuses.js",
+        include_str!("../../../src/lib/presence/statuses.js"),
+    ),
+    ("time.js", include_str!("../../../src/lib/presence/time.js")),
+];
+
+async fn presence_module(Path(file): Path<String>) -> Response {
+    match PRESENCE_MODULES.iter().find(|(name, _)| *name == file) {
+        Some((_, body)) => served(JS, *body, None),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn player_page(State(s): State<Served>) -> Response {
@@ -700,13 +854,17 @@ fn now() -> String {
 
 /// A request proves liveness. Server pushes only check the current authorization.
 fn authed<R: tauri::Runtime>(s: &Served<R>, headers: &HeaderMap) -> Result<Who, ApiError> {
-    let token = headers
+    authorize(s, bearer(headers), true)
+}
+
+/// The seat token a request carries, or "" when it has none.
+fn bearer(headers: &HeaderMap) -> &str {
+    headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(str::trim)
-        .unwrap_or("");
-    authorize(s, token, true)
+        .unwrap_or("")
 }
 
 fn authorize<R: tauri::Runtime>(s: &Served<R>, token: &str, seen: bool) -> Result<Who, ApiError> {
@@ -884,6 +1042,8 @@ async fn join<R: tauri::Runtime>(
         }
     }
 
+    // The name a guest joins with is their identity for their notes, so it is
+    // kept exactly as typed (trimmed); only the roster cleans it for display.
     let typed = req.name.trim();
     let name = match &known {
         Some(p) => p.name.clone(),
@@ -893,35 +1053,46 @@ async fn join<R: tauri::Runtime>(
                 "give yourself a name first".to_owned(),
             ));
         }
-        None => {
-            let seated = s.players.lock().map_err(|_| poisoned())?;
-            if let Some(why) = name_taken(&registry, &seated, typed) {
-                return Err(ApiError(StatusCode::CONFLICT, why.to_owned()));
-            }
-            typed.to_owned()
-        }
+        None => typed.to_owned(),
     };
-    if let Some(p) = &known {
-        let _ = players::touch(&state, &p.id);
-    }
 
     let info = info_of(&s)?;
     let token = uuid::Uuid::new_v4().to_string();
     let stamp = now();
     let player_id = known.as_ref().map(|p| p.id.clone());
     let gm = known.as_ref().is_some_and(|p| p.gm);
-    s.players.lock().map_err(|_| poisoned())?.insert(
-        token.clone(),
-        Player {
-            name: name.clone(),
-            joined_at: stamp.clone(),
-            last_seen: stamp,
-            connection_id: uuid::Uuid::new_v4().to_string(),
-            device,
-            player_id: player_id.clone(),
-            gm,
-        },
-    );
+    let seat = Player {
+        name: name.clone(),
+        joined_at: stamp.clone(),
+        last_seen: stamp,
+        connection_id: uuid::Uuid::new_v4().to_string(),
+        device,
+        player_id: player_id.clone(),
+        gm,
+        online: false,
+        presence: Presence::default(),
+        roster_key: uuid::Uuid::new_v4().to_string(),
+    };
+    {
+        let mut seats = s.players.lock().map_err(|_| poisoned())?;
+        if known.is_some() {
+            seats.insert(token.clone(), seat);
+        } else {
+            seat_guest(
+                &mut seats,
+                &registry,
+                token.clone(),
+                seat,
+                Instant::now(),
+                s.roster.grace(),
+            )
+            .map_err(|why| ApiError(StatusCode::CONFLICT, why.to_owned()))?;
+        }
+    }
+    s.roster.wake();
+    if let Some(p) = &known {
+        let _ = players::touch(&state, &p.id);
+    }
     Ok(Json(JoinResponse {
         token,
         info,
@@ -930,6 +1101,48 @@ async fn join<R: tauri::Runtime>(
         player_id,
         gm,
     }))
+}
+
+/// What a device says about itself: whether its user has gone idle.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresenceReport {
+    pub away: bool,
+}
+
+/// A device reports that its user went idle, or came back. Away keeps the
+/// time it started, so a repeated report does not reset "away for".
+async fn report_presence<R: tauri::Runtime>(
+    State(s): State<Served<R>>,
+    headers: HeaderMap,
+    Json(report): Json<PresenceReport>,
+) -> Result<StatusCode, ApiError> {
+    let token = bearer(&headers);
+    authed(&s, &headers)?;
+    {
+        let mut seats = s.players.lock().map_err(|_| poisoned())?;
+        let seat = seats.get_mut(token).ok_or_else(|| {
+            ApiError(
+                StatusCode::UNAUTHORIZED,
+                "not joined to this table".to_owned(),
+            )
+        })?;
+        seat.presence.away_since = if report.away {
+            seat.presence.away_since.or_else(|| Some(unix_ms()))
+        } else {
+            None
+        };
+    }
+    s.roster.wake();
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Now, in Unix milliseconds: the roster's clock for "away since".
+pub(super) fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
 }
 
 async fn elements(
@@ -1166,25 +1379,32 @@ mod tests {
         assert!(failures.is_empty());
     }
 
-    fn seated(name: &str, seconds_ago: i64) -> HashMap<String, Player> {
+    const GRACE: Duration = Duration::from_secs(60);
+
+    fn guest_seat(name: &str, seconds_ago: i64) -> Player {
         let when = (chrono::Utc::now() - chrono::Duration::seconds(seconds_ago))
             .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        HashMap::from([(
-            "tok".to_owned(),
-            Player {
-                name: name.to_owned(),
-                joined_at: when.clone(),
-                last_seen: when,
-                connection_id: "seat".to_owned(),
-                device: None,
-                player_id: None,
-                gm: false,
-            },
-        )])
+        Player {
+            name: name.to_owned(),
+            joined_at: when.clone(),
+            last_seen: when,
+            connection_id: format!("seat-{name}"),
+            device: None,
+            player_id: None,
+            gm: false,
+            online: false,
+            presence: Presence::default(),
+            roster_key: format!("roster-{name}"),
+        }
+    }
+
+    fn seated(name: &str, seconds_ago: i64) -> HashMap<String, Player> {
+        HashMap::from([("tok".to_owned(), guest_seat(name, seconds_ago))])
     }
 
     #[test]
     fn guests_cannot_take_a_paired_or_seated_name() {
+        let now = Instant::now();
         let registry = vec![players::PlayerRecord {
             id: "p1".to_owned(),
             name: "Mira".to_owned(),
@@ -1192,11 +1412,121 @@ mod tests {
             last_seen: None,
             gm: false,
         }];
-        assert!(name_taken(&registry, &HashMap::new(), " mira ").is_some());
-        assert!(name_taken(&registry, &HashMap::new(), "Tam").is_none());
-        assert!(name_taken(&[], &seated("Tam", 5), "TAM").is_some());
+        assert!(name_taken(&registry, &HashMap::new(), " mira ", now, GRACE).is_some());
+        assert!(name_taken(&registry, &HashMap::new(), "Tam", now, GRACE).is_none());
+        assert!(name_taken(&[], &seated("Tam", 5), "TAM", now, GRACE).is_some());
         // A name whose holder has gone quiet is free again.
-        assert!(name_taken(&[], &seated("Tam", 300), "Tam").is_none());
+        assert!(name_taken(&[], &seated("Tam", 300), "Tam", now, GRACE).is_none());
+    }
+
+    #[test]
+    fn an_open_or_recently_closed_socket_holds_the_name() {
+        let now = Instant::now();
+        let mut seats = seated("Tam", 300);
+        let seat = seats.get_mut("tok").unwrap();
+        seat.presence.sockets = 1;
+        assert!(name_taken(&[], &seats, "tam", now, GRACE).is_some());
+        let seat = seats.get_mut("tok").unwrap();
+        seat.presence.sockets = 0;
+        seat.presence.last_closed = Some(now - Duration::from_secs(10));
+        assert!(name_taken(&[], &seats, "tam", now, GRACE).is_some());
+        // Away past the grace period, and silent over HTTP: free again.
+        let seat = seats.get_mut("tok").unwrap();
+        seat.presence.last_closed = Some(now - GRACE - Duration::from_secs(1));
+        assert!(name_taken(&[], &seats, "tam", now, GRACE).is_none());
+    }
+
+    #[test]
+    fn a_guest_saving_over_http_keeps_their_name_after_the_roster_drops_them() {
+        let now = Instant::now();
+        // The socket closed long ago, but a note was saved five seconds ago.
+        let mut seats = seated("Tam", 5);
+        let seat = seats.get_mut("tok").unwrap();
+        seat.presence.first_connected = Some(now - Duration::from_secs(400));
+        seat.presence.last_closed = Some(now - Duration::from_secs(300));
+        let (roster, _) = share::build_roster(
+            &[seat.roster_seat()],
+            &[],
+            share::RosterHost::default(),
+            GRACE,
+            now,
+        );
+        assert_eq!(roster.len(), 1, "only the host is shown");
+        assert!(name_taken(&[], &seats, "Tam", now, GRACE).is_some());
+    }
+
+    #[test]
+    fn admission_keeps_one_holder_per_guest_name() {
+        let now = Instant::now();
+        let mut seats = HashMap::new();
+        seat_guest(
+            &mut seats,
+            &[],
+            "a".into(),
+            guest_seat("Tam", 0),
+            now,
+            GRACE,
+        )
+        .unwrap();
+        // While the first holder is protected the name is refused.
+        assert!(
+            seat_guest(
+                &mut seats,
+                &[],
+                "b".into(),
+                guest_seat("TAM", 0),
+                now,
+                GRACE
+            )
+            .is_err()
+        );
+        assert_eq!(seats.len(), 1);
+        // Once it holds the name no longer, a newcomer replaces it, and the
+        // old token stops working.
+        let old = seats.get_mut("a").unwrap();
+        old.last_seen = (chrono::Utc::now() - chrono::Duration::seconds(300))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        old.presence.last_closed = Some(now - GRACE - Duration::from_secs(1));
+        seat_guest(
+            &mut seats,
+            &[],
+            "b".into(),
+            guest_seat("tam", 0),
+            now,
+            GRACE,
+        )
+        .unwrap();
+        assert!(!seats.contains_key("a"));
+        assert!(seats.contains_key("b"));
+        // Another name is untouched.
+        seat_guest(
+            &mut seats,
+            &[],
+            "c".into(),
+            guest_seat("Jules", 0),
+            now,
+            GRACE,
+        )
+        .unwrap();
+        assert_eq!(seats.len(), 2);
+    }
+
+    #[test]
+    fn stored_names_keep_their_exact_spelling() {
+        // Notes authorize by the joined name, so admission must not rewrite
+        // it; only the roster cleans names for display.
+        let now = Instant::now();
+        let odd = format!("Mary  Jane\u{7}{}", "x".repeat(50));
+        let mut seats = HashMap::new();
+        seat_guest(&mut seats, &[], "a".into(), guest_seat(&odd, 0), now, GRACE).unwrap();
+        assert_eq!(seats["a"].name, odd);
+        let viewer = Viewer {
+            name: &seats["a"].name,
+            player_id: None,
+        };
+        let mut extra = crate::storage::Extra::new();
+        extra.insert("author".into(), json!(odd));
+        assert!(share::is_own_note(share::NOTE_KIND, &extra, &viewer));
     }
 
     #[test]

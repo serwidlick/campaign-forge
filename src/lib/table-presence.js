@@ -1,0 +1,29 @@
+/**
+ * Who is at the table: the public face of the presence bubbles. The parts
+ * live in ./presence/ (one job each); pages import from here.
+ *
+ *   import { mountTablePresence } from "./table-presence.js";
+ *   const el = mountTablePresence({ stylesheet: "/table-presence.css" });
+ *   el.roster = entries;            // from the table's live frames
+ *   el.clockOffset = offset;        // when the roster came from another machine
+ *   el.setActivity(key, "messaging");   // see presence/activities.js
+ *
+ * Statuses and activities are registries: add one with `defineStatus` or
+ * `defineActivity` and the bubbles pick it up. `watchIdle` reports when the
+ * person at this device has gone quiet, for the page to tell the table.
+ *
+ * The host serves these same files to phones (src-tauri/src/table/server.rs),
+ * so everything here is plain browser JavaScript with no build step.
+ */
+
+export {
+  TAG,
+  TablePresence,
+  defineTablePresence,
+  mountTablePresence,
+} from "./presence/element.js";
+export { defineStatus, statusOf } from "./presence/statuses.js";
+export { defineActivity, activityOf } from "./presence/activities.js";
+export { defineIcon } from "./presence/icons.js";
+export { IDLE_AFTER, watchIdle } from "./presence/idle.js";
+export { formatDuration } from "./presence/time.js";

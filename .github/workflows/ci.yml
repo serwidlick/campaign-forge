@@ -42,7 +42,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: node --test tests/table-live.test.mjs
+      - run: node --test tests/table-live.test.mjs tests/table-presence.test.mjs
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm build

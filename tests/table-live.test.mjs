@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LIVE_PROTOCOL, tableSocket } from "../src/lib/table-live.js";
+import {
+  LIVE_PROTOCOL,
+  ROSTER_PALETTE,
+  rosterColour,
+  rosterInitials,
+  tableSocket,
+} from "../src/lib/table-live.js";
 
 function connect(t) {
   let peer;
@@ -49,4 +55,39 @@ test("an unexpected disconnect discards queued changes and requires a new snapsh
   send({ version: 1, gm: false });
   disconnect();
   await assert.rejects(reader.next(), /disconnected/i);
+});
+
+test("roster initials take whole graphemes from the first and last words", () => {
+  assert.equal(rosterInitials("mira"), "M");
+  assert.equal(rosterInitials("  Mary   Jane Watson "), "MW");
+  assert.equal(rosterInitials("élodie ørsted"), "ÉØ");
+  assert.equal(rosterInitials("👩‍🚀 Ada"), "👩‍🚀A");
+  assert.equal(rosterInitials("   "), "?");
+  assert.equal(rosterInitials(""), "?");
+});
+
+test("a roster key always gets the same palette colour", () => {
+  for (const key of ["host", "player:p1", "guest:4b0c"]) {
+    assert.equal(rosterColour(key), rosterColour(key));
+    assert.ok(ROSTER_PALETTE.includes(rosterColour(key)));
+  }
+  const spread = new Set(
+    Array.from({ length: 64 }, (_, i) => rosterColour(`guest:${i}`)),
+  );
+  assert.ok(spread.size >= ROSTER_PALETTE.length - 1);
+});
+
+function luminance(hex) {
+  const channel = (i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+test("every roster colour meets 4.5:1 contrast with white initials", () => {
+  for (const colour of ROSTER_PALETTE) {
+    const ratio = 1.05 / (luminance(colour) + 0.05);
+    assert.ok(ratio >= 4.5, `${colour} is only ${ratio.toFixed(2)}:1`);
+  }
 });

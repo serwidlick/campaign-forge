@@ -31,11 +31,44 @@ async fn receive(socket: &mut ClientSocket) -> TableChange {
     serde_json::from_str(frame.to_text().unwrap()).unwrap()
 }
 
+/// Reads roster-only frames until the roster satisfies `done`, within one
+/// overall deadline.
+async fn roster_until(
+    socket: &mut ClientSocket,
+    mut roster: Vec<share::RosterEntry>,
+    done: impl Fn(&[share::RosterEntry]) -> bool,
+) -> Vec<share::RosterEntry> {
+    let converge = async move {
+        while !done(&roster) {
+            let frame = receive(socket).await;
+            assert!(frame.delta.is_none(), "expected a roster-only frame");
+            assert!(
+                frame.changes.is_none(),
+                "a roster frame carries no file changes"
+            );
+            roster = frame
+                .roster
+                .expect("a frame with no other news carries the roster");
+        }
+        roster
+    };
+    tokio::time::timeout(Duration::from_secs(10), converge)
+        .await
+        .expect("the roster converged in time")
+}
+
+fn here(roster: &[share::RosterEntry], name: &str) -> bool {
+    roster
+        .iter()
+        .any(|e| e.name == name && e.state == share::roster::RosterState::Active)
+}
+
 async fn connect(
     origin: &str,
     http: &reqwest::Client,
     connector: Option<Connector>,
     token: &str,
+    player: bool,
 ) -> ClientSocket {
     let ticket: Value = http
         .post(format!("{origin}/api/live/ticket"))
@@ -63,7 +96,7 @@ async fn connect(
             .unwrap();
     socket
         .send(Frame::Text(
-            json!({"ticket": ticket["ticket"], "player": true})
+            json!({"ticket": ticket["ticket"], "player": player})
                 .to_string()
                 .into(),
         ))
@@ -155,7 +188,9 @@ async fn exercise_table(secure: bool) {
         handshakes: Arc::new(tokio::sync::Semaphore::new(4)),
         closing,
         spotlight,
+        roster: Arc::new(RosterHub::new(Duration::from_secs(60))),
     });
+    tokio::spawn(roster::run(served.clone()));
     let router = Router::new()
         .route("/api/join", post(join))
         .route("/api/live/ticket", post(issue_ticket))
@@ -236,9 +271,13 @@ async fn exercise_table(secure: bool) {
         });
         assert_ne!(seat.connection_id, joined.token);
     }
-    let mut socket = connect(&origin, &http, connector.clone(), &joined.token).await;
+    let mut socket = connect(&origin, &http, connector.clone(), &joined.token, true).await;
     let first = receive(&mut socket).await;
     assert_eq!(first.spotlight.as_ref(), Some(&visible.meta.id));
+    roster_until(&mut socket, first.roster.clone().unwrap(), |r| {
+        here(r, "Mira")
+    })
+    .await;
     let snapshot = first.delta.unwrap();
     assert!(snapshot.reset);
     assert_eq!(snapshot.upserts.len(), 1);
@@ -295,8 +334,13 @@ async fn exercise_table(secure: bool) {
             base_version: Some(handout.version),
         })
         .unwrap();
-    let mut socket = connect(&origin, &http, connector.clone(), &joined.token).await;
-    let next = receive(&mut socket).await.delta.unwrap();
+    let mut socket = connect(&origin, &http, connector.clone(), &joined.token, true).await;
+    let reconnected = receive(&mut socket).await;
+    roster_until(&mut socket, reconnected.roster.clone().unwrap(), |r| {
+        here(r, "Mira")
+    })
+    .await;
+    let next = reconnected.delta.unwrap();
     assert!(next.reset && next.upserts.is_empty());
     let shared = campaign
         .create_element(
@@ -338,9 +382,407 @@ async fn exercise_table(secure: bool) {
         .json()
         .await
         .unwrap();
-    let mut active = connect(&origin, &http, connector, &other.token).await;
-    assert!(receive(&mut active).await.delta.unwrap().reset);
+    let mut active = connect(&origin, &http, connector, &other.token, true).await;
+    let seated = receive(&mut active).await;
+    assert!(seated.delta.unwrap().reset);
+    roster_until(&mut active, seated.roster.unwrap(), |r| {
+        here(r, "Jules") && r.len() == 2
+    })
+    .await;
     stop.send_replace(true);
     assert!(receive(&mut active).await.closed);
     task.abort();
+}
+
+/// A plain LAN table with a short roster grace period, for roster tests.
+struct Table {
+    origin: String,
+    http: reqwest::Client,
+    served: Served<tauri::test::MockRuntime>,
+    app: tauri::App<tauri::test::MockRuntime>,
+    stop: watch::Sender<bool>,
+    /// Held so live sockets keep their spotlight channel open.
+    _spotlight: watch::Sender<Spotlight>,
+    task: tokio::task::JoinHandle<std::io::Result<()>>,
+    _folder: tempfile::TempDir,
+}
+
+/// Long enough that no test can see a seat expire by accident; tests step
+/// past it with `RosterHub::advance` instead.
+const TEST_GRACE: Duration = Duration::from_secs(60);
+
+async fn plain_table() -> Table {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let origin = format!("http://127.0.0.1:{port}");
+    let app = tauri::test::mock_app();
+    app.manage(AppState::default());
+    let folder = tempfile::tempdir().unwrap();
+    app.state::<AppState>()
+        .create_campaign(
+            folder.path().to_str().unwrap().to_owned(),
+            "test".into(),
+            None,
+        )
+        .unwrap();
+    let (stop, closing) = watch::channel(false);
+    let (spotlight_tx, spotlight) = watch::channel(Spotlight::default());
+    let served = Arc::new(ServerState {
+        origins: browser_origins(None, port, &[]),
+        app: app.handle().clone(),
+        code: "123456".into(),
+        players: Arc::default(),
+        nonces: Arc::default(),
+        failures: Arc::default(),
+        tickets: Arc::default(),
+        handshakes: Arc::new(tokio::sync::Semaphore::new(8)),
+        closing,
+        spotlight,
+        roster: Arc::new(RosterHub::new(TEST_GRACE)),
+    });
+    tokio::spawn(roster::run(served.clone()));
+    let router = Router::new()
+        .route("/api/join", post(join))
+        .route("/api/live/ticket", post(issue_ticket))
+        .route("/api/live", get(upgrade))
+        .route("/api/presence", post(report_presence))
+        .with_state(served.clone());
+    let service = router.into_make_service_with_connect_info::<SocketAddr>();
+    let task = tokio::spawn(axum_server::from_tcp(listener).unwrap().serve(service));
+    Table {
+        origin,
+        http: reqwest::Client::builder().no_proxy().build().unwrap(),
+        served,
+        app,
+        stop,
+        _spotlight: spotlight_tx,
+        task,
+        _folder: folder,
+    }
+}
+
+impl Table {
+    async fn join(&self, name: &str) -> reqwest::Response {
+        self.http
+            .post(format!("{}/api/join", self.origin))
+            .json(&json!({"name": name, "code": "123456", "liveProtocol": LIVE_PROTOCOL}))
+            .send()
+            .await
+            .unwrap()
+    }
+
+    async fn seat(&self, name: &str) -> JoinResponse {
+        self.join(name)
+            .await
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+
+    /// Connects and reads frames until this table's roster satisfies `done`.
+    async fn watch(
+        &self,
+        token: &str,
+        player: bool,
+        done: impl Fn(&[share::RosterEntry]) -> bool,
+    ) -> (ClientSocket, TableChange) {
+        let mut socket = connect(&self.origin, &self.http, None, token, player).await;
+        let first = receive(&mut socket).await;
+        roster_until(&mut socket, first.roster.clone().unwrap(), done).await;
+        (socket, first)
+    }
+
+    /// Pairs a joined seat with a new player record, as the GM would.
+    fn pair(&self, token: &str, name: &str, gm: bool) -> String {
+        let campaign = self.app.state::<AppState>();
+        let fingerprint = format!("device-{name}");
+        let mut record = players::bind_device(
+            &campaign,
+            None,
+            name,
+            players::PlayerDevice {
+                fingerprint: fingerprint.clone(),
+                public_key: "key".into(),
+                label: "label".into(),
+                added_at: String::new(),
+            },
+        )
+        .unwrap();
+        if gm {
+            let mut registry = players::load(&campaign);
+            for r in &mut registry {
+                if r.id == record.id {
+                    r.gm = true;
+                }
+            }
+            players::save(&campaign, &registry).unwrap();
+            record.gm = true;
+        }
+        {
+            let mut seats = self.served.players.lock().unwrap();
+            let seat = seats.get_mut(token).unwrap();
+            seat.player_id = Some(record.id.clone());
+            seat.name.clone_from(&record.name);
+            seat.gm = record.gm;
+            seat.device = Some(ConnectedDevice {
+                fingerprint,
+                public_key: "key".into(),
+                label: "label".into(),
+            });
+        }
+        // As `Host::bind_device` does: the seat changed after the registry.
+        self.served.roster.wake();
+        record.id
+    }
+
+    async fn close(self) {
+        self.stop.send_replace(true);
+        self.task.abort();
+    }
+}
+
+fn state_of(roster: &[share::RosterEntry], name: &str) -> Option<share::roster::RosterState> {
+    roster.iter().find(|e| e.name == name).map(|e| e.state)
+}
+
+#[tokio::test]
+async fn the_roster_follows_people_coming_and_going() {
+    let table = plain_table().await;
+    let ava = table.seat("Ava").await;
+    let (mut a, first) = table
+        .watch(&ava.token, true, |r| here(r, "Ava") && r.len() == 2)
+        .await;
+    let roster = first.roster.unwrap();
+    assert_eq!(roster[0].key, "host");
+    assert_eq!(roster[0].name, share::roster::DEFAULT_GM_NAME);
+
+    let bo = table.seat("Bo").await;
+    let mut b = connect(&table.origin, &table.http, None, &bo.token, true).await;
+    let roster = roster_until(&mut a, roster, |r| here(r, "Bo")).await;
+    assert_eq!(roster.len(), 3);
+    assert!(roster[2].key.starts_with("guest:"));
+    // Nothing private reaches the roster.
+    let wire = serde_json::to_string(&roster).unwrap();
+    for secret in [&bo.token, &ava.token] {
+        assert!(!wire.contains(secret.as_str()));
+    }
+    for seat in table.served.players.lock().unwrap().values() {
+        assert!(!wire.contains(&seat.connection_id));
+    }
+
+    // Bo's socket drops: away, then gone once the grace period ends.
+    b.close(None).await.unwrap();
+    let roster = roster_until(&mut a, roster, |r| {
+        state_of(r, "Bo") == Some(share::roster::RosterState::Disconnected)
+    })
+    .await;
+    // Past the grace period (stepped, not waited for), Bo is gone.
+    table.served.roster.advance(TEST_GRACE);
+    let roster = roster_until(&mut a, roster, |r| state_of(r, "Bo").is_none()).await;
+    assert_eq!(roster.len(), 2);
+
+    // The GM names themselves in the campaign settings.
+    let campaign = table.app.state::<AppState>();
+    let mut extra = campaign.current_campaign().unwrap().extra;
+    extra.insert("gmName".into(), json!("Dungeon Dan"));
+    campaign.update_campaign(None, None, Some(extra)).unwrap();
+    roster_until(&mut a, roster, |r| r[0].name == "Dungeon Dan").await;
+    table.close().await;
+}
+
+#[tokio::test]
+async fn a_gm_socket_gets_roster_frames_without_file_changes() {
+    let table = plain_table().await;
+    let gm = table.seat("Ava").await;
+    table.pair(&gm.token, "Ava", true);
+    let (mut socket, first) = table
+        .watch(&gm.token, false, |r| {
+            r.iter()
+                .any(|e| e.name == "Ava" && e.role == share::roster::RosterRole::Gm)
+        })
+        .await;
+    assert!(first.gm);
+    assert!(
+        first.changes.is_some(),
+        "a GM's first frame reloads everything"
+    );
+    let bo = table.seat("Bo").await;
+    let _b = connect(&table.origin, &table.http, None, &bo.token, true).await;
+    // `roster_until` asserts every frame on the way has no delta or changes.
+    roster_until(&mut socket, first.roster.unwrap(), |r| here(r, "Bo")).await;
+
+    // A GM socket reconnecting starts with the roster again.
+    socket.close(None).await.unwrap();
+    let (_socket, again) = table
+        .watch(&gm.token, false, |r| here(r, "Bo") && here(r, "Ava"))
+        .await;
+    assert!(again.roster.is_some());
+    table.close().await;
+}
+
+#[tokio::test]
+async fn pairing_a_guest_changes_their_roster_entry() {
+    let table = plain_table().await;
+    let watcher_seat = table.seat("Watcher").await;
+    let (mut watcher, first) = table
+        .watch(&watcher_seat.token, true, |r| here(r, "Watcher"))
+        .await;
+    let cy = table.seat("Cy").await;
+    let _c = connect(&table.origin, &table.http, None, &cy.token, true).await;
+    let roster = roster_until(&mut watcher, first.roster.unwrap(), |r| {
+        r.iter()
+            .any(|e| e.name == "Cy" && e.role == share::roster::RosterRole::Guest)
+    })
+    .await;
+    let id = table.pair(&cy.token, "Cy", false);
+    let key = format!("player:{id}");
+    roster_until(&mut watcher, roster, |r| {
+        r.iter()
+            .any(|e| e.key == key && e.role == share::roster::RosterRole::Player && e.name == "Cy")
+            && !r
+                .iter()
+                .any(|e| e.role == share::roster::RosterRole::Guest && e.name == "Cy")
+    })
+    .await;
+    table.close().await;
+}
+
+#[tokio::test]
+async fn a_seat_removed_after_its_ticket_gets_no_presence() {
+    let table = plain_table().await;
+    let dee = table.seat("Dee").await;
+    let ticket: Value = table
+        .http
+        .post(format!("{}/api/live/ticket", table.origin))
+        .bearer_auth(&dee.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    table.served.players.lock().unwrap().remove(&dee.token);
+    let mut request = format!("{}/api/live", table.origin.replacen("http", "ws", 1))
+        .into_client_request()
+        .unwrap();
+    request
+        .headers_mut()
+        .insert("sec-websocket-protocol", LIVE_PROTOCOL.parse().unwrap());
+    let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    socket
+        .send(Frame::Text(
+            json!({"ticket": ticket["ticket"], "player": true})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let end = tokio::time::timeout(Duration::from_secs(5), socket.next())
+        .await
+        .unwrap();
+    assert!(!matches!(end, Some(Ok(Frame::Text(_)))));
+    assert!(table.served.players.lock().unwrap().is_empty());
+    table.close().await;
+}
+
+#[tokio::test]
+async fn simultaneous_joins_under_one_name_admit_exactly_one() {
+    let table = plain_table().await;
+    let (first, second) = tokio::join!(table.join("Eli"), table.join("ELI"));
+    let mut statuses = [first.status(), second.status()];
+    statuses.sort();
+    assert_eq!(statuses, [StatusCode::OK, StatusCode::CONFLICT]);
+    assert_eq!(table.served.players.lock().unwrap().len(), 1);
+    table.close().await;
+}
+
+#[tokio::test]
+async fn presence_counts_every_socket_and_survives_a_poisoned_lock() {
+    use super::super::roster::PresenceGuard;
+    let table = plain_table().await;
+    let fay = table.seat("Fay").await;
+    let presence = |t: &Table| {
+        t.served
+            .players
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)[&fay.token]
+            .presence
+            .clone()
+    };
+    let one = PresenceGuard::register(&table.served, &fay.token).unwrap();
+    let two = PresenceGuard::register(&table.served, &fay.token).unwrap();
+    assert_eq!(presence(&table).sockets, 2);
+    drop(one);
+    assert_eq!(presence(&table).sockets, 1);
+    assert!(presence(&table).last_closed.is_none());
+    let seats = table.served.players.clone();
+    let _ = std::thread::spawn(move || {
+        let _held = seats.lock().unwrap();
+        panic!("poison the seat list");
+    })
+    .join();
+    drop(two);
+    let after = presence(&table);
+    assert_eq!(after.sockets, 0);
+    assert!(after.last_closed.is_some());
+    // The seat list stays poisoned; recover it so the table can close.
+    table.served.players.clear_poison();
+    table.close().await;
+}
+
+#[tokio::test]
+async fn idle_reports_make_people_away_and_back() {
+    use share::roster::RosterState;
+    let table = plain_table().await;
+    let ava = table.seat("Ava").await;
+    let (mut a, first) = table.watch(&ava.token, true, |r| here(r, "Ava")).await;
+    let roster = first.roster.unwrap();
+    assert!(
+        first.server_time.is_some(),
+        "a roster frame carries the host clock"
+    );
+    let report = |away: bool| {
+        table
+            .http
+            .post(format!("{}/api/presence", table.origin))
+            .bearer_auth(&ava.token)
+            .json(&json!({ "away": away }))
+            .send()
+    };
+    assert_eq!(report(true).await.unwrap().status(), StatusCode::NO_CONTENT);
+    let roster = roster_until(&mut a, roster, |r| {
+        state_of(r, "Ava") == Some(RosterState::Away)
+    })
+    .await;
+    let since = roster.iter().find(|e| e.name == "Ava").unwrap().away_since;
+    assert!(since.is_some());
+    // Saying so again keeps the original time.
+    report(true).await.unwrap();
+    assert_eq!(
+        report(false).await.unwrap().status(),
+        StatusCode::NO_CONTENT
+    );
+    let roster = roster_until(&mut a, roster, |r| here(r, "Ava")).await;
+    assert!(roster.iter().all(|e| e.away_since.is_none()));
+    // Without a seat there is nothing to report.
+    let stranger = table
+        .http
+        .post(format!("{}/api/presence", table.origin))
+        .bearer_auth("not-a-seat")
+        .json(&json!({ "away": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(stranger.status(), StatusCode::UNAUTHORIZED);
+
+    // The hosting GM's own window reports through the hub.
+    table.served.roster.set_host_away(true);
+    let roster = roster_until(&mut a, roster, |r| r[0].state == RosterState::Away).await;
+    assert!(roster[0].away_since.is_some());
+    table.served.roster.set_host_away(false);
+    roster_until(&mut a, roster, |r| r[0].state == RosterState::Active).await;
+    table.close().await;
 }

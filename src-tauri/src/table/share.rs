@@ -25,8 +25,14 @@
 //!   author always receives their own notes, whole, shared or not, and is
 //!   the only player who may change or delete them; sharing one sends it
 //!   to everyone like any other element. The GM sees every note.
+//! - Who is at the table ([`roster`]) is public to everyone there: display
+//!   names (cleaned and cut short), roles and here/away. Never tokens,
+//!   connection ids, devices or timestamps.
 
 use std::collections::HashSet;
+
+pub mod roster;
+pub use roster::{RosterEntry, RosterHost, RosterSeat, build_roster};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
