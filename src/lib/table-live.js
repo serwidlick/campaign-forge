@@ -12,6 +12,7 @@ export function tableSocket(ticket, player = false) {
   );
   const queue = [];
   let waiting;
+  let shutdown;
   let ended = false;
   let timer;
   function close() {
@@ -41,6 +42,14 @@ export function tableSocket(ticket, player = false) {
       const change = JSON.parse(data);
       if (typeof change.version !== "number" || typeof change.gm !== "boolean")
         return close();
+      if (change.closed === true) {
+        // The host can close the wire before the UI finishes its previous event.
+        if (waiting) waiting.resolve(change);
+        else shutdown = change;
+        waiting = undefined;
+        close();
+        return;
+      }
       if (waiting) {
         waiting.resolve(change);
         waiting = undefined;
@@ -52,8 +61,16 @@ export function tableSocket(ticket, player = false) {
     }
   };
   return {
-    close,
+    close() {
+      shutdown = undefined;
+      close();
+    },
     next() {
+      if (shutdown) {
+        const change = shutdown;
+        shutdown = undefined;
+        return Promise.resolve(change);
+      }
       if (ended || waiting)
         return Promise.reject(new Error("Table disconnected"));
       if (queue.length) return Promise.resolve(queue.shift());

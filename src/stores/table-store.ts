@@ -149,7 +149,7 @@ export const useTableStore = create<TableState>((set, get) => {
         if (!next.spotlight) set({ spotlight: null });
         if (
           next.spotlightSeq > event ||
-          (next.spotlight && next.spotlight !== get().spotlight?.id)
+          (!next.gm && next.spotlight && next.spotlight !== get().spotlight?.id)
         ) {
           event = next.spotlightSeq;
           if (next.gm) {

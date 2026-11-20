@@ -210,28 +210,26 @@ export const web = {
 
   /** The table joined before a reload, if its token still works. */
   async session(): Promise<TableSession | null> {
-    if (!current) return null;
+    const seat = current;
+    if (!seat) return null;
     // A seat from before this page became GM-only is no seat here.
-    if (
-      !current.session.gm ||
-      current.session.info.liveProtocol !== LIVE_PROTOCOL
-    ) {
+    if (!seat.session.gm || seat.session.info.liveProtocol !== LIVE_PROTOCOL) {
       current = null;
       remember(null);
       return null;
     }
     try {
       await request("/api/elements");
-      return current.session;
     } catch (err) {
+      if (current !== seat) return null;
       if (err === CLOSED_ERROR || err === "TABLE_UNAUTHORIZED") {
         current = null;
         remember(null);
         return null;
       }
       // Unreachable right now: keep the session and let the sync loop retry.
-      return current.session;
     }
+    return current === seat ? seat.session : null;
   },
 
   leave(): void {
