@@ -1212,7 +1212,7 @@
           query: "",
           openId: null,
           event: 0,
-          urls: {},
+          urls: new Map(),
         };
 
         var $ = function (id) {
@@ -1616,11 +1616,13 @@
           $("back").hidden = true;
         }
 
-        function releaseAssets() {
-          Object.values(state.urls).forEach(function (pending) {
+        function releaseAssets(paths = state.urls.keys()) {
+          for (const path of paths) {
+            const pending = state.urls.get(path);
+            if (!pending) continue;
+            state.urls.delete(path);
             pending.then(URL.revokeObjectURL, function () {});
-          });
-          state.urls = {};
+          }
         }
 
         async function runTable(token) {
@@ -1644,13 +1646,19 @@
                 failures = 0;
                 if (v.playerId !== undefined) state.playerId = v.playerId;
                 if (v.delta) {
-                  state.elements = module.applyDelta(state.elements, v.delta);
-                  if (
-                    v.delta.reset ||
-                    v.delta.removed.length ||
-                    v.delta.upserts.length
-                  )
+                  if (v.delta.reset) {
                     releaseAssets();
+                  } else {
+                    // Only the previous versions of these handouts lost or
+                    // changed their assets. Other portraits can stay loaded.
+                    const changed = new Set(v.delta.removed);
+                    for (const item of v.delta.upserts) changed.add(item.id);
+                    for (const item of state.elements) {
+                      if (changed.has(item.id))
+                        releaseAssets([item.portrait, item.image, item.file]);
+                    }
+                  }
+                  state.elements = module.applyDelta(state.elements, v.delta);
                   renderFilters();
                   renderList();
                   if (state.openId && !byId(state.openId)) clearReader();
@@ -1841,9 +1849,9 @@
 
         // ---- Assets -----------------------------------------------------------
         function assetUrl(path) {
-          if (state.urls[path]) return state.urls[path];
-          var cache = state.urls;
-          cache[path] = api("/api/assets/" + path)
+          const cached = state.urls.get(path);
+          if (cached) return cached;
+          const pending = api("/api/assets/" + path)
             .then(function (r) {
               if (!r.ok) throw new Error("no asset");
               return r.blob();
@@ -1851,10 +1859,11 @@
             .then(function (b) {
               return URL.createObjectURL(b);
             });
-          state.urls[path].catch(function () {
-            delete cache[path];
+          state.urls.set(path, pending);
+          pending.catch(function () {
+            if (state.urls.get(path) === pending) state.urls.delete(path);
           });
-          return state.urls[path];
+          return pending;
         }
 
         // ---- Reader -----------------------------------------------------------
