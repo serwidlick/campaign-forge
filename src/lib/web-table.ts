@@ -15,6 +15,7 @@ import type {
   Element,
   NoteInput,
   TableChange,
+  TableCommand,
   TableInfo,
   TableSession,
 } from "./types";
@@ -281,6 +282,12 @@ export const web = {
 
   async deleteNote(id: string): Promise<void> {
     await request(`/api/notes/${id}`, { method: "DELETE" });
+  },
+
+  /** Sends one message command on the live socket; false when there is
+   *  none open right now. */
+  liveSend(command: TableCommand): boolean {
+    return live?.send(command) ?? false;
   },
 
   async nextEvent(subscribe: boolean): Promise<TableChange> {

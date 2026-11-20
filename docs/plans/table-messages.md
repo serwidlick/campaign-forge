@@ -1,198 +1,370 @@
 # Table messages: the person card
 
-Status: plan, not started. Builds on the presence bubbles (`docs/plans/table-roster.md`, `src/lib/presence/`).
+Status: implemented on `feat/table-messages`; the notes at the end say where the build differs from the plan. It builds on the presence bubbles (`docs/plans/table-roster.md`, `src/lib/presence/`). Messages are live chat for the session only: they are carried over the WebSocket and kept in the host's memory. Codex has reviewed three drafts; the history is at the end.
 
-Pressing someone's bubble opens a card next to it. The card shows who they are and how they are. It also holds a conversation with them: players can message each other, and the GM can message any player. While someone writes to you, their bubble and your card with them show that they are typing. Nobody else sees it: not the GM, not the other players, and not the writer.
+Pressing someone's bubble opens a card next to it. The card shows who they are and how they are, and holds a conversation with them. Players can message each other, and the GM can message any player.
 
-The card is a frame for sections. Messaging is the first section, and later features (GM actions, dice, handouts) add sections without touching the card.
+- **Typing:** while someone writes to you, their bubble and your card with them show that they are typing. Nobody else is told: not the GM's screen, not the other players, and not the writer's other devices.
+- **Seen receipts:** once the person you wrote to has read your message, it is marked **Seen**.
 
-## What exists today
+The card is a frame for sections. Messaging is the first; later features (GM actions, dice, handouts) add sections without touching the card.
 
-- **Server to device.** The live socket (`table.ws.v1`, `src-tauri/src/table/server/live.rs`) is one-way. The device sends only its hello and pongs, and any other incoming message ends the socket. Device to server goes over HTTP with the seat's bearer token, as idle reports do (`POST /api/presence`).
-- **Who is who.** Every roster entry has a stable key: `host`, `player:<id>` or `guest:<opaque>`.
-  - Each socket's roster frames now say which key is its own (`you`, built by `share::roster::person_key`). The server can therefore address a person, and each device knows who it is.
-  - A guest key is per seat, not per name. A new guest who takes a freed name gets a new key, so they cannot read the old guest's messages. This is the same rule that keeps private notes safe.
-- **Bubble behaviour to build on.**
-  - A tap on a bubble shows its name tip.
-  - The `messaging` and `messaged` activities exist (badge, animation, and a `notice` buzz on your own device).
-  - `motion.js` has the motion vocabulary: shuffle, slide, emerge and vanish (FLIP-style, `transform` and `opacity` only, the Web Animations API, tuning in frozen objects, skipped for reduced motion).
-  - Each device can mark its own bubble as `you` and, while offline, sees the host as disconnected.
+## Scope: chat for the session, nothing kept
 
-## Decisions (recommended; open to change)
+- **Conversations live in the host's memory while both people are at the table.** A conversation ends, everywhere at once, when either person leaves the roster. "Leaving" means their last seat's disconnected grace runs out, or their only seat is paired as someone else. Everything ends when hosting stops. Nothing is written to disk.
+- **Brief drops keep the conversation.** A phone that locks or changes Wi-Fi and comes back within the grace finds its conversations, seen marks and unread counts as they were.
+- **A person on two devices stays present while either device is.** Re-pairing one of them as someone else does not end the first person's chats.
+- **History is limited.** Each conversation keeps its last 100 messages. Older ones are simply gone, which is fine for session chat. Nothing is paged back.
 
-1. **Messages live in the host's memory only, for as long as the table runs.** They are never written to the campaign folder, and they are gone when hosting stops.
-   - This keeps the rule that nothing about the campaign is cached where the user cannot see it. Chat is not campaign content.
-   - Saving a conversation into a journal can be a later card section.
-2. **The GM's screen shows only the GM's own conversations.**
-   - The host process routes player-to-player messages but no UI shows them to the GM.
-   - The plan says so in the docs, because the hosting machine technically holds them in memory.
-3. **The GM gets one switch in the host panel: "Players can message each other"** (on by default). When it is off, players can still message the GM.
-4. **Typing reaches only the person being written to.** The server keeps typing state per pair and sends each device only the "typing to you" list for its own person.
-5. **Delivery uses what exists.**
-   - Sending a message or a typing change is an HTTP POST, like idle reports. That reuses the bearer authorisation, rate limits and the code paths on all three clients (Rust client, browser GM page, phone page).
-   - Delivery rides the live socket's frames. Two-way socket frames can replace the typing POSTs later without changing the card.
+## Everything over the WebSocket
 
-## Wire
+The live socket (`table.ws.v1`) becomes two-way. Today it is one-way after the JSON hello, and any other incoming message ends it.
+
+- **Device to host:** the device sends small JSON commands. Each socket's commands are handled in order. A frame that does not parse as a command, or is over 8 KiB, still ends the socket. 8 KiB fits a maximum message after JSON escaping, and that is tested.
+- **Host to device:** answers and deliveries ride `TableChange` frames.
+- **No HTTP routes are added.**
+
+### Identity on every command
+
+Each seat gets an **identity epoch**, a number the host bumps whenever the seat's person changes (pairing or re-pairing), under the seats lock. The epoch goes out with `you` in frames.
+
+- Every command carries the `epoch` the device last applied.
+- The host compares it with the seat's current epoch under the seats lock and rejects a stale command with `error: "identity changed"`.
+- A device that was A cannot post as B, even with commands already in flight when it was re-paired.
+
+### Device to host
+
+| Command                                                                       | Meaning                                                           |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `{"t":"send","epoch":n,"to":"<key>","cid":"<id>?","clientId":"…","text":"…"}` | Send a message. `cid` is the conversation's id, if one exists yet |
+| `{"t":"typing","epoch":n,"to":"<key>","on":true\|false}`                      | Start or refresh typing to someone, or stop                       |
+| `{"t":"seen","epoch":n,"cid":"<id>","seq":n}`                                 | I have read this conversation up to `seq`                         |
+
+### Host to device (`TableChange` fields)
+
+These go only to the sockets of the people involved. Any other socket gets nothing at all, not even an empty frame.
+
+- **`chats`** is either a snapshot or updates.
+  - **Snapshot**: `{ snapshot: true, epoch, conversations: [...] }`. It is sent as the first frame on every socket, after every identity change, and after a resync (see Flow control).
+    - It is the device's entire set of conversations. Anything the device holds that is not in it has ended, including when the set is empty.
+    - Each conversation is `{ cid, with, messages, seenByMe, seenByThem }`.
+  - **Updates**: `{ cid, with, messages?, seenByMe?, seenByThem?, ended? }`, with new messages and changed seen marks only.
+  - **Message:** `{ id, seq, from, text, at }`, with `seq` counted within the conversation. On the sender's own sockets only, it also carries `clientId`, so a pending send can be matched wherever the message turns up.
+- **`acks: { clientId, id?, cid?, seq?, error?, retryAfter? }[]`**: the reply to each `send`, on the sending socket only.
+- **`typing: string[]`**: who is typing to this person now. It is in the first frame (often `[]`), and sent again on change.
+- **`messageRules: { playersMayMessage }`**: in the first frame, and sent again on change.
+
+`cid` is a fresh UUID each time a conversation starts. A conversation that ended and later starts again, between the same two people, is a different conversation. Commands naming an ended `cid` are refused with `error: "conversation ended"`, which is how late resends from a previous meeting are stopped.
+
+### Seen receipts
+
+- **When a device reports seen.** A device sends `seen` for a conversation when:
+  - its card is open;
+  - the page is visible (`document.visibilityState`);
+  - and the newest messages from the other person are actually in view.
+
+  The host keeps one `seenUpTo` per person per conversation, which only moves forward. A smaller `seq` is ignored, and anything beyond the latest seq is clamped. Reports are free when nothing changes and are limited to one a second per socket.
+
+- **Who is told.**
+  - The other person gets `seenByThem`. Their card marks the newest of their messages at or below it with "Seen", which moves forward as they read on.
+  - The reader's own other devices get `seenByMe`, so unread counts agree across a person's devices. A message read on a phone stops being unread on the laptop.
+- **Unread counts come from receipts.** Unread is "messages from them with `seq > seenByMe`", so snapshots carry it. A reconnect, an overflow resync or a page reload shows the right counts without replaying any notification.
+- **The same matrix applies.** A receipt is only accepted where the two may message.
+- **No opt-out yet.** Turning receipts off is a later setting, listed under Out of scope.
+
+### Sending, resending and de-duplication
+
+- **The page:**
+  - adds a pending item;
+  - sends `typing off` and then `send` on the same socket, so a late typing start cannot outlive the message;
+  - waits for the ack.
+- **Matching a pending send.** It is matched by `clientId` from whichever comes first: the ack, the message's echo in `chats`, or the message inside a snapshot. Whatever arrives later merges into the same message and never adds a second copy. Seq tracking and ack handling are separate.
+- **Resends.**
+  - Unacknowledged sends are resent on the next socket, after its first snapshot has been applied, with the same `clientId`, the snapshot's `epoch` and their `cid`.
+  - A pending send whose conversation is missing from the snapshot (ended) or whose epoch changed is dropped. It is shown as "not sent", never resent as someone else or into a new conversation.
+  - Resending stops after 2 minutes, and the item then shows "may not have been sent".
+- **De-duplication on the host.**
+  - The host remembers each person's `clientId`s for 3 minutes, as `{ clientId, text hash, ack }`.
+  - At the send rate limit of 5 sends per 5 s per person, that is at most 180 records, so the store holds 192 per person and never evicts a record inside its window.
+  - A repeat with the same text gets the original ack. The same `clientId` with different text gets `error: "conflict"`.
 
 ### Host state: `src-tauri/src/table/server/messages.rs` (new)
 
-- **`MessageHub`** holds:
-  - a bounded log (`VecDeque<ChatMessage>`, at most 200 per conversation and 2,000 in all; the oldest go first);
-  - a `watch<u64>` sequence that wakes sockets;
-  - typing state, `HashMap<(from, to), Instant>`, which expires 6 s after the last refresh.
-- **`ChatMessage { id, seq, from, to, text, at }`**:
-  - `from` and `to` are roster keys;
-  - `at` is Unix ms on the host clock, so the existing `serverTime` offset applies;
-  - `id` is a UUID;
-  - `clientId` is echoed back, for optimistic sending.
-- **Rules, enforced on the server:**
-  - `from` is always the sender's own key, derived from the seat and never read from the request.
-  - `to` must be on the current roster or be `host`, and must not be the sender.
-  - The text must be 1 to 500 characters after trimming, and is stored as given (it is rendered only as text).
-  - Each seat may send at most 5 messages in any 5 s, and at most 1 typing report per second.
-  - Player to player is refused while the GM's switch is off.
-- **Who receives a message:** the sender's and the recipient's devices, meaning every open socket whose person key matches either one. A paired player on two devices gets it on both.
+**Locks and the present set.**
 
-### HTTP
+- **The `MessageHub` keeps the present set:** the person keys on the roster as last published, plus every conversation.
+- **One order for every path:** first the seats lock, then the hub lock. The hub never calls back into seats.
+  - A command takes the seats lock, checks the epoch, reads the seat's person key, takes the hub lock, applies the command, and releases both.
+  - The roster task takes its seats snapshot, builds the roster, and then, under the hub lock and in the same step, replaces the present set, ends the conversations of anyone no longer present, and drops their typing leases.
+  - The roster frame and the `ended` updates are published from that one step, so no command can slip in between a person's departure and their conversations ending.
+  - A send to or from someone not in the present set gets `error: "not at the table"`. A device just connected, whose person the roster has not yet published, gets `error: "not ready"`, and its client retries after a second.
+- **Who may message whom:**
 
-- **`POST /api/messages {to, text, clientId}`**
-  - Returns `201 {id, seq, at}` on success.
-  - Errors are 400 (bad text), 403 (players may not message each other right now), 404 (no such person), 409 (to yourself) and 429 (too fast).
-- **`POST /api/typing {to, typing}`** returns `204`.
-  - Send `typing: true` on the first keystroke, then again every 3 s while the person keeps typing.
-  - Send `false` on send, on blur, on an empty box and when the card closes.
+  | Sender                           | To the host | To a GM-role player | To a player or guest                              |
+  | -------------------------------- | ----------- | ------------------- | ------------------------------------------------- |
+  | Host (local window only)         | n/a         | yes                 | yes                                               |
+  | GM-role player (incl. remote GM) | yes         | yes                 | yes                                               |
+  | Player or guest                  | yes         | yes                 | only while "Players can message each other" is on |
 
-### Frames (`TableChange`)
+  Typing and seen receipts follow the same matrix. The switch is one setting in the host panel, on by default. Turning it off ends nothing: composers disable and the pair's typing leases end.
 
-- **`messages?: ChatMessage[]`** carries this socket's person's messages that it has not yet sent on this socket.
-  - On a socket's first frame, it carries the last 50 of each of the person's conversations, so a reconnect or a second device catches up.
-- **`typing?: string[]`**: the keys of the people typing to this socket's person right now.
-  - It is sent only when that list changes for this person, and never to anyone else.
-- The live loop gets one more `select!` arm, on the hub's sequence, and keeps a per-socket cursor as it does for the roster.
+- **Limits.** These bound memory whatever devices send, and whatever the roster's size.
+  - Text is trimmed and stored trimmed: 1 to 500 Unicode scalar values and at most 2,000 bytes, with no control characters except newline and tab.
+  - `clientId` is 1 to 64 characters of `[A-Za-z0-9_-]`. `to` is at most 128 bytes and must be in the present set, or `host`, and not the sender.
+  - Each conversation keeps its last 100 messages. Across the whole hub there are at most 2,000 messages and 1 MiB of text; when full, the oldest message anywhere goes first.
+  - Sending is limited to 5 per 5 s per person key, shared across their seats and sockets.
+  - A snapshot frame is at most 256 KiB serialized. If a person's conversations would exceed it, each conversation keeps its newest messages that fit, oldest dropped first, and is marked `trimmed: true`. Seen marks and unread counts still come out right, because they are seqs, not messages.
 
-### Hosting window
+### Typing
+
+- **One lease per socket at most:** `(socket, to)`, because a card is open to one person at a time.
+  - `on: true` starts or refreshes it, at most once a second; anything faster is ignored.
+  - `on: false` ends it, and costs nothing when there is no lease.
+- **A lease also ends** when its socket closes, after 6 s without a refresh, when the matrix stops allowing the pair, or when either person leaves.
+- **Per person:** someone is typing to `to` while any of their sockets holds a live lease, so one device's blur does not hide another's typing.
+- **Expiry:** the hub schedules a wake for the next lease to expire, as the roster does for disconnected entries.
+
+### Flow control: the browser's 16-frame queue
+
+The live loop may send a frame on every wake, so bursts cannot be relied on to coalesce. Two things handle it:
+
+- **Bigger budget.** `table-live.js` raises its queue to 64 frames or 2 MiB, whichever comes first. The host's per-person send limits make that out of reach in normal play.
+- **Overflow recovery.** If a consumer still falls that far behind, the transport closes and reconnects as it does today, and the new socket's snapshot is authoritative.
+  - Messages, seen marks and unread counts come back exactly.
+  - Pending sends are reconciled by `clientId`, from the snapshot, before anything is resent.
+  - What is lost is only the live effects for messages that arrived during the gap: the buzz, the envelope and the announcement. Their unread badges still show.
+  - Tests:
+    - spaced wakes with a stalled consumer;
+    - several senders at once;
+    - typing churn;
+    - an overflow resync with pending sends in flight.
+
+### The Rust client (desktop and Android apps)
+
+- **Today.** `next_event()` holds the socket inside `self.live`'s mutex while it waits for the next frame, so nothing else could send on it.
+- **The change.** One connection task owns the socket. It splits the socket into read and write halves, and owns reconnecting and shutdown.
+  - Incoming frames go to an inbound channel that `next_event()` reads.
+  - Commands go in through an outbound channel, so `send()` never waits on a read.
+  - Frames that were sent but not yet acknowledged are kept by the task and resent after the next connection's first snapshot, by the rules above.
+- **Test.** Send and type while `next_event()` is already waiting and nothing else is happening at the table.
+
+### The hosting window
+
+It has no socket. It uses commands and events, which only the hosting window can call; they are never added to `/api/gm/call`.
 
 - **Commands:**
-  - `table_send_message(to, text, clientId)`;
-  - `table_set_typing(to, typing)`;
-  - `table_message_rules(playersMayMessage)`, for the host panel switch.
-- **Events:** `table://messages` and `table://typing`, already filtered for `host`, like `table://roster`.
+  - `table_send_message(to, cid?, text, clientId)` returns the ack;
+  - `table_set_typing(to, on)` is one lease with the same expiry;
+  - `table_mark_seen(cid, seq)`;
+  - `table_message_rules(playersMayMessage)`;
+  - `table_chats()` returns the snapshot, typing list and rules, so a reloaded window rebuilds its state.
+- **Events:** `table://chats` and `table://typing`, carrying only what concerns `host`.
+- **A remote GM** messages through their own seat, as `player:<id>`.
 
-## The card (client)
+### Trust model
+
+The promise is filtering between people at a table whose host and GMs are trusted. It is not secrecy from them.
+
+- **The host sees everything in transit.** The hosting machine routes every message, so it holds them in memory.
+- **Pairing grants access.** A GM can pair any device as any player, and that device then gets that player's live conversations.
+- **Plain LAN hosting is unencrypted** unless TLS is configured. Anyone on the network can read messages there. The player docs will say so beside messaging.
+- **What is promised:**
+  - no screen shows the GM conversations they are not in;
+  - no device is sent anything about a conversation it is not in.
+
+## Clients
+
+All three use the same frames: the Rust client, `web-table.ts` (the browser GM page) and `player.html` (the phone page). `table-live.js` gains `send(command)`, with the same resend rules as the Rust task.
+
+**Conversation state.** `conversation.js` is pure and unit-tested. Per conversation it keeps:
+
+- `cid`;
+- `messages`;
+- `seenByMe` and `seenByThem`;
+- `pending` sends, by `clientId`;
+- an unread count derived from `seenByMe`.
+
+**Snapshots and updates.**
+
+- **A snapshot** replaces the whole set. It never buzzes, animates or announces.
+- **A live update** with a message from the other person, while their card is closed:
+  - shows the unread badge on their bubble;
+  - plays the envelope trip from their bubble to yours;
+  - calls `haptic("notice")`, once per frame;
+  - announces the message in the live region.
+- **`ended`** removes the conversation. An open card says the person has left and folds away.
+- **A changed `epoch`** clears everything, marks pending sends "not sent", and waits for the snapshot that comes with it.
+
+## The card
 
 ### Behaviour
 
 - **Opening and closing.**
-  - A tap or click on a person's bubble opens their card. Hovering still shows the name tip.
-  - Pressing the same bubble again, pressing Escape, or pressing outside the card closes it, and focus returns to the bubble.
+  - A tap, click, Enter or Space on a person's bubble opens their card. Hovering still shows the name tip.
+  - The card has a close button. Pressing the same bubble again, the close button or Escape closes the card and returns focus to the bubble. If that bubble has left or folded away, focus goes to the eye.
+  - A press outside the card closes it but leaves focus where the press put it.
   - Another bubble moves the card to that person.
-  - Dragging the group closes the card.
-- **Accessibility.**
-  - The card is a non-modal `role="dialog"` labelled by the person's name.
-  - Opening it moves focus to the message box, or to the card itself when there is no message section.
-  - Tab order runs from the bubble to the card.
-- **Where it opens.** It opens away from the docked edge, as the tips do, and is clamped inside the area by a pure placement function next to `dock.js` (`placeCard(area, bubbleRect, side, size)`).
+  - Picking the group up to drag it closes the card.
+- **Focus and keys.**
+  - The card is a non-modal `role="dialog"`. The shell owns its accessible name. The bubble gets `aria-expanded` and `aria-controls`.
+  - Opening focuses the message box when composing is allowed, else the close button. Tab moves through the card. Shift+Tab from the first control returns to the bubble. Tab past the last control goes on to the next bubble.
+  - The card is a sibling layer of `.group`, so arrow-key docking never sees keys typed in it. The message box also stops propagation of keydown.
+- **Announcements.**
+  - A polite live region announces new messages from the other person, send failures, and "Bo is typing", once when it starts.
+  - "Seen" is part of each message's accessible description, not announced.
+- **Placement.**
+  - It opens away from the docked edge, clamped by a pure `placeCard(area, bubbleRect, side, size)`.
   - On narrow screens it becomes a sheet along the opposite edge.
-  - On phones it follows `visualViewport`, so the on-screen keyboard never covers the message box.
-- **Your own card.** Your own bubble opens a card with your status and nothing to message. Later sections can add things there, such as "set away" or "change name".
-- **Unread messages.** A message arriving while its card is closed:
-  - plays `messaged` on the sender's bubble, on the recipient's device only, until the card is opened;
-  - shows an unread count;
-  - buzzes once, through the existing activity haptic.
-- **Typing.** While someone is typing to you, their bubble plays `messaging`, and their card shows three animated dots under the conversation.
-- **Offline.** While the table is offline, the message box is disabled and says why. Messages already sent stay in the conversation.
+  - It follows `visualViewport`, so the keyboard never covers the message box.
+- **Message status.** Your messages show their state under the newest one: "Sending…", then "Sent", then "Seen" once the other person has read up to it. A failed send shows "Not sent" with Retry.
+- **Your own card** shows your status and nothing to message.
+- **When composing is not allowed** (offline, the GM's switch, or the other person disconnected), the conversation stays and the message box is disabled with the reason.
+- **Bubble effects.** Typing (`messaging`) wins over unread (`unread`).
 
-### Extending it: the section registry
+### Extending it: sections and actions
 
-This follows the pattern of `statuses.js` and `activities.js`. A section is data plus three functions.
+A section is data plus life-cycle functions, as statuses and activities are:
 
 ```js
 defineCardSection("message", {
-  order: 100, // where it sits, top to bottom
-  when: (entry, ctx) => !entry.self && ctx.canMessage(entry), // shown for this person?
-  mount: (root, entry, api) => handle, // build once; api: send, setTyping, onChange, motion
-  update: (handle, entry, ctx) => {}, // roster or state changed
-  unmount: (handle) => {},
+  order: 100,
+  when: (entry, ctx) => !entry.self, // re-evaluated on every render
+  mount: (root, entry, api) => handle, // once per (section, person)
+  update: (handle, entry, ctx) => {}, // same person, new state
+  unmount: (handle) => {}, // api.signal aborts, api.on listeners are disposed
 });
 ```
 
-- The header (face, name, role, status line with "away for") is a built-in section at order 0, so it can be replaced too.
-- `ctx` carries `you`, `offline`, `isGm`, the conversation state and the clock offset.
-- Header buttons use a second, smaller registry, `defineCardAction(id, { label, icon, when, run })`, for later GM tools such as "Show to", "Make GM" and "Remove".
-- The card does no networking. It dispatches events from the element, and the page wires them to its transport:
-  - `table-presence:send {to, text, clientId}`;
-  - `table-presence:typing {to, typing}`.
-- Inbound, the page calls:
-  - `el.receiveMessages(list)`;
-  - `el.typing = keys`;
-  - `el.messageRules = {...}`.
-- The same element therefore works in React, on the phone page and in the browser GM page.
+- **Instances are keyed by section id and person key.** Moving the card to another person unmounts and mounts afresh.
+- **`api` is generic:**
+  - `emit(name, detail)` dispatches `table-presence:<name>`;
+  - `on(name, fn)` listens for page responses;
+  - `state(sectionId)` reads page-provided state;
+  - `motion`, `signal` and `announce(text)`.
+
+  Messaging has no special access.
+
+- **Page to card:** `el.setSectionState(id, value)` and `el.respond(name, detail)` (for messaging, the acks).
+- **Header buttons** use `defineCardAction(id, { label, icon, when, run })`.
+- **The card does no networking.** The page wires its events to the socket.
 
 ### Modules
 
-The modules stay flat in `src/lib/presence/`, so the host's `/presence/{file}` route and the `every_presence_module_is_served` guard keep working as they are. Each one needs an entry in `PRESENCE_MODULES`.
+The modules stay flat in `src/lib/presence/`, so the `/presence/{file}` route and the `every_presence_module_is_served` guard keep working.
 
-| File               | Job                                                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `card.js`          | The card shell: open, close, move, focus, placement, section life cycle                                             |
-| `card-sections.js` | The section and action registries; the built-in header section                                                      |
-| `messages.js`      | The message section: conversation list, message box, typing dots, unread                                            |
-| `conversation.js`  | Pure state: merge frames, dedupe by `id`/`clientId`, order by `seq`, unread per person, pending sends (unit-tested) |
-| `card-motion.js`   | Card motion built from `motion.js` primitives and the same tuning style                                             |
-| `placement.js`     | Pure card placement (unit-tested), or a function added to `dock.js`                                                 |
-
-`element.js` keeps composing. It gains the card, forwards taps and closes the card on drag. `bubble.js` gains an unread count badge.
+| File               | Job                                                                                           |
+| ------------------ | --------------------------------------------------------------------------------------------- |
+| `card.js`          | The card shell: open, close, move, focus, placement, naming, live region, section life cycle  |
+| `card-sections.js` | The section and action registries; the built-in header section                                |
+| `messages.js`      | The message section: conversation, message box, typing dots, status line, retry, seen reports |
+| `conversation.js`  | Pure state: snapshots, updates, ended, seen, unread, pending and acks (unit-tested)           |
+| `card-motion.js`   | Card motion from `motion.js` primitives, with its cancellation rules                          |
+| `placement.js`     | Pure card placement (unit-tested)                                                             |
 
 ## Motion
 
-The card follows the existing rules:
+- **Properties.** Only `transform` and `opacity` animate, through the Web Animations API. The old `messaged` box-shadow ripple becomes a ring element that scales and fades.
+- **Ownership.** The card owns its animations, and a new transition cancels the one in flight.
+  - The logical state changes at once: a closing card is `inert` immediately.
+  - It is removed when its animation finishes, or by a timer fallback, as `vanish` does.
+- **Missing targets.** If the bubble to grow from or fold into is missing, the card fades in place.
+- **CSP.** Styles come only from the shadow stylesheet and CSSOM property writes. There are no `style` attributes and no `innerHTML`, and text goes in through `textContent` only.
+- **Reduced motion.** Everything is skipped; the states still change.
+- **Tests.** Keyframe builders are pure and unit-tested.
 
-- it animates only `transform` and `opacity`, through the Web Animations API, so the phone page's CSP accepts it;
-- all tuning sits in frozen objects in one place;
-- keyframe builders are pure and tested;
-- everything is skipped for reduced motion, while states still change;
-- motion is measured from the layout, not from mid-animation positions, except where a move continues from where it is, as the shuffle does.
-
-| Moment                         | Motion                                                                                                                                                                                               |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Card opens                     | It grows out of the bubble: it starts at the bubble's rect, scaled down with its origin on the bubble, then springs to size (as `emerge`). The sections follow with a short stagger (fade and rise). |
-| Card closes                    | It folds back into the bubble (as `vanish` into a target).                                                                                                                                           |
-| Card moves to another person   | It glides to the new bubble (FLIP, as `slide`), and the content crossfades.                                                                                                                          |
-| Group shuffles to another edge | The card closes first (folding into its bubble), so it never races the shuffle.                                                                                                                      |
-| You send a message             | It lifts from the message box into the conversation (FLIP), and older messages slide up. A small envelope travels from your bubble to theirs, along an arc built like `tripFrames`.                  |
-| A message arrives              | It emerges at the end of the conversation, and the rest slide. With the card closed, an envelope travels from the sender's bubble to yours (the `you` bubble), and then `messaged` plays.            |
-| Typing starts or stops         | The dots emerge or vanish. While shown, they bounce on a staggered loop.                                                                                                                             |
-| Unread count changes           | The badge pops, using the existing `tp-pop` curve.                                                                                                                                                   |
+| Moment                       | Motion                                                                                                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Card opens                   | It grows out of the bubble, origin on the bubble, then springs to size (as `emerge`). Sections follow with a short fade and rise.                                    |
+| Card closes                  | It folds back into the bubble (as `vanish` into a target).                                                                                                           |
+| Card moves to another person | It glides to the new bubble (FLIP, as `slide`), and the content crossfades.                                                                                          |
+| Group picked up              | The card folds into its bubble before the drag moves anything.                                                                                                       |
+| You send a message           | It lifts from the message box into the conversation (FLIP), and older messages slide up. An envelope travels from your bubble to theirs on a `tripFrames`-style arc. |
+| A live message arrives       | It emerges at the end of the conversation, and the rest slide. With the card closed, the envelope travels from the sender's bubble to yours.                         |
+| Sending, Sent, Seen          | The status line crossfades between words. When "Seen" moves to a newer message, it glides there (FLIP, as `slide`) rather than jumping.                              |
+| Typing starts or stops       | The dots emerge or vanish, and bounce on a staggered loop while shown.                                                                                               |
+| Unread count changes         | The badge pops (the existing `tp-pop` curve).                                                                                                                        |
+| Conversation ends            | The open card says so and folds away a moment later.                                                                                                                 |
 
 ## Delivery steps
 
-1. **The card shell with no messaging.** Registries, the header section, placement, focus and keyboard, and open, close and move motion. Tapping now opens the card instead of the name tip.
-2. **The host's message hub.** HTTP routes, frame fields, the hosting window's commands and events, and the GM's switch. Rust tests for:
-   - routing, including that a third party receives nothing;
-   - typing reaching only the recipient, and expiring;
-   - rate and length limits, and an unknown or self recipient;
-   - a guest who re-joins under a freed name not seeing the old conversations;
-   - a paired player's second device getting the messages;
-   - catching up on reconnect.
-3. **Client plumbing.** Types, the table store, the Rust client, `web-table.ts` and `player.html`; the conversation state; `PresenceBar` wiring events to `table.sendMessage` and `table.setTyping`.
-4. **The message section, unread state and the message motion.**
-5. **Docs** (`docs/playing-at-the-table.md`), then a browser pass on the mock host (two phones and the GM, including offline) and a pass on a real Android phone.
+1. **The card shell with no messaging.**
+   - Registries, the header section, placement, naming, focus and keys, the live region, and open, close and move motion with cancellation.
+   - Tapping opens the card instead of the name tip.
+   - The `messaged` ripple is rewritten to `transform` and `opacity`.
+2. **The host's message hub and the two-way socket.**
+   - Identity epochs, command parsing and limits, the present set and lock order, conversations and `cid`s, sends with acks and de-duplication, seen receipts, typing leases, the rules switch, snapshot budgets, and the hosting window's commands and events.
+   - Rust tests for:
+     - nothing at all to a third party;
+     - stale-epoch commands refused across a re-pairing;
+     - departure ending conversations in the same step as the roster (two devices, one re-paired, keeping chats);
+     - an expiry and rejoin while one device misses every `ended`;
+     - late resends into an ended `cid` refused;
+     - de-duplication holding through 180 sends from another socket;
+     - the conflict case;
+     - text limits with multibyte, emoji and escape-heavy text;
+     - the shared send rate;
+     - the matrix for sends, typing and seen, including the switch toggled mid-conversation;
+     - typing leases across two tabs, refresh limits, free stops, expiry and socket close;
+     - seen being monotonic, clamped, delivered to the other person and the reader's other devices, and driving unread in snapshots;
+     - a snapshot staying within 256 KiB at the hub's maximum state.
+3. **Client plumbing.**
+   - The Rust client's connection task with inbound and outbound channels.
+   - `send` and resends on `table-live.js`, with its larger queue budget.
+   - Types, the table store, `web-table.ts` and `player.html`.
+   - `conversation.js`.
+   - `PresenceBar` wiring section events to the socket and acks back.
+   - Tests of snapshot-before-ack, echo-before-ack and both in one frame, and of an overflow resync with sends pending.
+4. **The message section:** the status line and Seen, unread badges, notifications, and the message motion.
+5. **Docs and checks.**
+   - Update `docs/playing-at-the-table.md`, covering session-only chat, Seen and the trust model in plain words.
+   - Do a browser pass on the mock host with the real hashed CSP and every section open, failing on any CSP violation. It covers two phones and the GM, offline, a reconnect, someone leaving, a pairing, and Seen.
+   - Do a pass on a real Android phone.
 
 Steps 1 and 2 are independent and could land as separate PRs. Steps 3 to 5 depend on both.
 
-## Edge cases
+## Out of scope
 
-- **A recipient leaves in the middle of a conversation.** Their card closes, the conversation stays in memory until the table stops, and a message to someone gone gets a 404 that the message box shows.
-- **A guest is paired.** Their key changes from `guest:` to `player:`. The hub re-keys their conversations at pairing time (`Host::bind_device`), so nothing is lost.
-- **The GM's switch goes off while a player-to-player card is open.** The message box disables with a note. Messages already sent stay.
-- **Two of your devices are open.** Typing from one does not show on the other, because typing is about the other person only.
-- **Clock skew.** Times show through `serverTime`, as "away for" does.
-- **Long names and long messages.** Names only ever go in as text. Messages wrap, and the conversation scrolls inside the card, which has a maximum height.
+- Keeping messages after someone leaves, or across tables.
+- Messages to everyone or to a group.
+- A setting to turn seen receipts off.
+- GM actions in the card header.
+- Opaque identity for guest notes. Notes are still authorized by name, and that is unchanged.
 
-## Out of scope (later sections)
+## Review history
 
-- Messages to everyone, or to a group.
-- Saving a conversation to a journal entry.
-- GM actions in the card header (show to, make GM, remove).
-- Read receipts.
-- Two-way socket frames in place of the typing POSTs.
+- **Round 1 (Codex), on the first draft.** It led to:
+  - the trust model and authorization matrix;
+  - bounded memory and rate limits;
+  - per-conversation sequence numbers and no frames to uninvolved sockets;
+  - idempotent sends with acks;
+  - typing leases and the rules on the wire;
+  - the focus, keyboard and live-region rules;
+  - notifications driven by delivery;
+  - the section life cycle, motion ownership and the CSP rules.
+- **Round 2 (Codex), on the HTTP push-and-fetch draft.** Its findings on migration, catch-up, eviction gaps and queue overflow led to the scope decision: messages are session-only chat over the WebSocket.
+- **Round 3 (Codex), on the first WebSocket draft:**
+
+  | Finding                                                           | Change                                                                                              |
+  | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+  | Commands ran under whatever identity the seat had by then         | Identity epochs on every command, checked under the seats lock; resends wait for the first snapshot |
+  | De-duplication capacity was shorter than the retry window         | A 2-minute retry window, and 3-minute records sized above the most the send rate allows             |
+  | Reconnects could keep ended conversations or replay into new ones | The snapshot replaces the whole set; per-meeting `cid`s; ended `cid`s refused                       |
+  | Deleting on a seat's reassignment broke two-device people         | Deletion on person departure only, in the same locked step as the roster publication                |
+  | Wake batching did not protect the 16-frame queue                  | A larger budget, plus an authoritative snapshot resync on overflow, with only live effects lost     |
+  | The Rust client could not send while reading                      | A connection task with split halves and inbound and outbound channels                               |
+  | Snapshot-before-ack broke optimistic sending                      | `clientId` on the sender's own copies everywhere; ack, echo and snapshot all merge into one item    |
+  | Bounds relied on an uncapped roster                               | A hub-wide cap on messages and bytes, and a 256 KiB snapshot budget with trimming                   |
+
+- **Added by request: seen receipts.** Each conversation stores two monotonic seqs. Receipts also give unread counts that survive reconnects and agree across a person's devices.
+
+- **Round 4 (Codex), folded into the build:**
+  - The roster is built and the present set replaced while the seats lock is held, so a seat that changes after a snapshot cannot have its conversations ended by a stale roster.
+  - A first message (no conversation yet) waiting while its recipient leaves is marked not sent; the host's de-duplication outlives the conversation, so a resend after a lost answer returns the original answer rather than starting a new conversation.
+  - A table seats at most 64 devices; when full, seats that no longer hold their name are cleared first. That bounds everything kept per person.
+  - The host counts unread messages itself, including ones dropped from the log, and sends the count with every snapshot and change.
+
+## Where the build differs
+
+- Pending sends and resends live in one shared JavaScript controller (`src/lib/presence/chat.js`) used by the phone page, the browser GM page and the app, rather than in the Rust client. The Rust client only gained a split socket, so it can send while it waits for frames (`Session::send_live`).
+- Writing a message counts as having read the conversation up to it.
+- The same device rejoining under its own name sits straight down and keeps its place on the roster (`seat_guest`), rather than waiting out the name hold.

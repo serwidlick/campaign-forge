@@ -2,6 +2,17 @@
 use super::*;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum_server::tls_rustls::RustlsConfig;
+use std::sync::PoisonError;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use super::messages::{ChatAck, ChatView, Command, Outgoing, Refusal};
+
+/// Largest frame a device may send: a maximum message after JSON escaping,
+/// with room for its fields.
+const MAX_INCOMING: usize = 8 * 1024;
+
+/// Each live socket's id, for its typing lease. 0 is the hosting window.
+static NEXT_SOCKET: AtomicU64 = AtomicU64::new(1);
 /// The stream retains only the previous authorized view. Reconnection always
 /// starts with a replacement snapshot, including after host or role changes.
 #[derive(Default)]
@@ -136,8 +147,8 @@ pub(super) async fn upgrade<R: tauri::Runtime>(
     }
     let ws = ws
         .protocols([LIVE_PROTOCOL])
-        .max_message_size(4096)
-        .max_frame_size(4096);
+        .max_message_size(MAX_INCOMING)
+        .max_frame_size(MAX_INCOMING);
     if ws.selected_protocol().is_none() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -207,6 +218,12 @@ async fn live<R: tauri::Runtime>(
     let mut spots = s.spotlight.clone();
     let mut closed = s.closing.clone();
     let mut roster = s.roster.subscribe();
+    let mut chat_revision = s.messages.subscribe();
+    let socket_id = NEXT_SOCKET.fetch_add(1, Ordering::Relaxed);
+    // What this socket has been told about its person's conversations, and
+    // answers to its sends still to go out.
+    let mut chat_view = ChatView::default();
+    let mut acks: Vec<ChatAck> = Vec::new();
     // The first frame always carries the roster.
     let mut roster_due = true;
     let mut view = PlayerView::default();
@@ -251,7 +268,22 @@ async fn live<R: tauri::Runtime>(
         let visible_spot = spotlight.map(|id| (spot.seq, id));
         let spotlight_changed = previous_spot != visible_spot;
         let send_roster = reset || roster_due;
-        if reset || delta.is_some() || (who.gm && changed) || spotlight_changed || send_roster {
+        // A new identity (pairing) starts the conversations over: the next
+        // frame carries the new person's whole set.
+        if reset {
+            chat_view.reset();
+        }
+        let chat = s
+            .messages
+            .frame_for(&who.roster_key, &mut chat_view, Instant::now());
+        if reset
+            || delta.is_some()
+            || (who.gm && changed)
+            || spotlight_changed
+            || send_roster
+            || !chat.is_empty()
+            || !acks.is_empty()
+        {
             let response = TableChange {
                 version: current,
                 gm: who.gm,
@@ -272,14 +304,24 @@ async fn live<R: tauri::Runtime>(
                 roster: send_roster.then(|| roster.borrow_and_update().clone()),
                 server_time: send_roster.then(super::unix_ms),
                 you: send_roster.then(|| who.roster_key.clone()),
+                epoch: send_roster.then_some(who.epoch),
+                chats: chat.chats,
+                acks: (!acks.is_empty()).then(|| std::mem::take(&mut acks)),
+                typing: chat.typing,
+                message_rules: chat.rules,
             };
             let Ok(json) = serde_json::to_string(&response) else {
                 break;
             };
             // A permission or content change raced projection. Rebuild from the
             // new revision before sending, replacing the unacknowledged view.
+            // The conversations start over too (a snapshot), and the acks
+            // wait for the next frame.
             if state.version() != current || spots.has_changed().unwrap_or(false) {
                 identity = None;
+                if let Some(pending) = response.acks {
+                    acks = pending;
+                }
                 continue;
             }
             if !send(&mut socket, Message::Text(json.into())).await {
@@ -299,11 +341,20 @@ async fn live<R: tauri::Runtime>(
                 if result.is_err() { break; }
                 roster_due = true;
             }
+            result = chat_revision.changed() => { if result.is_err() { break; } }
             _ = closed.changed() => {}
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Pong(_))) => {
                     if authorize(&s, &token, true).is_err() { break; }
                     last_pong = Instant::now();
+                }
+                Some(Ok(Message::Text(text))) => {
+                    // Anything that is not a command ends the socket, as any
+                    // stray message always has.
+                    let Ok(command) = serde_json::from_str::<Command>(&text) else { break; };
+                    if let Some(ack) = handle_command(&s, &token, socket_id, &mut chat_view, command) {
+                        acks.push(ack);
+                    }
                 }
                 _ => break,
             },
@@ -315,6 +366,63 @@ async fn live<R: tauri::Runtime>(
                 }
                 if !send(&mut socket, Message::Text("heartbeat".into())).await || !send(&mut socket, Message::Ping(Bytes::new())).await { break; }
             }
+        }
+    }
+    // Whatever this socket was typing ends with it.
+    s.messages.drop_socket(socket_id);
+}
+
+/// Runs one message command from a socket, under its seat's identity right
+/// now. The seats lock is held across the hub call (seats, then hub), so a
+/// pairing cannot slip in between the epoch check and the change it guards.
+fn handle_command<R: tauri::Runtime>(
+    s: &Served<R>,
+    token: &str,
+    socket: u64,
+    view: &mut ChatView,
+    command: Command,
+) -> Option<ChatAck> {
+    let seats = s.players.lock().unwrap_or_else(PoisonError::into_inner);
+    // A seat removed meanwhile: the socket closes on its next check.
+    let seat = seats.get(token)?;
+    let key = share::roster::person_key(seat.player_id.as_deref(), &seat.roster_key);
+    let stale = command.epoch() != seat.epoch;
+    let now = Instant::now();
+    match command {
+        Command::Send {
+            to,
+            cid,
+            client_id,
+            text,
+            ..
+        } => Some(if stale {
+            Refusal::IdentityChanged.ack(&client_id)
+        } else {
+            s.messages.send(
+                socket,
+                &key,
+                Outgoing {
+                    to: &to,
+                    cid: cid.as_deref(),
+                    client_id: &client_id,
+                    text: &text,
+                },
+                now,
+                super::unix_ms(),
+            )
+        }),
+        Command::Typing { to, on, .. } => {
+            // Stopping is always allowed: the lease belongs to the socket.
+            if !on || !stale {
+                s.messages.typing(socket, &key, &to, on && !stale, now);
+            }
+            None
+        }
+        Command::Seen { cid, seq, .. } => {
+            if !stale {
+                s.messages.seen(view, &key, &cid, seq, now);
+            }
+            None
         }
     }
 }

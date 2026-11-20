@@ -46,6 +46,9 @@ struct Host {
     stop: watch::Sender<bool>,
     spotlight: watch::Sender<server::Spotlight>,
     roster: std::sync::Arc<server::RosterHub>,
+    messages: std::sync::Arc<server::MessageHub>,
+    /// The hosting window's own seen reports (their rate limit).
+    host_seen: Mutex<server::messages::ChatView>,
     /// Kept alive while hosting; dropping it unregisters the service.
     _registration: Option<discovery::Registration>,
     announce_error: Option<String>,
@@ -159,6 +162,8 @@ pub async fn table_start_hosting(
         stop: running.stop,
         spotlight: running.spotlight,
         roster: running.roster,
+        messages: running.messages,
+        host_seen: Mutex::default(),
         _registration: registration,
         announce_error,
     };
@@ -262,6 +267,9 @@ impl TableState {
             p.player_id = Some(record.id.clone());
             p.name = record.name.clone();
             p.gm = record.gm;
+            // A new person on this seat: commands sent as the old one are
+            // refused from now on.
+            p.epoch += 1;
         }
         // The registry was saved before the seat changed; rebuild from both.
         host.roster.wake();
@@ -298,6 +306,100 @@ pub fn table_players(app: AppHandle) -> CommandResult<Vec<players::PlayerRecord>
 #[tauri::command]
 pub fn table_host_status(table: State<'_, TableState>) -> CommandResult<Option<HostStatus>> {
     table.host_status()
+}
+
+// ---- Messages (the hosting window) ------------------------------------------
+
+fn hosting(table: &TableState) -> CommandResult<std::sync::MutexGuard<'_, Option<Host>>> {
+    let guard = lock(&table.host)?;
+    if guard.is_none() {
+        return Err("not hosting a table".to_owned());
+    }
+    Ok(guard)
+}
+
+/// The hosting GM sends a message. Only this window speaks as the host;
+/// none of these commands is reachable from `/api/gm/call`.
+#[tauri::command]
+pub fn table_send_message(
+    table: State<'_, TableState>,
+    to: String,
+    cid: Option<String>,
+    text: String,
+    client_id: String,
+) -> CommandResult<server::messages::ChatAck> {
+    let guard = hosting(&table)?;
+    let host = guard.as_ref().expect("checked");
+    Ok(host.messages.send(
+        0,
+        server::messages::HOST_KEY,
+        server::messages::Outgoing {
+            to: &to,
+            cid: cid.as_deref(),
+            client_id: &client_id,
+            text: &text,
+        },
+        std::time::Instant::now(),
+        server::messages::unix_now(),
+    ))
+}
+
+#[tauri::command]
+pub fn table_set_typing(table: State<'_, TableState>, to: String, on: bool) -> CommandResult<()> {
+    let guard = hosting(&table)?;
+    let host = guard.as_ref().expect("checked");
+    host.messages.typing(
+        0,
+        server::messages::HOST_KEY,
+        &to,
+        on,
+        std::time::Instant::now(),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub fn table_mark_seen(table: State<'_, TableState>, cid: String, seq: u64) -> CommandResult<()> {
+    let guard = hosting(&table)?;
+    let host = guard.as_ref().expect("checked");
+    let mut view = lock(&host.host_seen)?;
+    host.messages.seen(
+        &mut view,
+        server::messages::HOST_KEY,
+        &cid,
+        seq,
+        std::time::Instant::now(),
+    );
+    Ok(())
+}
+
+/// Whether players may message each other (the GM always may, and may
+/// always be messaged).
+#[tauri::command]
+pub fn table_message_rules(
+    table: State<'_, TableState>,
+    players_may_message: bool,
+) -> CommandResult<server::messages::MessageRules> {
+    let guard = hosting(&table)?;
+    let host = guard.as_ref().expect("checked");
+    let rules = server::messages::MessageRules {
+        players_may_message,
+    };
+    host.messages.set_rules(rules);
+    Ok(rules)
+}
+
+/// The hosting GM's conversations, typing and rules as they are now; the
+/// `table://chats` event then carries what changes.
+#[tauri::command]
+pub fn table_chats(table: State<'_, TableState>) -> CommandResult<server::messages::ChatFrame> {
+    let guard = hosting(&table)?;
+    let host = guard.as_ref().expect("checked");
+    Ok(host.messages.frame_for(
+        server::messages::HOST_KEY,
+        &mut server::messages::ChatView::default(),
+        std::time::Instant::now(),
+    ))
 }
 
 // ---- Discovery ------------------------------------------------------------
@@ -425,6 +527,13 @@ pub async fn table_fetch_asset(
 ) -> CommandResult<tauri::ipc::Response> {
     let bytes = session(&table)?.asset(&path).await?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Sends one message command (send, typing, seen) on the joined table's
+/// live socket.
+#[tauri::command]
+pub async fn table_live_send(table: State<'_, TableState>, command: Value) -> CommandResult<()> {
+    session(&table)?.send_live(&command).await
 }
 
 #[tauri::command]

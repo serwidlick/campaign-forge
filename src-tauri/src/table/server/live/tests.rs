@@ -185,6 +185,7 @@ async fn exercise_table(secure: bool) {
         closing,
         spotlight,
         roster: Arc::new(RosterHub::new(Duration::from_secs(60))),
+        messages: Arc::new(MessageHub::default()),
     });
     tokio::spawn(roster::run(served.clone()));
     let router = Router::new()
@@ -436,6 +437,7 @@ async fn plain_table() -> Table {
         closing,
         spotlight,
         roster: Arc::new(RosterHub::new(TEST_GRACE)),
+        messages: Arc::new(MessageHub::default()),
     });
     tokio::spawn(roster::run(served.clone()));
     let router = Router::new()
@@ -528,6 +530,7 @@ impl Table {
                 public_key: "key".into(),
                 label: "label".into(),
             });
+            seat.epoch += 1;
         }
         // As `Host::bind_device` does: the seat changed after the registry.
         self.served.roster.wake();
@@ -865,4 +868,223 @@ fn origin_and_csp_follow_the_address_used_by_the_browser() {
         headers.insert(header::HOST, host.parse().unwrap());
         assert!(request_origin(false, &headers).is_none());
     }
+}
+
+// ---- Messages over the socket ------------------------------------------------
+
+async fn command(socket: &mut ClientSocket, value: Value) {
+    socket
+        .send(Frame::Text(value.to_string().into()))
+        .await
+        .unwrap();
+}
+
+/// Reads frames until one satisfies `done`, within one deadline.
+async fn frame_until(
+    socket: &mut ClientSocket,
+    done: impl Fn(&TableChange) -> bool,
+) -> TableChange {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let frame = receive(socket).await;
+            if done(&frame) {
+                return frame;
+            }
+        }
+    })
+    .await
+    .expect("the expected frame never came")
+}
+
+/// Reads and discards whatever arrives until the socket goes quiet.
+async fn drain(socket: &mut ClientSocket) {
+    while tokio::time::timeout(Duration::from_millis(300), socket.next())
+        .await
+        .is_ok()
+    {}
+}
+
+/// No frame at all arrives for a while.
+async fn silent(socket: &mut ClientSocket) {
+    let next = tokio::time::timeout(Duration::from_millis(600), socket.next()).await;
+    assert!(next.is_err(), "expected no frame, got {next:?}");
+}
+
+/// A seat's socket, with its key and epoch from the first frame.
+async fn open(table: &Table, token: &str) -> (ClientSocket, String, u64) {
+    let mut socket = connect(&table.origin, &table.http, None, token, true).await;
+    let first = receive(&mut socket).await;
+    assert!(
+        first.chats.as_ref().unwrap().snapshot,
+        "the first frame is a snapshot"
+    );
+    (socket, first.you.unwrap(), first.epoch.unwrap())
+}
+
+/// Waits until the published roster has everyone in `all` here, then lets
+/// each socket read the frames that brought it there.
+async fn settle(table: &Table, all: &[&str], sockets: &mut [&mut ClientSocket]) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !all.iter().all(|n| here(&table.served.roster.current(), n)) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("everyone arrived");
+    for socket in sockets {
+        drain(socket).await;
+    }
+}
+
+#[tokio::test]
+async fn messages_travel_the_socket_to_the_two_people_only() {
+    let table = plain_table().await;
+    let (ava, bo, cy) = (
+        table.seat("Ava").await,
+        table.seat("Bo").await,
+        table.seat("Cy").await,
+    );
+    let all = ["Ava", "Bo", "Cy"];
+    let (mut a, _, a_epoch) = open(&table, &ava.token).await;
+    let (mut b, b_key, _) = open(&table, &bo.token).await;
+    let (mut c, _, _) = open(&table, &cy.token).await;
+    settle(&table, &all, &mut [&mut a, &mut b, &mut c]).await;
+
+    command(
+        &mut b,
+        json!({"t": "typing", "epoch": 0, "to": "nobody", "on": true}),
+    )
+    .await;
+    command(
+        &mut a,
+        json!({"t": "typing", "epoch": a_epoch, "to": b_key, "on": true}),
+    )
+    .await;
+    let typing = frame_until(&mut b, |f| f.typing.is_some()).await;
+    assert_eq!(typing.typing.unwrap().len(), 1);
+    command(
+        &mut a,
+        json!({"t": "typing", "epoch": a_epoch, "to": b_key, "on": false}),
+    )
+    .await;
+    command(
+        &mut a,
+        json!({"t": "send", "epoch": a_epoch, "to": b_key, "clientId": "m1", "text": "  hello Bo  "}),
+    )
+    .await;
+    let ack = frame_until(&mut a, |f| f.acks.is_some()).await;
+    let ack = &ack.acks.unwrap()[0];
+    assert_eq!(ack.client_id, "m1");
+    assert!(ack.error.is_none(), "{ack:?}");
+    let got = frame_until(&mut b, |f| {
+        f.chats
+            .as_ref()
+            .is_some_and(|c| c.conversations.iter().any(|c| !c.messages.is_empty()))
+    })
+    .await;
+    let conversation = &got.chats.unwrap().conversations[0];
+    assert_eq!(conversation.messages[0].text, "hello Bo");
+    assert_eq!(conversation.messages[0].client_id, None);
+    assert_eq!(conversation.unread, 1);
+    // Cy hears nothing of it: not a message, not typing, not an empty frame.
+    silent(&mut c).await;
+    table.close().await;
+}
+
+#[tokio::test]
+async fn a_re_paired_device_cannot_send_as_who_it_was() {
+    let table = plain_table().await;
+    let (ava, bo) = (table.seat("Ava").await, table.seat("Bo").await);
+    let all = ["Ava", "Bo"];
+    let (mut a, _, a_epoch) = open(&table, &ava.token).await;
+    let (mut _b, b_key, _) = open(&table, &bo.token).await;
+    settle(&table, &all, &mut [&mut a, &mut _b]).await;
+    table.pair(&ava.token, "Ava", false);
+    command(
+        &mut a,
+        json!({"t": "send", "epoch": a_epoch, "to": b_key, "clientId": "old", "text": "hi"}),
+    )
+    .await;
+    // The refusal, and the new identity with its new epoch and a fresh
+    // snapshot, may come in one frame or two.
+    let (mut refused, mut renewed) = (false, false);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !(refused && renewed) {
+            let f = receive(&mut a).await;
+            if let Some(acks) = &f.acks {
+                assert_eq!(acks[0].error.as_deref(), Some("identity changed"));
+                refused = true;
+            }
+            // The first frame under the new epoch starts the chats over;
+            // later roster frames repeat the epoch without them.
+            if !renewed && f.epoch.is_some_and(|e| e > a_epoch) {
+                assert!(f.chats.as_ref().unwrap().snapshot);
+                assert!(f.you.as_deref().unwrap().starts_with("player:"));
+                renewed = true;
+            }
+        }
+    })
+    .await
+    .expect("refused and renewed");
+    table.close().await;
+}
+
+#[tokio::test]
+async fn leaving_the_table_ends_the_conversation() {
+    let table = plain_table().await;
+    let (ava, bo) = (table.seat("Ava").await, table.seat("Bo").await);
+    let all = ["Ava", "Bo"];
+    let (mut a, _, a_epoch) = open(&table, &ava.token).await;
+    let (mut b, b_key, _) = open(&table, &bo.token).await;
+    settle(&table, &all, &mut [&mut a, &mut b]).await;
+    command(
+        &mut a,
+        json!({"t": "send", "epoch": a_epoch, "to": b_key, "clientId": "m1", "text": "stay?"}),
+    )
+    .await;
+    let ack = frame_until(&mut a, |f| f.acks.is_some()).await;
+    let cid = ack.acks.unwrap()[0].cid.clone().unwrap();
+    drop(b);
+    // Past Bo's grace, the roster drops him and the conversation ends.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    table
+        .served
+        .roster
+        .advance(TEST_GRACE + Duration::from_secs(1));
+    let ended = frame_until(&mut a, |f| {
+        f.chats
+            .as_ref()
+            .is_some_and(|c| c.conversations.iter().any(|c| c.ended && c.cid == cid))
+    })
+    .await;
+    assert!(!ended.chats.unwrap().snapshot);
+    // A late resend into it is refused.
+    command(
+        &mut a,
+        json!({"t": "send", "epoch": a_epoch, "to": b_key, "cid": cid, "clientId": "m2", "text": "hello?"}),
+    )
+    .await;
+    let ack = frame_until(&mut a, |f| f.acks.is_some()).await;
+    assert!(ack.acks.unwrap()[0].error.is_some());
+    table.close().await;
+}
+
+#[tokio::test]
+async fn a_stray_frame_still_ends_the_socket() {
+    let table = plain_table().await;
+    let ava = table.seat("Ava").await;
+    let (mut a, _, _) = open(&table, &ava.token).await;
+    settle(&table, &["Ava"], &mut [&mut a]).await;
+    command(&mut a, json!({"t": "shout", "text": "hi"})).await;
+    let end = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match a.next().await {
+                None | Some(Err(_)) | Some(Ok(Frame::Close(_))) => return,
+                Some(Ok(_)) => {}
+            }
+        }
+    })
+    .await;
+    assert!(end.is_ok(), "the socket stayed open");
+    table.close().await;
 }

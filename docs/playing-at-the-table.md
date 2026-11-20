@@ -82,6 +82,19 @@ On an Android phone the bubbles give a light buzz when you pick them up, when th
 
 The GM's own bubble goes away and comes back the same way. The roster shows names, roles and these statuses only; it never shows devices or addresses.
 
+### Messages
+
+Press someone's bubble and their card opens beside it: their name, role and how they are, and a conversation with them. Type in the box at the bottom and press Enter (Shift+Enter for a new line). Anyone can message the GM, and the GM can message anyone; players can message each other unless the GM switches that off in the host panel.
+
+- While someone is writing to you, their bubble shows a speech badge and their card shows three moving dots. Only you see that: not the GM, not anyone else.
+- A message from someone whose card is closed shows a count on their bubble, a small envelope flies from their bubble to yours, and phones buzz. Opening their card and reading it clears the count, on all your devices.
+- Under your newest message it says **Sending…**, then **Sent**, then **Seen** once they have read it. A message that could not go out says **Not sent**, with **Retry**.
+- If your connection drops, messages you write wait and go out when the table is back. While offline, the box is turned off and says so.
+
+Messages are for the session only. They are kept in the GM's app while both of you are at the table, and nowhere else: when either of you leaves (or the GM stops hosting), the conversation is gone. Nothing is written to the campaign folder. If the GM pairs a guest's device as a player, the guest's conversations end too, as if they had left. Each conversation keeps its last 100 messages.
+
+The GM's machine passes every message on, so it holds them while the table runs, and a GM who pairs a device as a player can read that player's conversations from it. On an ordinary home network without secure table connections, other devices on the network could read the traffic, messages included.
+
 ## Players and devices
 
 Players need no account. Every copy of the app makes itself a key the first time it runs and keeps it in the operating system's credential store. When someone joins your table, from the app or from the phone page, their row in **At the table** shows their device and a **Pair as new player** button (or a dropdown to attach the device to a player you already have). Pairing writes the player, with their device, into `campaign.json`, so it travels with the folder.

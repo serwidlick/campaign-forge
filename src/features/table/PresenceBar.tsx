@@ -10,6 +10,7 @@ import { table } from "@/lib/tauri";
 import {
   useRosterOffset,
   useRosterYou,
+  useTableChat,
   useTableOffline,
   useTableRoster,
 } from "@/stores/table-store";
@@ -27,6 +28,7 @@ export function PresenceBar() {
   const offset = useRosterOffset();
   const you = useRosterYou();
   const offline = useTableOffline();
+  const chat = useTableChat();
   const bubbles = useRef<TablePresence | null>(null);
   const atTable = roster.length > 0;
 
@@ -46,6 +48,15 @@ export function PresenceBar() {
     bubbles.current.offline = offline;
     bubbles.current.roster = roster;
   }, [roster, offset, you, offline]);
+
+  // Table messages show on the bubbles: their cards, unread counts and
+  // typing. The chat itself lives in the store, with the connection.
+  useEffect(() => {
+    const node = bubbles.current;
+    if (!node || !chat) return;
+    chat.attach(node);
+    return () => chat.detach();
+  }, [chat]);
 
   // While at a table, tell it when this window goes idle and comes back.
   // A failed report is not worth an error: the next change tries again.

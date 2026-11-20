@@ -29,11 +29,17 @@ const UPLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// A joined table. Cheap to clone; the HTTP client is reference counted.
 type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+type Reader = futures_util::stream::SplitStream<Socket>;
+type Writer = futures_util::stream::SplitSink<Socket, Message>;
 
 #[derive(Clone)]
 pub struct Session {
     http: reqwest::Client,
-    live: Arc<Mutex<Option<Socket>>>,
+    /// The live socket, split: `next_event` owns the read half while it
+    /// waits, and the write half stays free for message commands, so a
+    /// device can send while it is listening.
+    live: Arc<Mutex<Option<Reader>>>,
+    writer: Arc<Mutex<Option<Writer>>>,
     stop: watch::Sender<bool>,
     base: String,
     endpoints: Vec<std::net::SocketAddr>,
@@ -175,6 +181,7 @@ impl Session {
         Ok(Session {
             http,
             live: Arc::default(),
+            writer: Arc::default(),
             stop: watch::channel(false).0,
             base,
             endpoints,
@@ -197,6 +204,26 @@ impl Session {
         self.disconnect();
         self.stop = watch::channel(false).0;
         self.live = Arc::default();
+        self.writer = Arc::default();
+    }
+
+    /// Sends one message command on the live socket. Fails while there is
+    /// no socket (between reconnects); the page keeps the command and
+    /// resends it once the next socket's snapshot is in.
+    pub async fn send_live(&self, command: &Value) -> Result<(), String> {
+        let text = command.to_string();
+        if text.len() > 8 * 1024 {
+            return Err("message too long".into());
+        }
+        let mut writer = self.writer.lock().await;
+        let sink = writer.as_mut().ok_or("not connected to the table")?;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            sink.send(Message::Text(text.into())),
+        )
+        .await
+        .map_err(|_| "the table did not take the message in time")?
+        .map_err(|e| e.to_string())
     }
 
     pub fn summary(&self) -> SessionInfo {
@@ -483,20 +510,31 @@ impl Session {
             _ = stop.changed() => Err(CLOSED_ERROR.into()),
             result = async {
                 // Taking the socket also drops it on any error or cancelled read.
-                let mut socket = match guard.take() {
-                    Some(s) => s,
-                    None => tokio::time::timeout(Duration::from_secs(15), self.connect_live()).await.map_err(|_| "table connection timed out")??,
+                let mut reader = match guard.take() {
+                    Some(r) => r,
+                    None => {
+                        let socket = tokio::time::timeout(Duration::from_secs(15), self.connect_live()).await.map_err(|_| "table connection timed out")??;
+                        let (writer, reader) = socket.split();
+                        *self.writer.lock().await = Some(writer);
+                        reader
+                    }
                 };
                 loop {
-                    match tokio::time::timeout(Duration::from_secs(55), socket.next()).await
+                    match tokio::time::timeout(Duration::from_secs(55), reader.next()).await
                         .map_err(|_| "table connection timed out")?.transpose().map_err(|e| e.to_string())? {
                         Some(Message::Text(text)) if text == "heartbeat" => {}
                         Some(Message::Text(text)) => {
                             let change = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-                            *guard = Some(socket);
+                            *guard = Some(reader);
                             return Ok(change);
                         }
-                        Some(Message::Ping(_)) => socket.flush().await.map_err(|e| e.to_string())?,
+                        // The pong is queued by the read; flushing the write
+                        // half sends it.
+                        Some(Message::Ping(_)) => {
+                            if let Some(writer) = self.writer.lock().await.as_mut() {
+                                writer.flush().await.map_err(|e| e.to_string())?;
+                            }
+                        }
                         _ => return Err("table disconnected".into()),
                     }
                 }
@@ -508,6 +546,107 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A table whose live socket answers each command with a frame naming
+    /// it, so a send can be seen to arrive while `next_event` is waiting.
+    async fn echo_table() -> (String, tokio::task::JoinHandle<()>) {
+        use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let server = axum::Router::new()
+            .route(
+                "/api/live/ticket",
+                axum::routing::post(|| async { axum::Json(serde_json::json!({"ticket": "t"})) }),
+            )
+            .route(
+                "/api/live",
+                axum::routing::get(|ws: WebSocketUpgrade| async move {
+                    ws.protocols([super::super::server::LIVE_PROTOCOL])
+                        .on_upgrade(|mut socket| async move {
+                            // The hello, then each command echoed back.
+                            let _ = socket.recv().await;
+                            while let Some(Ok(WsMessage::Text(text))) = socket.recv().await {
+                                let command: Value = serde_json::from_str(&text).unwrap();
+                                let frame = serde_json::json!({
+                                    "version": 1,
+                                    "acks": [{"clientId": command["clientId"]}],
+                                });
+                                let _ =
+                                    socket.send(WsMessage::Text(frame.to_string().into())).await;
+                            }
+                        })
+                }),
+            );
+        let task = tokio::spawn(async move {
+            axum::serve(listener, server).await.unwrap();
+        });
+        (address, task)
+    }
+
+    fn session(address: &str) -> Session {
+        Session {
+            http: reqwest::Client::new(),
+            live: Arc::default(),
+            writer: Arc::default(),
+            stop: watch::channel(false).0,
+            base: format!("http://{address}"),
+            endpoints: Vec::new(),
+            token: "token".into(),
+            info: TableInfo {
+                live_protocol: None,
+                name: "Echo".into(),
+                system: None,
+                calendar: None,
+                version: 1,
+                players: Vec::new(),
+            },
+            address: address.into(),
+            player_name: "Mira".into(),
+            player_id: None,
+            recognized: false,
+            gm: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_device_can_send_while_it_is_listening() {
+        let (address, task) = echo_table().await;
+        let session = session(&address);
+        // Not connected yet: nothing to send on.
+        assert!(
+            session
+                .send_live(&serde_json::json!({"t": "x"}))
+                .await
+                .is_err()
+        );
+        let listening = tokio::spawn({
+            let session = session.clone();
+            async move { session.next_event().await }
+        });
+        // Once the reader has connected (and is waiting on a quiet table),
+        // a command goes out and its answer is what the reader gets.
+        let sent = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if session
+                    .send_live(&serde_json::json!({"t": "send", "clientId": "m1"}))
+                    .await
+                    .is_ok()
+                {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(sent.is_ok(), "the command never went out");
+        let change = tokio::time::timeout(Duration::from_secs(10), listening)
+            .await
+            .expect("the reader got an answer")
+            .unwrap()
+            .unwrap();
+        assert_eq!(change.acks.unwrap()[0].client_id, "m1");
+        task.abort();
+    }
 
     #[tokio::test]
     async fn an_older_host_returns_upgrade_guidance_before_joining() {

@@ -91,12 +91,25 @@ export function paintPerson(bubble, entry, ctx) {
     face.appendChild(el("span", "activity")).appendChild(icon(activity.badge));
   }
   if (entry.self) face.appendChild(el("span", "you", "You"));
+  // Unread messages from them, top left; it pops when the count grows.
+  if (ctx.unread > 0) {
+    const count = el(
+      "span",
+      ctx.grew ? "unread pop" : "unread",
+      ctx.unread > 99 ? "99+" : String(ctx.unread),
+    );
+    count.setAttribute("aria-hidden", "true");
+    face.appendChild(count);
+  }
   const detail = status.detail(entry, ctx);
   const label = [
     entry.self ? entry.name + " (you)" : entry.name,
     roleOf(entry),
     entry.stale ? detail + " when last seen" : detail,
     activity?.label ?? "",
+    ctx.unread > 0
+      ? ctx.unread + (ctx.unread === 1 ? " unread message" : " unread messages")
+      : "",
   ]
     .filter(Boolean)
     .join(", ");
@@ -107,6 +120,28 @@ export function paintPerson(bubble, entry, ctx) {
   bubble.classList.toggle("stale", Boolean(entry.stale));
   bubble.removeAttribute("aria-expanded");
   bubble.removeAttribute("aria-pressed");
+}
+
+/** Beside the eye while everyone is hidden: messages waiting, and how
+ *  many. Pressing it opens the latest writer's card. */
+export function paintInbox(bubble, { count, from }) {
+  const face = faceOf(bubble);
+  face.className = "face inbox";
+  const shown = count > 99 ? "99+" : String(count);
+  const previous = face.querySelector(".tally")?.textContent;
+  face.replaceChildren(icon("mail", "inbox-icon"));
+  // The count pops when it grows, as a person's unread count does.
+  const tally = el(
+    "span",
+    previous && previous !== shown ? "tally pop" : "tally",
+    shown,
+  );
+  face.appendChild(tally);
+  const words =
+    (count === 1 ? "1 unread message" : count + " unread messages") +
+    (from ? ", latest from " + from : "");
+  setTip(bubble, words);
+  bubble.setAttribute("aria-label", words + ". Open their card");
 }
 
 /** "+N" while the rest are folded away; "−" once they are shown. */

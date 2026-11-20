@@ -1,4 +1,9 @@
-import type { ElementSummary, RosterEntry, TableChange } from "./types";
+import type {
+  ElementSummary,
+  RosterEntry,
+  TableChange,
+  TableCommand,
+} from "./types";
 
 export const LIVE_PROTOCOL: "table.ws.v1";
 
@@ -8,6 +13,8 @@ export function tableSocket(
 ): {
   next(): Promise<TableChange>;
   close(): void;
+  /** Sends one message command; false when the socket is not open. */
+  send(command: TableCommand): boolean;
 };
 export function applyDelta(
   elements: ElementSummary[],

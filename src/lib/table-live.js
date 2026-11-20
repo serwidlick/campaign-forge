@@ -1,6 +1,12 @@
 export const LIVE_PROTOCOL = "table.ws.v1";
 
-/** One reader per joined browser tab. Queue overflow forces a fresh snapshot. */
+/** Frames a slow page may fall behind by before the socket is dropped and a
+ * fresh one (with a fresh snapshot) takes over. */
+const QUEUE_FRAMES = 64;
+const QUEUE_BYTES = 2 * 1024 * 1024;
+
+/** One reader per joined browser tab. Queue overflow forces a fresh snapshot.
+ *  Message commands go the other way with `send`. */
 export function tableSocket(ticket, player = false) {
   const { location, WebSocket, clearTimeout, setTimeout } = globalThis;
   if (location.protocol !== "https:" && location.protocol !== "http:")
@@ -11,15 +17,19 @@ export function tableSocket(ticket, player = false) {
     LIVE_PROTOCOL,
   );
   const queue = [];
+  let queued = 0;
   let waiting;
   let shutdown;
   let ended = false;
+  /** The hello is out: commands may follow it. */
+  let ready = false;
   let timer;
   function close() {
     if (ended) return;
     ended = true;
     clearTimeout(timer);
     queue.length = 0;
+    queued = 0;
     socket.close();
     waiting?.reject(new Error("Table disconnected"));
     waiting = undefined;
@@ -32,6 +42,7 @@ export function tableSocket(ticket, player = false) {
   socket.onopen = () => {
     if (ended || socket.protocol !== LIVE_PROTOCOL) return close();
     socket.send(JSON.stringify({ ticket, player }));
+    ready = true;
   };
   socket.onclose = socket.onerror = close;
   socket.onmessage = ({ data }) => {
@@ -53,8 +64,12 @@ export function tableSocket(ticket, player = false) {
       if (waiting) {
         waiting.resolve(change);
         waiting = undefined;
-      } else if (queue.length < 16) {
-        queue.push(change);
+      } else if (
+        queue.length < QUEUE_FRAMES &&
+        queued + data.length <= QUEUE_BYTES
+      ) {
+        queue.push([change, data.length]);
+        queued += data.length;
       } else close();
     } catch {
       close();
@@ -73,10 +88,25 @@ export function tableSocket(ticket, player = false) {
       }
       if (ended || waiting)
         return Promise.reject(new Error("Table disconnected"));
-      if (queue.length) return Promise.resolve(queue.shift());
+      if (queue.length) {
+        const [change, size] = queue.shift();
+        queued -= size;
+        return Promise.resolve(change);
+      }
       return new Promise((resolve, reject) => {
         waiting = { resolve, reject };
       });
+    },
+    /** Sends one message command (send, typing, seen). False when the
+     *  socket is not (or no longer) open; the caller tries again later. */
+    send(command) {
+      if (ended || !ready || socket.readyState !== WebSocket.OPEN) return false;
+      try {
+        socket.send(JSON.stringify(command));
+        return true;
+      } catch {
+        return false;
+      }
     },
   };
 }

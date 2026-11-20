@@ -21,7 +21,11 @@ import {
 import { SHUFFLE, tripFrames } from "../src/lib/presence/motion.js";
 import { defineStatus, statusOf } from "../src/lib/presence/statuses.js";
 import { elapsedSince, formatDuration } from "../src/lib/presence/time.js";
-import { shownEntries, viewRoster } from "../src/lib/presence/view.js";
+import {
+  promoteUnread,
+  shownEntries,
+  viewRoster,
+} from "../src/lib/presence/view.js";
 
 const area = {
   left: 10,
@@ -247,4 +251,44 @@ test("haptics are named patterns through a replaceable driver", () => {
   ]);
   // Without a Vibration API (Node, iOS Safari) the default is a quiet no.
   assert.equal(haptic("snap"), true);
+});
+
+test("people who write to you move up the row and stay there once read", () => {
+  const people = ["host", "guest:a", "guest:b", "guest:c", "guest:d"].map(
+    (key) => ({ key, role: key === "host" ? "host" : "guest" }),
+  );
+  const keys = (priority) =>
+    viewRoster(people, { you: "guest:b", priority }).map((e) => e.key);
+  const priority = new Map();
+  assert.deepEqual(keys(priority), [
+    "host",
+    "guest:b",
+    "guest:a",
+    "guest:c",
+    "guest:d",
+  ]);
+  // d writes: d moves up, right after you.
+  assert.equal(promoteUnread(priority, {}, { "guest:d": 1 }), true);
+  assert.deepEqual(keys(priority), [
+    "host",
+    "guest:b",
+    "guest:d",
+    "guest:a",
+    "guest:c",
+  ]);
+  // c writes later: c goes in front of d.
+  promoteUnread(priority, { "guest:d": 1 }, { "guest:d": 1, "guest:c": 1 });
+  assert.deepEqual(keys(priority).slice(2), ["guest:c", "guest:d", "guest:a"]);
+  // Reading them all moves nobody back.
+  assert.equal(
+    promoteUnread(priority, { "guest:d": 1, "guest:c": 1 }, {}),
+    false,
+  );
+  assert.deepEqual(keys(priority).slice(2), ["guest:c", "guest:d", "guest:a"]);
+  // d writes again: back in front.
+  promoteUnread(priority, {}, { "guest:d": 1 });
+  assert.deepEqual(keys(priority).slice(2), ["guest:d", "guest:c", "guest:a"]);
+  // The host and you stay first whatever happens.
+  promoteUnread(priority, {}, { host: 2 });
+  assert.deepEqual(keys(priority).slice(0, 2), ["host", "guest:b"]);
 });

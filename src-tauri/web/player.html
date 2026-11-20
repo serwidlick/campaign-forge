@@ -1606,6 +1606,7 @@
           state.you = null;
           state.offline = false;
           stopWatchingIdle();
+          stopChat();
           renderRoster();
           draft.denied = {};
           note.denied = {};
@@ -1635,6 +1636,53 @@
         var presenceModule = null;
         var presenceLoading = false;
         var stopIdle = null;
+
+        // ---- Table messages -----------------------------------------------
+        // The component's own chat controller (presence/chat.js) keeps the
+        // conversations, resends and Seen; this page hands it every frame
+        // and the socket to send on. Frames that come before the component
+        // has loaded wait here, so the first one (the whole set of
+        // conversations) is never missed.
+        var chat = null;
+        var chatBacklog = [];
+        function chatFrame(v) {
+          return {
+            you: v.you,
+            epoch: v.epoch,
+            roster: v.roster,
+            chats: v.chats,
+            acks: v.acks,
+            typing: v.typing,
+            messageRules: v.messageRules,
+          };
+        }
+        function feedChat(v) {
+          if (!v.you && !v.chats && !v.acks && !v.typing && !v.messageRules) {
+            if (!v.roster) return;
+          }
+          if (chat) chat.receive(chatFrame(v));
+          else if (chatBacklog.length < 64) chatBacklog.push(chatFrame(v));
+        }
+        function startChat(module) {
+          if (chat || !module.TableChat) return;
+          chat = new module.TableChat({
+            send: function (command) {
+              return state.live ? state.live.send(command) : false;
+            },
+          });
+          chat.connected(!state.offline);
+          chatBacklog.forEach(function (frame) {
+            chat.receive(frame);
+          });
+          chatBacklog = [];
+          chat.attach(presence);
+        }
+        function stopChat() {
+          if (chat) chat.dispose();
+          chat = null;
+          chatBacklog = [];
+        }
+
         function renderRoster() {
           if (presence) {
             presence.clockOffset = state.rosterOffset;
@@ -1652,6 +1700,7 @@
                 stylesheet: "/table-presence.css",
               });
               presenceModule = module;
+              startChat(module);
               renderRoster();
             })
             .catch(function () {})
@@ -1720,6 +1769,8 @@
                   state.offline = false;
                   renderRoster();
                 }
+                if (chat) chat.connected(true);
+                feedChat(v);
                 if (v.playerId !== undefined) state.playerId = v.playerId;
                 if (v.delta) {
                   if (v.delta.reset) {
@@ -1786,6 +1837,7 @@
                 state.offline = true;
                 renderRoster();
               }
+              if (chat) chat.connected(false);
             } finally {
               if (socket) socket.close();
               if (state.live === socket) state.live = null;

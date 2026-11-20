@@ -12,15 +12,29 @@
  * - prefs.js       per-device choices (edge, hidden)
  * - view.js        the roster as this device sees it: you, and while offline
  * - haptics.js     a light buzz on phones for picks, snaps and taps
+ * - card.js        a person's card, opened by pressing their bubble, made of
+ *                  sections (card-sections.js; messages.js is one)
+ * - chat.js        table messages for a page: state, resends, the card's events
  *
  * The page sets `.roster` (and `.clockOffset` when the roster came from
  * another machine), `.you` (which entry is this device's person) and
- * `.offline` (while it cannot reach the host); everything else happens here. Names only ever go in as
- * text.
+ * `.offline` (while it cannot reach the host); everything else happens
+ * here. Card sections get their state through `setSectionState`. Names
+ * only ever go in as text.
  */
 
 import { playActivity } from "./activities.js";
-import { createBubble, paintCounter, paintEye, paintPerson } from "./bubble.js";
+import {
+  createBubble,
+  paintCounter,
+  paintEye,
+  paintInbox,
+  paintPerson,
+} from "./bubble.js";
+import { Card } from "./card.js";
+import { envelope } from "./card-motion.js";
+import { icon } from "./icons.js";
+import "./messages.js";
 import { DragController } from "./drag.js";
 import { haptic } from "./haptics.js";
 import { emerge, measure, revive, shuffle, slide, vanish } from "./motion.js";
@@ -33,7 +47,7 @@ import {
 } from "./dock.js";
 import { readDock, readHidden, writeDock, writeHidden } from "./prefs.js";
 import { statusOf } from "./statuses.js";
-import { shownEntries, viewRoster } from "./view.js";
+import { promoteUnread, shownEntries, viewRoster } from "./view.js";
 
 export const TAG = "table-presence";
 
@@ -48,8 +62,6 @@ const ARROWS = {
 const BUBBLES = 6;
 const BUBBLES_NARROW = 4;
 const NARROW = "(max-width: 480px)";
-/** How long a tapped bubble shows its name on a touch screen. */
-const TIP_MS = 2500;
 /** How often "away for 7 min" is brought up to date. */
 const TICK_MS = 30_000;
 
@@ -90,6 +102,19 @@ export class TablePresence extends HTMLElement {
   #root;
   #anchor;
   #group;
+  /** The open person's card, if any (card.js). */
+  #card = null;
+  /** What the page handed each card section (`setSectionState`). */
+  #sectionState = new Map();
+  /** Unread messages by person, and those counts as last painted. */
+  #unread = {};
+  #unreadShown = {};
+  /** The roster as last painted (with `self` and `stale`), by key. */
+  #entries = new Map();
+  /** People who wrote to you, moved up the row, and how recently. */
+  #priority = new Map();
+  /** Beside the eye while everyone is hidden: messages waiting unread. */
+  #inbox = null;
 
   constructor() {
     super();
@@ -156,6 +181,69 @@ export class TablePresence extends HTMLElement {
     this.#update();
   }
 
+  /** Hands a card section its state (for messages: chat.js does this). The
+   *  open card is brought up to date. */
+  setSectionState(id, value) {
+    this.#sectionState.set(id, value);
+    if (this.#card?.key) this.#update();
+  }
+
+  /** Unread messages by person key (and the total, for the hidden eye). */
+  setUnread(per, total = 0) {
+    const next = { ...(per ?? {}) };
+    promoteUnread(this.#priority, this.#unread, next);
+    this.#unread = next;
+    this.#unreadTotal = total;
+    this.#update();
+  }
+
+  /** Who to open from the inbox: whoever wrote most recently, unread. */
+  #latestUnread() {
+    let best = null;
+    for (const key of Object.keys(this.#unread)) {
+      if (!this.#unread[key] || !this.#entries.has(key)) continue;
+      if (
+        !best ||
+        (this.#priority.get(key) ?? 0) > (this.#priority.get(best) ?? 0)
+      ) {
+        best = key;
+      }
+    }
+    return best;
+  }
+
+  #unreadTotal = 0;
+
+  /** Messages arrived live from `from`: unless their card is open, an
+   *  envelope travels from their bubble to yours. */
+  messageArrived(from, count = 1) {
+    if (!count || this.#card?.key === from || this.hidden) return;
+    const sender = this.#bubbles.get(from);
+    const mine = this.#you ? this.#bubbles.get(this.#you) : null;
+    const target = mine?.isConnected ? mine : this.#eye;
+    if (!sender?.isConnected || !target?.isConnected || this.#concealed) {
+      return;
+    }
+    envelope(
+      this.#root.querySelector(".card-layer"),
+      this.getBoundingClientRect(),
+      sender.getBoundingClientRect(),
+      target.getBoundingClientRect(),
+      icon("mail"),
+    );
+  }
+
+  /** Opens someone's card, as pressing their bubble does. */
+  openCard(key) {
+    const entry = this.#entries.get(key);
+    if (entry && this.#card) this.#card.open(entry);
+  }
+
+  /** Closes the open card, if any. */
+  closeCard() {
+    this.#card?.close({ focus: "none" });
+  }
+
   connectedCallback() {
     if (!this.#built) this.#build();
     this.#narrow = window.matchMedia(NARROW);
@@ -169,6 +257,7 @@ export class TablePresence extends HTMLElement {
     // Removal releases pointer capture; a drag must not outlive it.
     this.#drag?.reset();
     this.#hideTip();
+    this.#card?.close({ focus: "none" });
     clearInterval(this.#ticker);
     this.#ticker = 0;
     for (const handle of this.#playing.values()) handle.stop();
@@ -196,7 +285,10 @@ export class TablePresence extends HTMLElement {
     hint.id = "tp-hint";
     hint.hidden = true;
     hint.textContent =
-      "Drag any bubble to move them to another edge, or use the arrow keys.";
+      "Press a person to open their card. Drag any bubble to move them to another edge, or use the arrow keys.";
+
+    const cardLayer = document.createElement("div");
+    cardLayer.className = "card-layer";
 
     this.#anchor = document.createElement("div");
     this.#anchor.className = "anchor";
@@ -204,7 +296,28 @@ export class TablePresence extends HTMLElement {
     this.#group.className = "group";
     this.#group.setAttribute("role", "group");
     this.#anchor.append(this.#group);
-    this.#root.append(sheet, hint, this.#anchor);
+    this.#root.append(sheet, hint, this.#anchor, cardLayer);
+    this.#card = new Card({
+      layer: cardLayer,
+      element: this,
+      area: () => this.#area(),
+      side: () => this.#spot.side,
+      bubbleFor: (key) => {
+        const b = this.#bubbles.get(key);
+        if (b?.isConnected && !b.classList.contains("exiting")) return b;
+        // Everyone hidden: a card opened from the inbox grows out of it.
+        return this.#concealed && this.#inbox?.isConnected ? this.#inbox : null;
+      },
+      context: () => this.#cardContext(),
+      state: (id) => this.#sectionState.get(id),
+      focusBubble: (key) => this.#bubbles.get(key)?.focus(),
+      focusNext: (key) => {
+        const b = this.#bubbles.get(key);
+        const next = b?.nextElementSibling ?? this.#eye;
+        next?.focus();
+      },
+      focusEye: () => this.#eye?.focus(),
+    });
 
     this.#drag = new DragController(this.#group, {
       handle: ".bubble",
@@ -249,12 +362,14 @@ export class TablePresence extends HTMLElement {
     const roster = viewRoster(this.#roster, {
       you: this.#you,
       offline: this.#offline,
+      priority: this.#priority,
     });
     const max = this.#narrow?.matches ? BUBBLES_NARROW : BUBBLES;
     const folds = roster.length > max;
     if (!folds) this.#expanded = false;
     const shown = shownEntries(roster, max, this.#expanded);
     const ctx = { now: Date.now(), offset: this.#clockOffset };
+    this.#entries = new Map(roster.map((e) => [e.key, e]));
 
     const people = shown.map((entry) => {
       let bubble = this.#bubbles.get(entry.key);
@@ -264,7 +379,9 @@ export class TablePresence extends HTMLElement {
       }
       const activity =
         this.#activities.get(entry.key) ?? entry.activity ?? null;
-      paintPerson(bubble, entry, { ...ctx, activity });
+      const unread = this.#unread[entry.key] ?? 0;
+      const grew = unread > (this.#unreadShown[entry.key] ?? 0);
+      paintPerson(bubble, entry, { ...ctx, activity, unread, grew });
       this.#animate(entry.key, bubble, activity, entry.self === true);
       return bubble;
     });
@@ -280,13 +397,25 @@ export class TablePresence extends HTMLElement {
       // Gone from the order below, so it leaves with the rest.
       this.#more = null;
     }
+    this.#unreadShown = { ...this.#unread };
     this.#eye ??= createBubble("toggle");
     paintEye(this.#eye, { hidden: this.#concealed, count: roster.length });
+    // Hidden, messages waiting show as their own bubble beside the eye.
+    const latest = this.#concealed ? this.#latestUnread() : null;
+    if (latest) {
+      this.#inbox ??= createBubble("inbox");
+      paintInbox(this.#inbox, {
+        count: this.#unreadTotal,
+        from: this.#entries.get(latest)?.name ?? "",
+      });
+    } else {
+      this.#inbox = null;
+    }
 
     // The eye leads. Hidden, it is all that shows: the rest leave the page
     // (and are kept, to come back as they were).
     const order = this.#concealed
-      ? [this.#eye]
+      ? [this.#eye, ...(this.#inbox ? [this.#inbox] : [])]
       : [this.#eye, ...people, ...(this.#more ? [this.#more] : [])];
     const leaving = this.#arrange(order);
     this.#group.setAttribute("aria-label", "At the table, " + roster.length);
@@ -297,6 +426,29 @@ export class TablePresence extends HTMLElement {
     if (this.#drag?.dragging) return;
     this.#place();
     this.#move(order, leaving, before);
+    // The open card follows its person: new state, a new place, or "has
+    // left" if they are gone (or hidden behind the eye or "+N").
+    if (this.#card?.key) {
+      const key = this.#card.key;
+      const shownNow = this.#concealed
+        ? Boolean(this.#inbox)
+        : shown.some((e) => e.key === key);
+      if (!this.#entries.has(key)) this.#card.refresh(null);
+      else if (!shownNow) this.#card.close({ focus: "none" });
+      else this.#card.refresh(this.#entries.get(key));
+    }
+  }
+
+  /** What card sections are told: you, the clock, and page state. */
+  #cardContext() {
+    const me = this.#you ? (this.#entries.get(this.#you) ?? null) : null;
+    return {
+      you: this.#you,
+      me,
+      now: Date.now(),
+      offset: this.#clockOffset,
+      state: (id) => this.#sectionState.get(id),
+    };
   }
 
   /**
@@ -440,12 +592,14 @@ export class TablePresence extends HTMLElement {
   }
 
   #moveToSide(side) {
+    this.#card?.close({ focus: "none" });
     this.#relocate({ side, t: this.#spot.t });
   }
 
   #dragStart = () => {
     this.#dragFrom = { ...this.#pos };
     this.#hideTip();
+    this.#card?.close({ focus: "none" });
     for (const trip of this.#shuffles) trip.cancel();
     this.#shuffles = [];
     this.#anchor.classList.add("dragging");
@@ -487,13 +641,6 @@ export class TablePresence extends HTMLElement {
 
   // ---- Interaction ----------------------------------------------------------
 
-  #showTip(bubble) {
-    this.#hideTip();
-    this.#tipped = bubble;
-    bubble.classList.add("tip-on");
-    this.#tipTimer = setTimeout(() => this.#hideTip(), TIP_MS);
-  }
-
   #hideTip() {
     clearTimeout(this.#tipTimer);
     this.#tipped?.classList.remove("tip-on");
@@ -504,6 +651,7 @@ export class TablePresence extends HTMLElement {
     const bubble = event.target.closest?.(".bubble");
     if (!bubble) return;
     if (bubble === this.#eye) {
+      this.#card?.close({ focus: "none" });
       this.#motion = bubble;
       this.#concealed = !this.#concealed;
       writeHidden(this.#concealed);
@@ -511,17 +659,29 @@ export class TablePresence extends HTMLElement {
       this.#hideTip();
       haptic("tap");
       this.#render();
+    } else if (bubble === this.#inbox) {
+      // The latest person to write, opened right here, still hidden.
+      this.#hideTip();
+      const key = this.#latestUnread();
+      const entry = key ? this.#entries.get(key) : null;
+      if (!entry || !this.#card) return;
+      haptic("tap");
+      if (this.#card.key === key) this.#card.close();
+      else this.#card.open(entry);
     } else if (bubble === this.#more) {
       this.#motion = bubble;
       this.#expanded = !this.#expanded;
       this.#hideTip();
       haptic("tap");
       this.#render();
-    } else if (this.#tipped === bubble) {
-      this.#hideTip();
     } else {
-      // A tap names the person; on a mouse the name already shows on hover.
-      this.#showTip(bubble);
+      // A person: their card opens (or closes, if it was theirs).
+      this.#hideTip();
+      const key = [...this.#bubbles].find(([, b]) => b === bubble)?.[0];
+      const entry = key ? this.#entries.get(key) : null;
+      if (!entry || !this.#card) return;
+      if (this.#card.key === key) this.#card.close();
+      else this.#card.open(entry);
     }
   };
 
@@ -542,12 +702,19 @@ export class TablePresence extends HTMLElement {
   };
 
   #onOutside = (event) => {
-    if (!event.composedPath().includes(this)) this.#hideTip();
+    if (!event.composedPath().includes(this)) {
+      this.#hideTip();
+      // A press elsewhere closes the card and keeps its own focus.
+      this.#card?.close({ focus: "none" });
+    }
   };
 
   #onResize = () => {
     // A carried group stays under the finger; the drop places it.
-    if (!this.hidden && !this.#drag?.dragging) this.#place();
+    if (!this.hidden && !this.#drag?.dragging) {
+      this.#place();
+      this.#card?.reposition();
+    }
   };
 
   #onNarrow = () => {
