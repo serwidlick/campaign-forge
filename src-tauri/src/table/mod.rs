@@ -127,7 +127,7 @@ pub async fn table_start_hosting(
     }
     let code = join_code();
     let ips = discovery::lan_ipv4_addresses();
-    let running = server::start(app.clone(), code.clone(), &ips).await?;
+    let running = server::start(app.clone(), code.clone()).await?;
     let addresses = if let Some(origin) = &running.origin {
         vec![origin.clone()]
     } else {
@@ -319,8 +319,15 @@ pub async fn table_join(
     address: String,
     name: String,
     code: Option<String>,
+    endpoints: Option<Vec<std::net::SocketAddr>>,
 ) -> CommandResult<SessionInfo> {
-    let session = client::Session::join(&address, &name, code.as_deref()).await?;
+    let session = client::Session::join(
+        &address,
+        &name,
+        code.as_deref(),
+        endpoints.unwrap_or_default(),
+    )
+    .await?;
     let info = session.summary();
     if let Some(old) = lock(&table.client)?.replace(session) {
         old.disconnect();

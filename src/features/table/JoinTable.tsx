@@ -115,7 +115,12 @@ export function JoinTable({
     } catch {
       /* no storage; fine */
     }
-    const ok = await join(target, name.trim(), code.trim() || undefined);
+    const ok = await join(
+      target,
+      name.trim(),
+      code.trim() || undefined,
+      manual ? undefined : picked?.endpoints,
+    );
     if (ok) setCode("");
   }
 

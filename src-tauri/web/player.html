@@ -1584,6 +1584,7 @@
           state.live = null;
           state.elements = [];
           state.event = 0;
+          state.spotlight = null;
           clearReader();
           releaseAssets();
           draft.id = null;
@@ -1672,7 +1673,6 @@
                 }
                 if (
                   v.spotlightSeq !== state.event ||
-                  (v.delta && v.delta.reset) ||
                   v.spotlight !== state.spotlight
                 ) {
                   setNotice("");

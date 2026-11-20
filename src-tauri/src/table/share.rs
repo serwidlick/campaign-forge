@@ -112,6 +112,7 @@ pub fn shared_summaries(
     state: &AppState,
     viewer: Option<&Viewer<'_>>,
 ) -> Result<Vec<ElementSummary>, StorageError> {
+    state.refresh_table()?;
     Ok(shared_versions(state, viewer)?
         .into_iter()
         .map(|(summary, _)| summary)
@@ -151,11 +152,7 @@ pub fn shared_element(
     id: &str,
     viewer: Option<&Viewer<'_>>,
 ) -> Result<Option<Element>, StorageError> {
-    let all: Vec<_> = state
-        .table_entries()?
-        .into_iter()
-        .map(|entry| entry.summary)
-        .collect();
+    let all = state.list_elements()?;
     let visible = shared_ids(&all, viewer);
     if !visible.contains(id) {
         return Ok(None);
@@ -216,11 +213,7 @@ pub fn create_note(
         extra: Some(created.meta.extra.clone()),
         base_version: Some(created.version.clone()),
     })?;
-    let all: Vec<_> = state
-        .table_entries()?
-        .into_iter()
-        .map(|entry| entry.summary)
-        .collect();
+    let all = state.list_elements()?;
     let visible = shared_ids(&all, Some(viewer));
     Ok(sanitize_element(saved, &visible, true))
 }
@@ -259,11 +252,7 @@ pub fn update_note(
         extra: Some(extra),
         base_version: input.base_version,
     })?;
-    let all: Vec<_> = state
-        .table_entries()?
-        .into_iter()
-        .map(|entry| entry.summary)
-        .collect();
+    let all = state.list_elements()?;
     let visible = shared_ids(&all, Some(viewer));
     Ok(Some(sanitize_element(saved, &visible, true)))
 }
@@ -336,11 +325,7 @@ pub fn update_sheet(
         extra: Some(extra),
         base_version: Some(base_version),
     })?;
-    let all: Vec<_> = state
-        .table_entries()?
-        .into_iter()
-        .map(|entry| entry.summary)
-        .collect();
+    let all = state.list_elements()?;
     let visible = shared_ids(&all, Some(viewer));
     Ok(Some(sanitize_element(saved, &visible, false)))
 }
