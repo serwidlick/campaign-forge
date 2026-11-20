@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! GET  /api/table                       who is hosting what (no auth)
-//! POST /api/join   {name, code}         -> {token, info}
+//! POST /api/join   {name, liveProtocol, code or device proof} -> {token, info}
 //! GET  /api/elements                    shared summaries
 //! GET  /api/elements/{id}               one shared element
 //! GET  /api/assets/{*path}              a shared map image
@@ -11,7 +11,8 @@
 //! POST /api/notes  {name, body}         a player writes a note into the campaign
 //! PUT  /api/notes/{id}                  the author changes or shares a note
 //! DELETE /api/notes/{id}                the author deletes a note
-//! GET  /api/version?after=N             long-poll: returns once version > N
+//! POST /api/live/ticket                 mint a single-use WebSocket ticket
+//! GET  /api/live                        upgrade to the live table WebSocket
 //!
 //! POST /api/gm/call {command, args}     a GM's device: run any storage command
 //! GET  /api/gm/assets/{*path}           a GM's device: any asset
@@ -21,12 +22,13 @@
 //! The same server also serves a small web page at `/` so a phone or
 //! tablet can sit at the table from its browser, with the same API.
 //!
-//! Everything but `/api/table` and the page needs `Authorization: Bearer <token>`. The
-//! token comes from `/api/join`, which checks the six-digit code the GM reads
-//! out at the table. That is the whole security model: same Wi-Fi plus the
-//! code. Fine for a living room, and we say so in the UI. The `/api/gm/`
-//! routes answer only a device paired with a player the GM marked as a GM
-//! ([`super::gm`]); they see and change everything, like the GM's own window.
+//! The host checks the live protocol and join code or paired-device proof
+//! before issuing a session token. Protected HTTP requests use that bearer.
+//! Each WebSocket authenticates with a single-use ticket. GM-only commands
+//! additionally check the device's current role.
+
+mod live;
+use live::{Tickets, issue_ticket, load_tls, upgrade};
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -53,8 +55,7 @@ use super::gm;
 use super::players;
 use super::share::{self, Viewer};
 
-/// How long a version long-poll waits before answering "nothing new".
-const LONG_POLL: Duration = Duration::from_secs(25);
+pub(super) const LIVE_PROTOCOL: &str = "table.ws.v1";
 
 /// Sent to players once the GM has stopped hosting.
 pub const CLOSED_MESSAGE: &str = "the GM ended the table";
@@ -63,6 +64,8 @@ pub const CLOSED_MESSAGE: &str = "the GM ended the table";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableInfo {
+    #[serde(default)]
+    pub live_protocol: Option<String>,
     pub name: String,
     #[serde(default)]
     pub system: Option<String>,
@@ -89,8 +92,9 @@ pub struct Player {
     pub name: String,
     pub joined_at: String,
     pub last_seen: String,
-    /// The bearer token, so the GM's own UI can refer to this connection.
-    pub token: String,
+    /// Public management handle. Older GM clients read the wire field "token".
+    #[serde(rename = "token")]
+    pub connection_id: String,
     /// Present when the app joined (a browser joins without a key).
     pub device: Option<ConnectedDevice>,
     /// Set once the device is paired with a player in the campaign.
@@ -136,7 +140,7 @@ const CODE_LOCKOUT: Duration = Duration::from_secs(60);
 const CODE_MEMORY: Duration = Duration::from_secs(600);
 
 /// How recently a seated guest must have been heard from to still hold
-/// their name. A connected page polls at least every 25 seconds.
+/// their name. Connected clients answer WebSocket heartbeats.
 const SEAT_TIMEOUT: chrono::Duration = chrono::Duration::seconds(60);
 
 /// Wrong join codes from one address.
@@ -227,7 +231,10 @@ fn name_taken(
 pub type Players = Arc<Mutex<HashMap<String, Player>>>;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JoinRequest {
+    #[serde(default)]
+    pub live_protocol: Option<String>,
     #[serde(default)]
     pub name: String,
     #[serde(default)]
@@ -261,15 +268,6 @@ pub struct JoinResponse {
     pub gm: bool,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct AfterQuery {
-    #[serde(default)]
-    pub after: u64,
-    /// Last spotlight sequence number the player has seen.
-    #[serde(default)]
-    pub event: u64,
-}
-
 /// What the GM is showing everyone right now. `seq` grows on every change
 /// so players can tell a new spotlight from one they already opened.
 #[derive(Debug, Clone, Default)]
@@ -281,7 +279,7 @@ pub struct Spotlight {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[derive(Default)]
-pub struct VersionResponse {
+pub struct TableChange {
     pub version: u64,
     /// The GM stopped hosting; the player should leave.
     #[serde(default)]
@@ -295,15 +293,30 @@ pub struct VersionResponse {
     /// or revoke that while the device is connected.
     #[serde(default)]
     pub gm: bool,
-    /// For a GM's device: what changed since `after`, so its window can
+    /// For a GM's device: what changed since the last event, so its window can
     /// reload exactly what the hosting window would on an outside edit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes: Option<DiskChanges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta: Option<PlayerDelta>,
+    #[serde(default)]
+    pub player_id: Option<String>,
 }
 
-#[derive(Clone)]
-struct Served {
-    app: AppHandle,
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlayerDelta {
+    pub reset: bool,
+    pub upserts: Vec<ElementSummary>,
+    pub removed: Vec<String>,
+}
+
+type Served<R = tauri::Wry> = Arc<ServerState<R>>;
+
+struct ServerState<R: tauri::Runtime> {
+    secure: bool,
+    tickets: Arc<Mutex<Tickets>>,
+    handshakes: Arc<tokio::sync::Semaphore>,
+    app: AppHandle<R>,
     code: String,
     players: Players,
     /// Flips to true when the GM stops hosting.
@@ -317,6 +330,7 @@ struct Served {
 
 /// A running server; dropping the stop sender ends it.
 pub struct Running {
+    pub origin: Option<String>,
     pub port: u16,
     pub players: Players,
     pub stop: watch::Sender<bool>,
@@ -339,8 +353,14 @@ const BODY_LIMIT: usize = MAX_DOCUMENT_BYTES as usize + 16 * 1024 * 1024;
 /// Binds the first free preferred port (or any free one) on every
 /// interface and serves until `stop` is sent.
 pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
+    let tls = load_tls().await?;
+    let ports = if tls.is_some() {
+        [443, 47531]
+    } else {
+        PREFERRED_PORTS
+    };
     let mut listener = None;
-    for port in PREFERRED_PORTS {
+    for port in ports {
         if let Ok(l) = tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
             listener = Some(l);
             break;
@@ -357,7 +377,17 @@ pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
     let (stop, mut stop_rx) = watch::channel(false);
     let (spotlight, spotlight_rx) = watch::channel(Spotlight::default());
 
-    let served = Served {
+    let origin = tls.as_ref().map(|(host, _)| {
+        if port == 443 {
+            format!("https://{host}")
+        } else {
+            format!("https://{host}:{port}")
+        }
+    });
+    let served = Arc::new(ServerState {
+        secure: tls.is_some(),
+        tickets: Arc::default(),
+        handshakes: Arc::new(tokio::sync::Semaphore::new(32)),
         app,
         code,
         players: players.clone(),
@@ -365,7 +395,20 @@ pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
         spotlight: spotlight_rx,
         nonces: Arc::default(),
         failures: Arc::default(),
-    };
+    });
+    let mut reconcile_stop = stop.subscribe();
+    let reconcile_app = served.app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = reconcile_stop.changed() => break,
+                _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                    let app = reconcile_app.clone();
+                    let _ = tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().refresh_table()).await;
+                }
+            }
+        }
+    });
     let router = Router::new()
         .route("/", get(player_page))
         .route("/marked.umd.js", get(player_script))
@@ -381,7 +424,9 @@ pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
         .route("/api/notes", post(create_note))
         .route("/api/notes/{id}", put(update_note).delete(delete_note))
         .route("/api/assets/{*path}", get(asset))
-        .route("/api/version", get(version))
+        .route("/api/live/ticket", post(issue_ticket))
+        .route("/api/live", get(upgrade))
+        .route("/table-live.js", get(live_script))
         .route("/api/gm/call", post(gm_call))
         .route("/api/gm/assets/{*path}", get(gm_asset))
         .route("/api/gm/upload/{kind}", post(gm_upload))
@@ -391,29 +436,25 @@ pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .with_state(served);
 
+    let listener = listener.into_std().map_err(|e| e.to_string())?;
+    let handle = axum_server::Handle::new();
+    let shutdown = handle.clone();
     tauri::async_runtime::spawn(async move {
-        let shutdown = async move {
-            // Ends when stop is set to true or the sender is dropped.
-            while !*stop_rx.borrow() {
-                if stop_rx.changed().await.is_err() {
-                    break;
-                }
-            }
-        };
-        // Handlers see the peer address, for the join-code lockout.
-        if let Err(e) = axum::serve(
-            listener,
-            router.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .with_graceful_shutdown(shutdown)
-        .await
-        {
-            eprintln!("table server stopped with error: {e}");
-        }
+        let _ = stop_rx.changed().await;
+        shutdown.graceful_shutdown(Some(Duration::from_secs(5)));
     });
+    let service = router.into_make_service_with_connect_info::<SocketAddr>();
+    if let Some((_, config)) = tls {
+        let server = axum_server::from_tcp_rustls(listener, config).map_err(|e| e.to_string())?;
+        tauri::async_runtime::spawn(server.handle(handle).serve(service));
+    } else {
+        let server = axum_server::from_tcp(listener).map_err(|e| e.to_string())?;
+        tauri::async_runtime::spawn(server.handle(handle).serve(service));
+    }
 
     Ok(Running {
         port,
+        origin,
         players,
         stop,
         spotlight,
@@ -493,8 +534,38 @@ fn served(content_type: &'static str, body: impl IntoResponse, csp: Option<&str>
     response
 }
 
-async fn player_page() -> Response {
-    served("text/html; charset=utf-8", PLAYER_PAGE, Some(page_csp()))
+/// Browsers supply Host and Origin independently. Build the expected origin from
+/// the listener scheme and a validated authority, including the effective port.
+fn request_origin(secure: bool, headers: &HeaderMap) -> Option<String> {
+    let host = headers.get(header::HOST)?.to_str().ok()?;
+    if !host
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))
+    {
+        return None;
+    }
+    let scheme = if secure { "https" } else { "http" };
+    let url = reqwest::Url::parse(&format!("{scheme}://{host}")).ok()?;
+    Some(url.origin().ascii_serialization())
+}
+
+fn socket_csp(policy: &str, secure: bool, headers: &HeaderMap) -> String {
+    match request_origin(secure, headers) {
+        Some(origin) => {
+            let socket = origin.replacen("http", "ws", 1);
+            policy.replace("connect-src ", &format!("connect-src {socket} "))
+        }
+        None => policy.to_owned(),
+    }
+}
+
+async fn live_script() -> Response {
+    served(JS, include_str!("../../../src/lib/table-live.js"), None)
+}
+
+async fn player_page(State(s): State<Served>, headers: HeaderMap) -> Response {
+    let csp = socket_csp(page_csp(), s.secure, &headers);
+    served("text/html; charset=utf-8", PLAYER_PAGE, Some(&csp))
 }
 
 async fn player_script() -> Response {
@@ -524,8 +595,8 @@ async fn player_icon() -> Response {
 
 /// The app's CSP from `tauri.conf.json` comes with the HTML, as the app's
 /// own window gets it; the browser is told the same.
-fn app_asset_response(app: &AppHandle, path: &str) -> Option<Response> {
-    let asset = app.asset_resolver().get(path.to_owned())?;
+fn app_asset_response(s: &Served, path: &str, request_headers: &HeaderMap) -> Option<Response> {
+    let asset = s.app.asset_resolver().get(path.to_owned())?;
     let mut response = asset.bytes.into_response();
     let headers = response.headers_mut();
     if let Ok(mime) = HeaderValue::from_str(&asset.mime_type) {
@@ -535,16 +606,17 @@ fn app_asset_response(app: &AppHandle, path: &str) -> Option<Response> {
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    if let Some(csp) = asset.csp_header.as_deref()
-        && let Ok(value) = HeaderValue::from_str(csp)
-    {
-        headers.insert(header::CONTENT_SECURITY_POLICY, value);
+    if let Some(csp) = asset.csp_header.as_deref() {
+        let csp = socket_csp(csp, s.secure, request_headers);
+        if let Ok(value) = HeaderValue::from_str(&csp) {
+            headers.insert(header::CONTENT_SECURITY_POLICY, value);
+        }
     }
     Some(response)
 }
 
-async fn gm_page(State(s): State<Served>) -> Response {
-    app_asset_response(&s.app, "/index.html").unwrap_or_else(|| {
+async fn gm_page(State(s): State<Served>, headers: HeaderMap) -> Response {
+    app_asset_response(&s, "/index.html", &headers).unwrap_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             "The GM page is not built into this copy of Campaign Forge. In development, run `pnpm build` once so the dist folder exists.",
@@ -554,8 +626,11 @@ async fn gm_page(State(s): State<Served>) -> Response {
 }
 
 /// Scripts, styles and images the GM page refers to by absolute path.
-async fn app_asset(State(s): State<Served>, uri: axum::http::Uri) -> Response {
-    app_asset_response(&s.app, uri.path())
+async fn app_asset(State(s): State<Served>, uri: axum::http::Uri, headers: HeaderMap) -> Response {
+    if uri.path().starts_with("/api/") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    app_asset_response(&s, uri.path(), &headers)
         .unwrap_or_else(|| (StatusCode::NOT_FOUND, "not found").into_response())
 }
 
@@ -572,11 +647,16 @@ impl IntoResponse for ApiError {
 /// The error text is passed through verbatim: the frontend recognises some
 /// of it (a `conflict:` prefix on a stale save).
 pub(super) fn storage_error(e: crate::storage::StorageError) -> ApiError {
-    ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    let status = match &e {
+        crate::storage::StorageError::Conflict(_) => StatusCode::CONFLICT,
+        crate::storage::StorageError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    ApiError(status, e.to_string())
 }
 
-fn info_of(app: &AppHandle) -> Result<TableInfo, ApiError> {
-    let state = app.state::<AppState>();
+fn info_of<R: tauri::Runtime>(s: &Served<R>) -> Result<TableInfo, ApiError> {
+    let state = s.app.state::<AppState>();
     let meta = state.current_campaign().ok_or_else(|| {
         ApiError(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -584,6 +664,7 @@ fn info_of(app: &AppHandle) -> Result<TableInfo, ApiError> {
         )
     })?;
     Ok(TableInfo {
+        live_protocol: Some(LIVE_PROTOCOL.to_owned()),
         name: meta.name,
         system: meta.system,
         calendar: meta.extra.get("calendar").cloned(),
@@ -602,45 +683,52 @@ fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
-/// Checks the bearer token and records that the player is still around.
-/// Who is asking: checks the bearer token, records the player as seen, and
-/// returns their name and (when paired) player id.
-fn authed(s: &Served, headers: &HeaderMap) -> Result<Who, ApiError> {
-    if *s.closing.borrow() {
-        return Err(ApiError(StatusCode::GONE, CLOSED_MESSAGE.to_owned()));
-    }
-    let token = headers
+/// A request proves liveness. Server pushes only check the current authorization.
+fn authed<R: tauri::Runtime>(s: &Served<R>, headers: &HeaderMap) -> Result<Who, ApiError> {
+    authorize(s, bearer(headers), true)
+}
+
+fn bearer(headers: &HeaderMap) -> &str {
+    headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(str::trim)
-        .unwrap_or("");
-    let (name, player_id) = {
-        let mut players = s.players.lock().map_err(|_| poisoned())?;
-        let p = players.get_mut(token).ok_or_else(|| {
-            ApiError(
-                StatusCode::UNAUTHORIZED,
-                "not joined to this table".to_owned(),
-            )
-        })?;
-        p.last_seen = now();
-        (p.name.clone(), p.player_id.clone())
+        .unwrap_or("")
+}
+
+fn authorize<R: tauri::Runtime>(s: &Served<R>, token: &str, seen: bool) -> Result<Who, ApiError> {
+    if *s.closing.borrow() {
+        return Err(ApiError(StatusCode::GONE, CLOSED_MESSAGE.to_owned()));
+    }
+    let mut seats = s.players.lock().map_err(|_| poisoned())?;
+    let unauthorized = || {
+        ApiError(
+            StatusCode::UNAUTHORIZED,
+            "not joined to this table".to_owned(),
+        )
     };
-    // GM standing is read from the registry on every request, so the GM's
-    // grant or revocation takes effect while the device is connected.
-    let gm = player_id.as_deref().is_some_and(|id| {
-        let registry = players::load(&s.app.state::<AppState>());
-        players::find_by_id(&registry, id).is_some_and(|p| p.gm)
-    });
-    if let Ok(mut players) = s.players.lock()
-        && let Some(p) = players.get_mut(token)
-    {
+    let p = seats.get_mut(token).ok_or_else(unauthorized)?;
+    if let Some(id) = &p.player_id {
+        let identity = p.device.as_ref().and_then(|d| {
+            s.app
+                .state::<AppState>()
+                .paired_identity(&d.fingerprint, id)
+        });
+        let Some((name, gm)) = identity else {
+            seats.remove(token);
+            return Err(unauthorized());
+        };
         p.gm = gm;
+        p.name = name;
+    }
+    if seen {
+        p.last_seen = now();
     }
     Ok(Who {
-        name,
-        player_id,
-        gm,
+        name: p.name.clone(),
+        player_id: p.player_id.clone(),
+        gm: p.gm,
     })
 }
 
@@ -692,14 +780,21 @@ async fn challenge(State(s): State<Served>) -> Result<Json<Challenge>, ApiError>
 }
 
 async fn table_info(State(s): State<Served>) -> Result<Json<TableInfo>, ApiError> {
-    Ok(Json(info_of(&s.app)?))
+    Ok(Json(info_of(&s)?))
 }
 
-async fn join(
-    State(s): State<Served>,
+async fn join<R: tauri::Runtime>(
+    State(s): State<Served<R>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(req): Json<JoinRequest>,
 ) -> Result<Json<JoinResponse>, ApiError> {
+    if req.live_protocol.as_deref() != Some(LIVE_PROTOCOL) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "Update your Campaign Forge client or reload this page to join this WebSocket table."
+                .into(),
+        ));
+    }
     // A device proves itself by signing a nonce we issued; the nonce is
     // single-use and short-lived, so a captured join cannot be replayed.
     let device = match req.device {
@@ -797,7 +892,7 @@ async fn join(
         let _ = players::touch(&state, &p.id);
     }
 
-    let info = info_of(&s.app)?;
+    let info = info_of(&s)?;
     let token = uuid::Uuid::new_v4().to_string();
     let stamp = now();
     let player_id = known.as_ref().map(|p| p.id.clone());
@@ -808,7 +903,7 @@ async fn join(
             name: name.clone(),
             joined_at: stamp.clone(),
             last_seen: stamp,
-            token: token.clone(),
+            connection_id: uuid::Uuid::new_v4().to_string(),
             device,
             player_id: player_id.clone(),
             gm,
@@ -929,15 +1024,27 @@ async fn gm_upload(
 }
 
 /// A player updating the sheet of the character the GM assigned to them.
-async fn update_sheet(
-    State(s): State<Served>,
+async fn update_sheet<R: tauri::Runtime>(
+    State(s): State<Served<R>>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(sheet): Json<Value>,
 ) -> Result<Json<Element>, ApiError> {
     let who = authed(&s, &headers)?;
     let state = s.app.state::<AppState>();
-    match share::update_sheet(&state, &id, &who.viewer(), sheet).map_err(storage_error)? {
+    let base = headers
+        .get("x-base-version")
+        .and_then(|h| h.to_str().ok())
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::PRECONDITION_REQUIRED,
+                "reload the sheet in a current client before saving".to_owned(),
+            )
+        })?;
+    match share::update_sheet(&state, &id, &who.viewer(), sheet, base.to_owned())
+        .map_err(storage_error)?
+    {
         Some(e) => Ok(Json(e)),
         None => Err(ApiError(
             StatusCode::FORBIDDEN,
@@ -993,56 +1100,6 @@ async fn delete_note(
             StatusCode::FORBIDDEN,
             "this note is not yours to delete".to_owned(),
         ))
-    }
-}
-
-/// Answers as soon as the campaign changes past `after`, or after a while
-/// with the current version so clients can simply loop.
-async fn version(
-    State(s): State<Served>,
-    headers: HeaderMap,
-    Query(q): Query<AfterQuery>,
-) -> Result<Json<VersionResponse>, ApiError> {
-    let who = authed(&s, &headers)?;
-    let state = s.app.state::<AppState>();
-    let mut rx = state.changes();
-    let mut closing = s.closing.clone();
-    let mut spot_rx = s.spotlight.clone();
-    let deadline = tokio::time::sleep(LONG_POLL);
-    tokio::pin!(deadline);
-    let respond = |version: u64, spot: Spotlight, closed: bool| {
-        // A GM's window reloads exactly what changed; players re-fetch the
-        // shared list and need no detail.
-        let changes = (who.gm && version > q.after).then(|| state.changes_since(q.after));
-        Ok(Json(VersionResponse {
-            version,
-            closed,
-            spotlight: spot.element,
-            spotlight_seq: spot.seq,
-            gm: who.gm,
-            changes,
-        }))
-    };
-    loop {
-        let current = *rx.borrow();
-        let spot = spot_rx.borrow().clone();
-        if *closing.borrow() {
-            return respond(current, spot, true);
-        }
-        if current > q.after || spot.seq > q.event {
-            return respond(current, spot, false);
-        }
-        tokio::select! {
-            _ = &mut deadline => return respond(current, spot, false),
-            changed = rx.changed() => {
-                if changed.is_err() {
-                    return respond(current, spot, false);
-                }
-            }
-            _ = spot_rx.changed() => {}
-            // A closed channel means the host was dropped: that is a close too.
-            _ = closing.changed() => return respond(current, spot, true),
-        }
     }
 }
 
@@ -1105,7 +1162,7 @@ mod tests {
                 name: name.to_owned(),
                 joined_at: when.clone(),
                 last_seen: when,
-                token: "tok".to_owned(),
+                connection_id: "seat".to_owned(),
                 device: None,
                 player_id: None,
                 gm: false,

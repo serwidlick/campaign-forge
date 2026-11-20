@@ -39,6 +39,8 @@ Do not commit, push, tag, merge, rebase, or open PRs unless the user asks for it
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm format:check
+pnpm test               # browser live transport tests
+pnpm rust:test          # Rust library and loopback transport tests
 pnpm rust:check        # needs a Rust toolchain
 pnpm rust:audit        # needs cargo-audit (cargo install cargo-audit --locked); allowed warnings live in src-tauri/.cargo/audit.toml
 pnpm tauri:dev         # run the app

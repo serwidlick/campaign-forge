@@ -1,3 +1,4 @@
+import { applyDelta } from "@/lib/table-live.js";
 import { create } from "zustand";
 
 import { inTauri, isMobile } from "@/lib/platform";
@@ -51,7 +52,12 @@ interface TableState {
   /** Forget earlier results so a new search starts clean. */
   clearFound: () => void;
   stopDiscovery: () => Promise<void>;
-  join: (address: string, name: string, code?: string) => Promise<boolean>;
+  join: (
+    address: string,
+    name: string,
+    code?: string,
+    endpoints?: string[],
+  ) => Promise<boolean>;
   /** GM: pair a connected device with a player (existing id, or new by name). */
   bindDevice: (
     token: string,
@@ -98,27 +104,14 @@ export const useTableStore = create<TableState>((set, get) => {
     set({ hosting: null });
   }
 
-  /**
-   * Keeps us current with the host: a player fetches the shared list, then
-   * waits for the GM's version to move, then fetches again. A GM's device
-   * is told what changed instead and reloads just that, the way the host's
-   * own window follows an edit from another program. On any failure, back
-   * off and retry until we leave.
-   */
-  async function runSyncLoop(generation: number, startVersion: number) {
-    let version = startVersion;
+  /** Consume the host's initial snapshot, then process live changes in order. */
+  async function runSyncLoop(generation: number) {
     let event = 0;
-    let needFetch = true;
+    let subscribe = true;
     while (generation === loopGeneration) {
       try {
-        const gm = get().session?.gm ?? false;
-        if (needFetch && !gm) {
-          const elements = await table.fetchElements();
-          if (generation !== loopGeneration) return;
-          set({ elements, version, connection: "connected" });
-          needFetch = false;
-        }
-        const next = await table.waitForChange(version, event);
+        const next = await table.nextEvent(subscribe);
+        subscribe = false;
         if (generation !== loopGeneration) return;
         if (next.closed) {
           await detach(CLOSED_NOTICE);
@@ -126,6 +119,13 @@ export const useTableStore = create<TableState>((set, get) => {
         }
         set({ connection: "connected" });
         const session = get().session;
+        if (
+          session &&
+          next.playerId !== undefined &&
+          next.playerId !== session.playerId
+        ) {
+          set({ session: { ...session, playerId: next.playerId } });
+        }
         if (session && next.gm !== session.gm) {
           // The host granted or revoked GM standing while we are connected.
           if (!next.gm && !inTauri) {
@@ -133,7 +133,13 @@ export const useTableStore = create<TableState>((set, get) => {
             await detach(REVOKED_NOTICE);
             return;
           }
-          set({ session: { ...session, gm: next.gm } });
+          set({
+            session: {
+              ...session,
+              playerId: next.playerId ?? null,
+              gm: next.gm,
+            },
+          });
           // The phone app has no GM screen to load the campaign into.
           if (next.gm) {
             if (!isMobile) await enterGm();
@@ -141,9 +147,15 @@ export const useTableStore = create<TableState>((set, get) => {
             exitGm();
           }
           if (generation !== loopGeneration) return;
-          needFetch = true;
         }
-        if (next.spotlightSeq > event) {
+        if (next.delta) {
+          set({ elements: applyDelta(get().elements, next.delta) });
+        }
+        if (!next.spotlight) set({ spotlight: null });
+        if (
+          next.spotlightSeq > event ||
+          (!next.gm && next.spotlight && next.spotlight !== get().spotlight?.id)
+        ) {
           event = next.spotlightSeq;
           if (next.gm) {
             void get().refreshHost();
@@ -151,24 +163,21 @@ export const useTableStore = create<TableState>((set, get) => {
             set({ spotlight: { id: next.spotlight, seq: next.spotlightSeq } });
           }
         }
-        if (next.version > version) {
-          version = next.version;
-          set({ version });
-          if (next.gm) {
-            if (next.changes) notifyFilesChanged(next.changes);
-          } else {
-            needFetch = true;
-          }
-        }
+        set({ version: next.version });
+        if (next.gm && next.changes) notifyFilesChanged(next.changes);
       } catch (err) {
         if (generation !== loopGeneration) return;
+        if (errorMessage(err) === "TABLE_UNAUTHORIZED") {
+          await detach("Your table session has ended. Join the table again.");
+          return;
+        }
         if (errorMessage(err) === CLOSED_ERROR) {
           await detach(CLOSED_NOTICE);
           return;
         }
+        subscribe = true;
         set({ connection: "reconnecting" });
-        needFetch = true;
-        await sleep(RETRY_MS);
+        await sleep(RETRY_MS + Math.random() * 1000);
       }
     }
   }
@@ -186,7 +195,7 @@ export const useTableStore = create<TableState>((set, get) => {
   }
 
   async function attach(session: TableSession) {
-    loopGeneration += 1;
+    const generation = ++loopGeneration;
     set({
       session,
       elements: [],
@@ -195,9 +204,7 @@ export const useTableStore = create<TableState>((set, get) => {
       error: null,
     });
     if (session.gm && !isMobile) await enterGm();
-    // Start one version behind so the first wait returns at once if the GM
-    // changed something between join and now.
-    void runSyncLoop(loopGeneration, Math.max(0, session.info.version - 1));
+    void runSyncLoop(generation);
   }
 
   return {
@@ -295,10 +302,10 @@ export const useTableStore = create<TableState>((set, get) => {
       }
     },
 
-    async join(address, name, code) {
+    async join(address, name, code, endpoints) {
       set({ joining: true, error: null });
       try {
-        const session = await table.join(address, name, code);
+        const session = await table.join(address, name, code, endpoints);
         set({ notice: null });
         await attach(session);
         void get().stopDiscovery();

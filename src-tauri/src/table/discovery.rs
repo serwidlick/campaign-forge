@@ -31,6 +31,8 @@ pub struct FoundTable {
     pub system: Option<String>,
     /// `ip:port` candidates, IPv4 only, sorted.
     pub addresses: Vec<String>,
+    /// Resolved service endpoints used to dial a discovered TLS name.
+    pub endpoints: Vec<std::net::SocketAddr>,
 }
 
 /// A hosted table's registration. Unregisters on drop.
@@ -53,6 +55,7 @@ pub fn register(
     system: Option<&str>,
     ips: &[Ipv4Addr],
     port: u16,
+    origin: Option<&str>,
 ) -> Result<Registration, String> {
     let daemon = ServiceDaemon::new().map_err(|e| format!("mDNS unavailable: {e}"))?;
     let instance = campaign
@@ -67,6 +70,9 @@ pub fn register(
     };
     let host = format!("{HOST_NAME}.");
     let mut props: Vec<(&str, String)> = vec![("campaign", campaign.to_owned())];
+    if let Some(origin) = origin {
+        props.push(("https", origin.to_owned()));
+    }
     if let Some(system) = system {
         props.push(("system", system.to_owned()));
     }
@@ -104,13 +110,15 @@ impl Browser {
                 match event {
                     ServiceEvent::ServiceResolved(info) => {
                         let port = info.get_port();
-                        let mut addresses: Vec<String> = info
+                        let mut endpoints: Vec<_> = info
                             .get_addresses_v4()
                             .into_iter()
-                            .filter(|ip| !ip.is_loopback() && !ip.is_link_local())
-                            .map(|ip| format!("{ip}:{port}"))
+                            .filter(|ip| ip.is_private() || ip.is_link_local())
+                            .map(|ip| std::net::SocketAddr::from((ip, port)))
                             .collect();
-                        addresses.sort();
+                        endpoints.sort();
+                        let addresses =
+                            discovered_addresses(info.get_property_val_str("https"), &endpoints);
                         let fullname = info.get_fullname().to_owned();
                         let name = info
                             .get_property_val_str("campaign")
@@ -125,6 +133,7 @@ impl Browser {
                                     name,
                                     system,
                                     addresses,
+                                    endpoints,
                                 },
                             );
                         }
@@ -157,6 +166,41 @@ impl Drop for Browser {
         let _ = self.daemon.stop_browse(SERVICE_TYPE);
         let _ = self.daemon.shutdown();
     }
+}
+
+/// The TXT name selects a certificate identity. The connection itself always
+/// goes to an IP from the service record, including on WebSocket reconnect.
+fn discovered_addresses(secure: Option<&str>, endpoints: &[std::net::SocketAddr]) -> Vec<String> {
+    let Some(first) = endpoints.first() else {
+        return Vec::new();
+    };
+    let Some(raw) = secure else {
+        return endpoints.iter().map(ToString::to_string).collect();
+    };
+    let origin = reqwest::Url::parse(raw.trim()).ok().filter(|url| {
+        url.scheme() == "https"
+            && url.port_or_known_default() == Some(first.port())
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.path() == "/"
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && url
+                .host_str()
+                .is_some_and(|host| match host.parse::<IpAddr>() {
+                    Ok(ip) => endpoints.iter().any(|addr| addr.ip() == ip),
+                    Err(_) => !host.starts_with('['),
+                })
+    });
+    origin.map_or_else(
+        || {
+            endpoints
+                .iter()
+                .map(|addr| format!("https://{addr}"))
+                .collect()
+        },
+        |url| vec![url.origin().ascii_serialization()],
+    )
 }
 
 fn instance_of(fullname: &str) -> String {
@@ -231,4 +275,29 @@ fn address_rank(adapter: &str, ip: Ipv4Addr) -> u8 {
         3
     };
     if is_virtual { 10 + range } else { range }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+    #[test]
+    fn secure_discovery_preserves_tls_and_service_port() {
+        let endpoints = ["192.168.2.5:443".parse().unwrap()];
+        assert_eq!(
+            discovered_addresses(Some(" https://gm.lan/ "), &endpoints),
+            ["https://gm.lan"]
+        );
+        for invalid in [
+            "broken",
+            "http://gm.lan",
+            "https://gm.lan:444",
+            "https://8.8.8.8",
+        ] {
+            assert_eq!(
+                discovered_addresses(Some(invalid), &endpoints),
+                ["https://192.168.2.5:443"]
+            );
+        }
+        assert!(discovered_addresses(Some("https://gm.lan"), &[]).is_empty());
+    }
 }

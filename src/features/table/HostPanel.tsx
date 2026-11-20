@@ -56,7 +56,9 @@ export function HostPanel({
     ? browserUrlOf(hosting.hostName, port)
     : null;
   const ipUrls = (hosting?.addresses ?? []).map((a) =>
-    browserUrlOf(a.split(":")[0] ?? a, port),
+    a.startsWith("https://")
+      ? a + "/"
+      : browserUrlOf(a.split(":")[0] ?? a, port),
   );
   const browserUrls = nameUrl ? [nameUrl, ...ipUrls] : ipUrls;
   const browserUrl =
@@ -599,7 +601,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Players poll every few seconds; anything older than a minute is gone. */
+/** WebSocket heartbeats keep active seats fresh; older seats appear offline. */
 /** The phone page's address for a host name or IP; port 80 is left off. */
 function browserUrlOf(host: string, port: number): string {
   return port === 80 ? `http://${host}/` : `http://${host}:${port}/`;

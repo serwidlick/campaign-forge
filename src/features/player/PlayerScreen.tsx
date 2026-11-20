@@ -109,6 +109,10 @@ export function PlayerScreen({
   const [offer, setOffer] = useState<{ id: string; nonce: number } | null>(
     null,
   );
+  if (!focus && focusSeen !== null) {
+    setFocusSeen(null);
+    setOffer(null);
+  }
   if (focus && focus.nonce !== focusSeen) {
     setFocusSeen(focus.nonce);
     setOffer(focus.id === selectedId ? null : focus);
@@ -165,8 +169,12 @@ export function PlayerScreen({
   }, [selectedId, source]);
 
   const open = useCallback((id: string) => setSelectedId(id), []);
-  const element =
-    opened && opened.id === selectedId ? opened.element : undefined;
+  const listed = elements.some((item) => item.id === selectedId);
+  const element = listed
+    ? opened?.id === selectedId
+      ? opened?.element
+      : undefined
+    : null;
   const narrow = useNarrow();
 
   const createNote = source.createNote;
@@ -688,9 +696,9 @@ function PlayerElementView({
               </p>
               <CharacterSheet5e
                 element={element}
-                onSave={async (sheet) => {
-                  await saveSheet(element.id, sheet);
-                }}
+                onSave={(sheet, baseVersion) =>
+                  saveSheet(element.id, sheet, baseVersion)
+                }
               />
             </>
           ) : (

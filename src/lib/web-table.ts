@@ -10,9 +10,9 @@
  */
 import nacl from "tweetnacl";
 
+import { LIVE_PROTOCOL, tableSocket } from "./table-live.js";
 import type {
   Element,
-  ElementSummary,
   NoteInput,
   TableChange,
   TableInfo,
@@ -108,9 +108,16 @@ function remember(s: Stored | null): void {
 }
 
 let current: Stored | null = stored();
+let live: ReturnType<typeof tableSocket> | undefined;
+
+function closeLive() {
+  live?.close();
+  live = undefined;
+}
 
 /** The table's answer turned into the plain-string errors the stores expect. */
 async function failure(resp: Response): Promise<string> {
+  if (resp.status === 401) return "TABLE_UNAUTHORIZED";
   if (resp.status === 410) return CLOSED_ERROR;
   const body = (await resp.json().catch(() => ({}))) as { error?: unknown };
   return typeof body.error === "string"
@@ -146,6 +153,13 @@ function postJson(body: unknown): RequestInit {
   };
 }
 
+const UPGRADE_HOST =
+  "Update the GM’s host and your client to compatible WebSocket versions to join this table.";
+
+function requireLiveHost(info: TableInfo) {
+  if (info.liveProtocol !== LIVE_PROTOCOL) throw UPGRADE_HOST;
+}
+
 export const web = {
   /**
    * Sits down at this page's own table as a GM. The browser's key is the
@@ -154,7 +168,9 @@ export const web = {
    * code to give and the name on file is used.
    */
   async join(name: string): Promise<TableSession> {
+    closeLive();
     current = null;
+    requireLiveHost(await json<TableInfo>("/api/table"));
     const key = deviceKey();
     if (!key) {
       throw "this browser cannot make a device key, so the GM cannot pair it; try another browser";
@@ -176,8 +192,9 @@ export const web = {
     }
     const joined = await json<JoinResponse>(
       "/api/join",
-      postJson({ name, device, gmOnly: true }),
+      postJson({ name, device, gmOnly: true, liveProtocol: LIVE_PROTOCOL }),
     );
+    requireLiveHost(joined.info);
     const session: TableSession = {
       address: location.host,
       playerName: joined.name,
@@ -193,34 +210,32 @@ export const web = {
 
   /** The table joined before a reload, if its token still works. */
   async session(): Promise<TableSession | null> {
-    if (!current) return null;
+    const seat = current;
+    if (!seat) return null;
     // A seat from before this page became GM-only is no seat here.
-    if (!current.session.gm) {
+    if (!seat.session.gm || seat.session.info.liveProtocol !== LIVE_PROTOCOL) {
       current = null;
       remember(null);
       return null;
     }
     try {
       await request("/api/elements");
-      return current.session;
     } catch (err) {
-      if (err === CLOSED_ERROR || String(err).includes("not joined")) {
+      if (current !== seat) return null;
+      if (err === CLOSED_ERROR || err === "TABLE_UNAUTHORIZED") {
         current = null;
         remember(null);
         return null;
       }
       // Unreachable right now: keep the session and let the sync loop retry.
-      return current.session;
     }
+    return current === seat ? seat.session : null;
   },
 
   leave(): void {
+    closeLive();
     current = null;
     remember(null);
-  },
-
-  fetchElements(): Promise<ElementSummary[]> {
-    return json("/api/elements");
   },
 
   async fetchElement(id: string): Promise<Element | null> {
@@ -236,9 +251,17 @@ export const web = {
     return (await request(`/api/assets/${path}`)).arrayBuffer();
   },
 
-  updateSheet(id: string, sheet: unknown): Promise<Element> {
+  updateSheet(
+    id: string,
+    sheet: unknown,
+    baseVersion: string,
+  ): Promise<Element> {
     return json(`/api/elements/${id}/sheet`, {
       ...postJson(sheet),
+      headers: {
+        "Content-Type": "application/json",
+        "X-Base-Version": baseVersion,
+      },
       method: "PUT",
     });
   },
@@ -255,8 +278,25 @@ export const web = {
     await request(`/api/notes/${id}`, { method: "DELETE" });
   },
 
-  waitForChange(after: number, event: number): Promise<TableChange> {
-    return json(`/api/version?after=${after}&event=${event}`);
+  async nextEvent(subscribe: boolean): Promise<TableChange> {
+    if (subscribe) closeLive();
+    const seat = current;
+    if (!seat) throw "TABLE_UNAUTHORIZED";
+    if (!live) {
+      const { ticket } = await json<{ ticket: string }>("/api/live/ticket", {
+        method: "POST",
+        signal: AbortSignal.timeout(15000),
+      });
+      if (seat !== current) throw CLOSED_ERROR;
+      live = tableSocket(ticket);
+    }
+    const socket = live;
+    try {
+      return await socket.next();
+    } catch (err) {
+      if (live === socket) closeLive();
+      throw err;
+    }
   },
 
   // ---- A GM's browser -------------------------------------------------------

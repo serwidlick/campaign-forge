@@ -1,0 +1,7 @@
+# Tauri embeds this dependency in the app. The Windows unit-test executable
+# also imports TaskDialogIndirect and needs Common Controls v6 at startup.
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "-C", "link-arg=/MANIFEST:EMBED",
+  "-C", "link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'",
+]
