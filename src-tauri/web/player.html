@@ -282,6 +282,10 @@
         font-size: 14px;
       }
       /* Table */
+      :root {
+        /* The floating roster bubbles stay below the sticky bar. */
+        --table-presence-inset-top: 52px;
+      }
       header.bar {
         position: sticky;
         top: 0;
@@ -1213,6 +1217,14 @@
           openId: null,
           event: 0,
           urls: new Map(),
+          /** Who is at the table, as the host last said. */
+          roster: [],
+          /** How far this clock is ahead of the host's. */
+          rosterOffset: 0,
+          /** Which roster entry is this phone's person, as the host said. */
+          you: null,
+          /** True while the host cannot be reached (between retries). */
+          offline: false,
         };
 
         var $ = function (id) {
@@ -1590,6 +1602,11 @@
           draft.id = null;
           state.token = null;
           state.playerId = null;
+          state.roster = [];
+          state.you = null;
+          state.offline = false;
+          stopWatchingIdle();
+          renderRoster();
           draft.denied = {};
           note.denied = {};
           note.id = null;
@@ -1608,6 +1625,60 @@
         $("leave").addEventListener("click", function () {
           leave();
         });
+
+        // ---- Who is at the table ------------------------------------------
+        // The roster bubbles are the app's own self-contained component
+        // (src/lib/table-presence.js), served by the host. This page only
+        // hands it the roster; it drags, snaps to an edge and remembers it
+        // by itself.
+        var presence = null;
+        var presenceModule = null;
+        var presenceLoading = false;
+        var stopIdle = null;
+        function renderRoster() {
+          if (presence) {
+            presence.clockOffset = state.rosterOffset;
+            presence.you = state.you;
+            presence.offline = state.offline;
+            presence.roster = state.roster;
+            watchIdleOnce();
+            return;
+          }
+          if (presenceLoading || !state.roster.length) return;
+          presenceLoading = true;
+          import("/table-presence.js")
+            .then(function (module) {
+              presence = module.mountTablePresence({
+                stylesheet: "/table-presence.css",
+              });
+              presenceModule = module;
+              renderRoster();
+            })
+            .catch(function () {})
+            .finally(function () {
+              presenceLoading = false;
+            });
+        }
+
+        // While seated, tell the table when this phone goes idle (five
+        // minutes without a touch) and when it is used again. A lost report
+        // is not worth an error: the next change tries again.
+        function reportPresence(away) {
+          if (!state.token) return;
+          api("/api/presence", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ away: away }),
+          }).catch(function () {});
+        }
+        function watchIdleOnce() {
+          if (stopIdle || !presenceModule || !state.token) return;
+          stopIdle = presenceModule.watchIdle({ onChange: reportPresence });
+        }
+        function stopWatchingIdle() {
+          if (stopIdle) stopIdle();
+          stopIdle = null;
+        }
 
         function clearReader() {
           state.openId = null;
@@ -1645,6 +1716,10 @@
                 if (v.closed) throw new Error("CLOSED");
                 if (failures) setNotice("");
                 failures = 0;
+                if (state.offline) {
+                  state.offline = false;
+                  renderRoster();
+                }
                 if (v.playerId !== undefined) state.playerId = v.playerId;
                 if (v.delta) {
                   if (v.delta.reset) {
@@ -1671,6 +1746,19 @@
                     openElement(state.openId, true);
                   }
                 }
+                // Frames arrive in order and each socket starts with the
+                // roster, so the latest one always replaces ours.
+                if (v.roster) {
+                  state.roster = v.roster;
+                  // How far this phone's clock is ahead of the host's, so
+                  // "away for 7 min" is right whatever the phone thinks.
+                  state.rosterOffset =
+                    typeof v.serverTime === "number"
+                      ? Date.now() - v.serverTime
+                      : 0;
+                  state.you = typeof v.you === "string" ? v.you : null;
+                  renderRoster();
+                }
                 if (
                   v.spotlightSeq !== state.event ||
                   v.spotlight !== state.spotlight
@@ -1693,6 +1781,11 @@
               }
               setNotice("Lost the GM. Trying again…");
               failures++;
+              // The bubbles show the GM as gone until the table is back.
+              if (!state.offline) {
+                state.offline = true;
+                renderRoster();
+              }
             } finally {
               if (socket) socket.close();
               if (state.live === socket) state.live = null;

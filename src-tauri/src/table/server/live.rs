@@ -189,6 +189,11 @@ async fn live<R: tauri::Runtime>(
     token: String,
     player_view: bool,
 ) {
+    // Count this socket for as long as the loop runs. A seat removed since
+    // its ticket was issued gets nothing.
+    let Some(mut presence) = super::roster::PresenceGuard::register(&s, &token) else {
+        return;
+    };
     let state = s.app.state::<AppState>();
     // Reconcile missed external edits before taking the first snapshot.
     let app = s.app.clone();
@@ -201,6 +206,9 @@ async fn live<R: tauri::Runtime>(
     let mut versions = state.changes();
     let mut spots = s.spotlight.clone();
     let mut closed = s.closing.clone();
+    let mut roster = s.roster.subscribe();
+    // The first frame always carries the roster.
+    let mut roster_due = true;
     let mut view = PlayerView::default();
     let mut identity = None;
     let mut previous_version = 0;
@@ -242,7 +250,8 @@ async fn live<R: tauri::Runtime>(
         let spotlight = spot.element.filter(|id| who.gm || view.0.contains_key(id));
         let visible_spot = spotlight.map(|id| (spot.seq, id));
         let spotlight_changed = previous_spot != visible_spot;
-        if reset || delta.is_some() || (who.gm && changed) || spotlight_changed {
+        let send_roster = reset || roster_due;
+        if reset || delta.is_some() || (who.gm && changed) || spotlight_changed || send_roster {
             let response = TableChange {
                 version: current,
                 gm: who.gm,
@@ -250,7 +259,9 @@ async fn live<R: tauri::Runtime>(
                 delta,
                 spotlight: visible_spot.as_ref().map(|(_, id)| id.clone()),
                 spotlight_seq: spot.seq,
-                changes: who.gm.then(|| {
+                // Only when files moved: an empty note would still make a GM
+                // window run its change handlers.
+                changes: (who.gm && (reset || changed)).then(|| {
                     if reset {
                         DiskChanges::everything()
                     } else {
@@ -258,6 +269,9 @@ async fn live<R: tauri::Runtime>(
                     }
                 }),
                 closed: false,
+                roster: send_roster.then(|| roster.borrow_and_update().clone()),
+                server_time: send_roster.then(super::unix_ms),
+                you: send_roster.then(|| who.roster_key.clone()),
             };
             let Ok(json) = serde_json::to_string(&response) else {
                 break;
@@ -271,6 +285,9 @@ async fn live<R: tauri::Runtime>(
             if !send(&mut socket, Message::Text(json.into())).await {
                 break;
             }
+            if send_roster {
+                roster_due = false;
+            }
         }
         previous_spot = visible_spot;
         identity = Some(key);
@@ -278,6 +295,10 @@ async fn live<R: tauri::Runtime>(
         tokio::select! {
             result = versions.changed() => { if result.is_err() { break; } }
             result = spots.changed() => { if result.is_err() { break; } }
+            result = roster.changed() => {
+                if result.is_err() { break; }
+                roster_due = true;
+            }
             _ = closed.changed() => {}
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Pong(_))) => {
@@ -287,7 +308,12 @@ async fn live<R: tauri::Runtime>(
                 _ => break,
             },
             _ = heartbeat.tick() => {
-                if last_pong.elapsed() > Duration::from_secs(45) || !send(&mut socket, Message::Text("heartbeat".into())).await || !send(&mut socket, Message::Ping(Bytes::new())).await { break; }
+                if last_pong.elapsed() > Duration::from_secs(45) {
+                    // Silent since its last pong: gone since then.
+                    presence.lost_at(last_pong);
+                    break;
+                }
+                if !send(&mut socket, Message::Text("heartbeat".into())).await || !send(&mut socket, Message::Ping(Bytes::new())).await { break; }
             }
         }
     }

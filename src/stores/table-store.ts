@@ -12,6 +12,7 @@ import type {
   ElementSummary,
   FoundTable,
   HostStatus,
+  RosterEntry,
   TableSession,
 } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
@@ -37,6 +38,12 @@ interface TableState {
   notice: string | null;
   /** What the GM is showing everyone; `seq` distinguishes repeats. */
   spotlight: { id: string; seq: number } | null;
+  /** Who is at the joined table, as its host last said. */
+  roster: RosterEntry[];
+  /** How far this clock is ahead of the joined host's, for "away for". */
+  rosterOffset: number;
+  /** Which roster entry is this device's person, as the joined host said. */
+  rosterYou: string | null;
 
   error: string | null;
 
@@ -151,6 +158,16 @@ export const useTableStore = create<TableState>((set, get) => {
         if (next.delta) {
           set({ elements: applyDelta(get().elements, next.delta) });
         }
+        // Frames on one socket arrive in order and each new socket starts
+        // with the roster, so the latest one always replaces ours.
+        if (next.roster) {
+          set({
+            roster: next.roster,
+            rosterOffset:
+              next.serverTime === undefined ? 0 : Date.now() - next.serverTime,
+            rosterYou: next.you ?? null,
+          });
+        }
         if (!next.spotlight) set({ spotlight: null });
         if (
           next.spotlightSeq > event ||
@@ -186,7 +203,15 @@ export const useTableStore = create<TableState>((set, get) => {
   async function detach(notice: string | null) {
     loopGeneration += 1;
     if (get().session?.gm) exitGm();
-    set({ session: null, elements: [], version: 0, notice, spotlight: null });
+    set({
+      session: null,
+      elements: [],
+      version: 0,
+      notice,
+      spotlight: null,
+      roster: [],
+      rosterYou: null,
+    });
     try {
       await table.leave();
     } catch {
@@ -199,6 +224,8 @@ export const useTableStore = create<TableState>((set, get) => {
     set({
       session,
       elements: [],
+      roster: [],
+      rosterYou: null,
       version: session.info.version,
       connection: "connected",
       error: null,
@@ -206,6 +233,12 @@ export const useTableStore = create<TableState>((set, get) => {
     if (session.gm && !isMobile) await enterGm();
     void runSyncLoop(generation);
   }
+
+  // The hosting GM hears roster changes from Rust, between status polls.
+  void table.onRoster((roster) => {
+    const hosting = get().hosting;
+    if (hosting) set({ hosting: { ...hosting, roster } });
+  });
 
   return {
     hosting: null,
@@ -218,6 +251,9 @@ export const useTableStore = create<TableState>((set, get) => {
     joining: false,
     notice: null,
     spotlight: null,
+    roster: [],
+    rosterOffset: 0,
+    rosterYou: null,
     error: null,
 
     async restore() {
@@ -331,3 +367,35 @@ export const useTableStore = create<TableState>((set, get) => {
     },
   };
 });
+
+/** Who is at the table this window is part of: the joined table's roster,
+ *  or, on the hosting machine, the one it publishes. */
+export function useTableRoster(): RosterEntry[] {
+  return useTableStore((s) =>
+    s.session ? s.roster : (s.hosting?.roster ?? NO_ONE),
+  );
+}
+
+const NO_ONE: RosterEntry[] = [];
+
+/** How far this clock is ahead of the clock the roster's times use: the
+ *  joined host's, or none on the hosting machine itself. */
+export function useRosterOffset(): number {
+  return useTableStore((s) => (s.session ? s.rosterOffset : 0));
+}
+
+/** Which roster entry is the person at this window: what the joined host
+ *  said, or the host's own entry on the hosting machine. */
+export function useRosterYou(): string | null {
+  return useTableStore((s) =>
+    s.session ? s.rosterYou : s.hosting ? "host" : null,
+  );
+}
+
+/** True while a joined table cannot be reached ("trying to reconnect"):
+ *  the bubbles then show its host as disconnected. */
+export function useTableOffline(): boolean {
+  return useTableStore(
+    (s) => s.session !== null && s.connection === "reconnecting",
+  );
+}

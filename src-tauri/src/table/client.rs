@@ -318,6 +318,22 @@ impl Session {
         Ok(())
     }
 
+    /// Tells the host this device's user went idle, or came back.
+    pub async fn report_presence(&self, away: bool) -> Result<(), String> {
+        let resp = self
+            .http
+            .post(format!("{}/api/presence", self.base))
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({ "away": away }))
+            .send()
+            .await
+            .map_err(connection_error)?;
+        if !resp.status().is_success() {
+            return Err(describe(resp).await);
+        }
+        Ok(())
+    }
+
     // ---- A GM's device ----------------------------------------------------
 
     /// Runs a storage or table command on the hosting machine and returns

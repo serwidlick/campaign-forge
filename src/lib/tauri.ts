@@ -33,6 +33,7 @@ import type {
   NoteInput,
   PdfSlice,
   PdfText,
+  RosterEntry,
   SaveElementInput,
   SearchHit,
   StoredConversation,
@@ -123,6 +124,8 @@ async function webCommand(
       return web.deleteNote(args.id as string);
     case "table_next_event":
       return web.nextEvent(args.subscribe === true);
+    case "table_report_presence":
+      return web.reportPresence(args.away === true);
     case "table_gm_call":
       return web.gmCall(args.command as string, args.args);
     case "table_gm_asset":
@@ -477,9 +480,22 @@ export const table = {
   nextEvent(subscribe: boolean) {
     return ipc<TableChange>("table_next_event", { subscribe });
   },
+  /** Tells the table this window's user went idle, or came back: the
+   *  hosting GM's own status, or this seat's at a joined table. */
+  reportPresence(away: boolean) {
+    return ipc<void>("table_report_presence", { away });
+  },
   /** Show an element on every player's screen; null clears it. */
   spotlight(id: string | null) {
     return call<HostStatus>("table_spotlight", { id });
+  },
+  /** Hosting GM: who is at the table, whenever it changes. A GM's second
+   *  device gets the same roster over the table instead. */
+  onRoster(handler: (roster: RosterEntry[]) => void): Promise<UnlistenFn> {
+    if (!inTauri) return Promise.resolve(() => {});
+    return listen<RosterEntry[]>("table://roster", (event) => {
+      if (!remoteGm) handler(event.payload);
+    });
   },
 };
 

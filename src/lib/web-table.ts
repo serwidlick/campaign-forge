@@ -274,6 +274,11 @@ export const web = {
     return json(`/api/notes/${id}`, { ...postJson(input), method: "PUT" });
   },
 
+  async reportPresence(away: boolean): Promise<void> {
+    if (!current) return;
+    await request("/api/presence", postJson({ away }));
+  },
+
   async deleteNote(id: string): Promise<void> {
     await request(`/api/notes/${id}`, { method: "DELETE" });
   },

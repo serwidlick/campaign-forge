@@ -363,6 +363,25 @@ export interface TablePlayer {
   playerId: string | null;
   /** The paired player is a GM: this connection runs the GM view. */
   gm: boolean;
+  /** At least one live socket is open for this seat right now. */
+  online: boolean;
+}
+
+/** Someone at the table, as everyone there sees them. Mirrors `RosterEntry`
+ *  in `src-tauri/src/table/share/roster.rs`. */
+export interface RosterEntry {
+  /** Stable while they are at the table: `host`, `player:<id>` or `guest:<opaque>`. */
+  key: string;
+  name: string;
+  role: "host" | "gm" | "player" | "guest";
+  /** `active`: here and using their device. `away`: idle for five minutes.
+   *  `disconnected`: their connection dropped moments ago. A newer host may
+   *  send others; the bubbles show those as plain words. */
+  state: "active" | "away" | "disconnected" | (string & {});
+  /** While away: when they went idle (Unix ms, host clock). */
+  awaySince?: number;
+  /** Something they are doing, from the activity registry. */
+  activity?: string;
 }
 
 export interface PlayerDevice {
@@ -399,6 +418,8 @@ export interface HostStatus {
   announceError: string | null;
   /** Element currently shown to everyone, if any. */
   spotlight: string | null;
+  /** Who is at the table, as everyone there sees it. */
+  roster: RosterEntry[];
 }
 
 export interface FoundTable {
@@ -441,6 +462,12 @@ export interface TableChange {
   gm: boolean;
   /** For a GM's device: what changed on the host since our version. */
   changes: DiskChanges | null;
+  /** Who is at the table; absent when it has not changed. */
+  roster?: RosterEntry[];
+  /** The host's clock (Unix ms) when a frame with the roster was sent. */
+  serverTime?: number;
+  /** Sent with the roster: which entry is the device receiving the frame. */
+  you?: string;
 }
 
 /**

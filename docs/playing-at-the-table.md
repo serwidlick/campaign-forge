@@ -44,6 +44,7 @@ The **Preview** tile (the eye) at the bottom of the sidebar switches the whole w
 2. Windows asks once whether to allow Campaign Forge on private networks. Say yes, or nobody can reach you.
 3. The panel shows a six-digit **join code** and your machine's addresses. Read the code out.
 4. **At the table** lists who has joined, with a green dot while they are connected.
+5. Optionally fill in **Your name at the table**: it is what everyone sees for you in the roster. Left empty, you appear as "Game Master".
 
 While you host, every edit or share change reaches players within about a second. **Stop hosting** ends the table; every player's app returns to its welcome screen with a note that the GM ended the table. Quitting the app while hosting does the same.
 
@@ -60,6 +61,26 @@ On the welcome screen, in the **Join a table** card:
 The player view then fills the window: kinds down the side with counts, a searchable list, and a reader. Maps show their shared pins, routes and territories; documents show their PDF. You can write your own notes, which go into the GM's folder (see [Notes](#notes)). **Leave table** at the bottom of the sidebar takes you back.
 
 If the GM's machine goes quiet, the banner says the connection was lost and the app keeps trying until you leave or the GM is back.
+
+### Who is at the table
+
+Everyone at the table, the GM included, sees a bubble for each person along the left edge of the screen: their initials, in a colour that stays the same for them on every device. A green dot means they are here; a crown marks the GM and any player the GM has made a GM. The bubbles float over whatever you are looking at and stay put as you move between pages. Hover over a bubble, or tap it on a phone, to see the name. When there are more people than fit, a **+N** bubble shows the rest.
+
+Drag any bubble and they all move together; let go and they snap to the nearest edge of the screen, top, bottom, left or right. With a keyboard, focus a bubble and use the arrow keys. To get them out of the way, press the small eye at the start of the row: everyone hides behind it, and the eye shows how many are at the table; press it again to bring them back. Each device remembers where you put them and whether you hid them.
+
+Each bubble shows how its person is:
+
+- **Active**: a green dot. They are connected and have used their device in the last five minutes.
+- **Away**: a moon, and the bubble turns grey. Their device has had no input for five minutes. Hover over the moon to see how long they have been away ("Away for 7 min"); it updates as time passes. Using the device again makes them active.
+- **Disconnected**: a crossed-out Wi-Fi sign and a dashed ring. Their connection dropped; a phone that locks or a laptop that changes Wi-Fi comes back without anyone noticing. If they are not back within a minute, they leave the list. Leaving the table works the same way. A device that walks out of Wi-Fi range without closing can take up to a minute to be noticed, and that minute counts towards the one it has to come back. A phone whose screen locks usually shows as disconnected rather than away: phones pause a locked page's connection and timers, so the table stops hearing from it before five idle minutes are up. Unlocking it brings the person back.
+
+Your own bubble has a light ring around it and a **You** tag. It comes right after the GM, so the order is the GM, you, then everyone else in the order they arrived, and it always shows, even when the rest fold into **+N**.
+
+If your device loses the GM (the bar at the top says it is trying to reconnect), the GM's bubble and yours show as disconnected straight away, and everyone else fades: what you see of them is only how they were when you last heard. Everything comes back as it was once the table is reached again.
+
+On an Android phone the bubbles give a light buzz when you pick them up, when they snap to an edge, when you press the eye or **+N**, and when the connection to the GM is lost. iPhones do not let web pages vibrate, so the phone page there is silent.
+
+The GM's own bubble goes away and comes back the same way. The roster shows names, roles and these statuses only; it never shows devices or addresses.
 
 ## Players and devices
 

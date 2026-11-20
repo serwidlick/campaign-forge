@@ -17,7 +17,7 @@
     "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test tests/table-live.test.mjs",
+    "test": "node --test tests/table-live.test.mjs tests/table-presence.test.mjs",
     "rust:test": "cd src-tauri && cargo test --lib --locked --config .cargo/windows-tests.toml",
     "rust:check": "cd src-tauri && cargo check",
     "rust:audit": "cd src-tauri && cargo audit --deny warnings",

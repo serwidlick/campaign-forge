@@ -1,0 +1,579 @@
+/*
+ * <table-presence>: who is at the table, as bubbles docked to an edge.
+ * Loaded into the element's shadow root, so nothing here leaks into the
+ * page and nothing from the page reaches in, except the theme's colour
+ * variables (the app's --color-ink-* or the phone page's --ink-*), which
+ * custom properties inherit through the shadow boundary.
+ */
+:host {
+  --tp-surface: var(--color-ink-900, var(--ink-900, #15171d));
+  --tp-raised: var(--color-ink-800, var(--ink-800, #22262f));
+  --tp-line: var(--color-ink-700, var(--ink-700, #2e333e));
+  --tp-text: var(--color-ink-100, var(--ink-100, #eceef2));
+  --tp-muted: var(--color-ink-400, var(--ink-400, #a3abba));
+  --tp-accent: var(--color-ember-400, var(--ember-400, #e69a57));
+  --tp-here: #22c55e;
+  --tp-gap: 10px;
+  --tp-size: 42px;
+
+  /* A full-window layer that lets every click through except on the
+     bubbles. The padding keeps them clear of the screen edges and of
+     notches and home indicators. A page with a fixed top bar can set
+     --table-presence-inset-top to keep the bubbles below it.
+     The padding is !important: a page reset such as Tailwind's
+     "* { padding: 0 }" reaches the host element and, being outer-document
+     CSS, would otherwise beat it. */
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: block;
+  box-sizing: border-box;
+  padding: calc(
+      env(safe-area-inset-top, 0px) + var(--table-presence-inset-top, 0px) +
+        var(--tp-gap)
+    )
+    calc(env(safe-area-inset-right, 0px) + var(--tp-gap))
+    calc(env(safe-area-inset-bottom, 0px) + var(--tp-gap))
+    calc(env(safe-area-inset-left, 0px) + var(--tp-gap)) !important;
+  pointer-events: none;
+  font-family: inherit;
+  color: var(--tp-text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+:host([hidden]) {
+  display: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+
+/* ---- The group: just bubbles, no box ------------------------------------ */
+
+.group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.side-left .group,
+.side-right .group {
+  flex-direction: column;
+}
+
+/* ---- A bubble ----------------------------------------------------------- */
+
+.bubble {
+  position: relative;
+  flex: none;
+  width: var(--tp-size);
+  height: var(--tp-size);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bubble:focus-visible {
+  outline: 2px solid var(--tp-accent);
+  outline-offset: 3px;
+}
+
+@media (hover: hover) {
+  .bubble:hover {
+    transform: scale(1.07);
+  }
+}
+
+/* Lifted while carried, each a beat behind the one before. */
+.dragging .bubble {
+  cursor: grabbing;
+  transform: scale(1.1);
+}
+
+.dragging .bubble:nth-child(2) {
+  transition-delay: 0.02s;
+}
+
+.dragging .bubble:nth-child(3) {
+  transition-delay: 0.04s;
+}
+
+.dragging .bubble:nth-child(n + 4) {
+  transition-delay: 0.06s;
+}
+
+/* On its way out (presence/motion.js): pinned where it was, outside the
+   group's layout, and no longer a target, while it plays out. */
+.bubble.exiting {
+  position: absolute;
+  margin: 0;
+  pointer-events: none;
+}
+
+.bubble.enter {
+  animation: tp-pop 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.35);
+}
+
+@keyframes tp-pop {
+  from {
+    opacity: 0;
+    scale: 0.4;
+  }
+}
+
+/* ---- The face: initials in the person's colour --------------------------- */
+
+.face {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--tp-colour);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow:
+    0 0 0 2px var(--tp-surface),
+    0 10px 24px -8px rgb(0 0 0 / 0.6),
+    0 2px 5px rgb(0 0 0 / 0.25);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.3s ease,
+    filter 0.3s ease;
+}
+
+.dragging .face {
+  box-shadow:
+    0 0 0 2px var(--tp-surface),
+    0 18px 36px -10px rgb(0 0 0 / 0.7),
+    0 4px 8px rgb(0 0 0 / 0.3);
+}
+
+/* Status faces, named by the status registry (presence/statuses.js).
+   Idle (away): a neutral disc ringed in the person's colour, so the
+   initials keep their full contrast and colour is never the only cue (the
+   badge is). Gone (disconnected): the same, with a dashed ring and dimmer. */
+.face.idle,
+.face.gone {
+  background: var(--tp-raised);
+  color: var(--tp-text);
+  box-shadow:
+    0 0 0 2px var(--tp-surface),
+    inset 0 0 0 2px var(--tp-colour),
+    0 10px 24px -8px rgb(0 0 0 / 0.6),
+    0 2px 5px rgb(0 0 0 / 0.25);
+}
+
+.face.gone {
+  box-shadow:
+    0 0 0 2px var(--tp-surface),
+    0 10px 24px -8px rgb(0 0 0 / 0.6),
+    0 2px 5px rgb(0 0 0 / 0.25);
+  outline: 2px dashed var(--tp-colour);
+  outline-offset: -2px;
+  opacity: 0.75;
+}
+
+/* "+N" and "−": a frosted bubble rather than a person's colour. */
+.face.count {
+  background: color-mix(in srgb, var(--tp-surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(16px) saturate(1.6);
+  color: var(--tp-text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--tp-line) 80%, transparent),
+    0 10px 24px -8px rgb(0 0 0 / 0.6),
+    0 2px 5px rgb(0 0 0 / 0.25);
+}
+
+/* ---- The eye: hide everyone, or bring them back ----------------------- */
+
+/* Smaller than a person, frosted, so it reads as a control, not a player. */
+.bubble.toggle {
+  width: 30px;
+  height: 30px;
+  align-self: center;
+}
+
+.face.eye {
+  background: color-mix(in srgb, var(--tp-surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(16px) saturate(1.6);
+  color: var(--tp-muted);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--tp-line) 80%, transparent),
+    0 8px 20px -8px rgb(0 0 0 / 0.6),
+    0 2px 4px rgb(0 0 0 / 0.2);
+}
+
+@media (hover: hover) {
+  .bubble.toggle:hover .face.eye {
+    color: var(--tp-text);
+  }
+}
+
+.eye-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* Hidden: how many are at the table, so nobody is forgotten. */
+.tally {
+  position: absolute;
+  top: -7px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--tp-accent);
+  box-shadow: 0 0 0 2px var(--tp-surface);
+  color: #1c1208;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 17px;
+  text-align: center;
+}
+
+/* ---- You, and people not known to be current --------------------------- */
+
+/* Your own bubble: a thin, soft rim just behind it, peeking out past the
+   face's own ring in the surface colour, plus a small "You" tag, so it is
+   never colour alone. The rim stays behind the face, the crown and the
+   badges, and well inside the focus outline (accent, further out). */
+.bubble.me::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -3.5px;
+  border: 1.5px solid color-mix(in srgb, var(--tp-text) 55%, transparent);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.you {
+  position: absolute;
+  bottom: -5px;
+  left: -6px;
+  z-index: 1;
+  height: 12px;
+  padding: 0 3.5px;
+  border-radius: 6px;
+  background: var(--tp-raised);
+  box-shadow: 0 0 0 1.5px var(--tp-surface);
+  color: var(--tp-text);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 12px;
+  text-transform: uppercase;
+}
+
+/* While this device cannot reach the host, everyone but the host and you
+   is only as last seen: faded until the table is back. */
+.bubble.stale .face {
+  opacity: 0.5;
+  filter: saturate(0.35);
+}
+
+/* ---- Badges: a crown on top for a GM, status at the bottom ------------- */
+
+.crown {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 15px;
+  height: 15px;
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--tp-surface);
+  color: #fcd34d;
+  transform: translateX(-50%);
+}
+
+/* The status badge, bottom right. Its look comes from the status registry:
+   a dot or an icon, in a tone. */
+.status {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  z-index: 1;
+  border-radius: 50%;
+}
+
+/* A bigger target than it looks, so its own tip is easy to hover. */
+.status::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+}
+
+/* A dot, cut out of the bubble by a ring in the surface colour. */
+.status.dot {
+  width: 13px;
+  height: 13px;
+  background: var(--tp-here);
+  box-shadow: 0 0 0 2.5px var(--tp-surface);
+}
+
+.status.icon {
+  width: 16px;
+  height: 16px;
+  padding: 2.5px;
+  right: -3px;
+  bottom: -3px;
+  background: var(--tp-surface);
+  color: var(--tp-muted);
+}
+
+.status svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.status.tone-here {
+  background: var(--tp-here);
+}
+
+.status.icon.tone-here {
+  background: var(--tp-surface);
+  color: var(--tp-here);
+}
+
+.status.tone-muted {
+  color: var(--tp-muted);
+}
+
+.status.tone-off {
+  color: #f87171;
+}
+
+/* Something the person is doing (presence/activities.js), top right. */
+.activity {
+  position: absolute;
+  top: -5px;
+  right: -6px;
+  z-index: 1;
+  width: 17px;
+  height: 17px;
+  padding: 3px;
+  border-radius: 50%;
+  background: var(--tp-accent);
+  box-shadow: 0 0 0 2px var(--tp-surface);
+  color: #1c1208;
+}
+
+.activity svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The badge's own tip ("Away for 7 min"), shown while hovering the badge;
+   the bubble's name tip steps aside meanwhile. */
+.badge-tip {
+  position: absolute;
+  z-index: 4;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--tp-line) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tp-surface) 94%, transparent);
+  box-shadow: 0 8px 20px -8px rgb(0 0 0 / 0.55);
+  color: var(--tp-text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.side-left .badge-tip {
+  top: 50%;
+  left: calc(100% + 10px);
+  transform: translateY(-50%);
+}
+
+.side-right .badge-tip {
+  top: 50%;
+  right: calc(100% + 10px);
+  transform: translateY(-50%);
+}
+
+.side-top .badge-tip {
+  top: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.side-bottom .badge-tip {
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+@media (hover: hover) {
+  .status:hover .badge-tip {
+    opacity: 1;
+  }
+
+  .bubble:has(.status:hover) .tip {
+    opacity: 0 !important;
+  }
+}
+
+/* ---- The name: on hover, keyboard focus, or a tap ---------------------- */
+
+/* Always opens away from the edge the bubbles sit on. */
+.tip {
+  position: absolute;
+  z-index: 2;
+  max-width: 240px;
+  padding: 5px 9px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tp-line) 70%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--tp-surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 20px -8px rgb(0 0 0 / 0.55);
+  color: var(--tp-text);
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+/* Where each tip sits, as offsets the shown state settles to zero. In a row
+   the end bubbles anchor their tip to their outer side, so a name never
+   hangs off the screen. */
+.tip {
+  --tp-tip-x: -50%;
+  --tp-tip-y: 0px;
+  transform: translate(var(--tp-tip-x), var(--tp-tip-y));
+}
+
+.side-left .tip {
+  top: 50%;
+  left: calc(100% + 12px);
+  --tp-tip-x: -4px;
+  --tp-tip-y: -50%;
+}
+
+.side-right .tip {
+  top: 50%;
+  right: calc(100% + 12px);
+  --tp-tip-x: 4px;
+  --tp-tip-y: -50%;
+}
+
+.side-top .tip {
+  top: calc(100% + 12px);
+  left: 50%;
+  --tp-tip-y: -4px;
+}
+
+.side-bottom .tip {
+  bottom: calc(100% + 12px);
+  left: 50%;
+  --tp-tip-y: 4px;
+}
+
+.side-top .bubble:first-child:not(:last-child) .tip,
+.side-bottom .bubble:first-child:not(:last-child) .tip {
+  left: 0;
+  --tp-tip-x: 0px;
+}
+
+.side-top .bubble:last-child:not(:first-child) .tip,
+.side-bottom .bubble:last-child:not(:first-child) .tip {
+  left: auto;
+  right: 0;
+  --tp-tip-x: 0px;
+}
+
+.bubble.tip-on .tip,
+.bubble:focus-visible .tip {
+  z-index: 3;
+  opacity: 1;
+}
+
+.side-left .bubble:is(.tip-on, :focus-visible) .tip,
+.side-right .bubble:is(.tip-on, :focus-visible) .tip {
+  --tp-tip-x: 0px;
+}
+
+.side-top .bubble:is(.tip-on, :focus-visible) .tip,
+.side-bottom .bubble:is(.tip-on, :focus-visible) .tip {
+  --tp-tip-y: 0px;
+}
+
+@media (hover: hover) {
+  .bubble:hover .tip {
+    z-index: 3;
+    opacity: 1;
+  }
+
+  .side-left .bubble:hover .tip,
+  .side-right .bubble:hover .tip {
+    --tp-tip-x: 0px;
+  }
+
+  .side-top .bubble:hover .tip,
+  .side-bottom .bubble:hover .tip {
+    --tp-tip-y: 0px;
+  }
+}
+
+.dragging .tip {
+  opacity: 0 !important;
+}
+
+@media (max-width: 480px) {
+  :host {
+    --tp-size: 38px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
