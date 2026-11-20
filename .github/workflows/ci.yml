@@ -2,20 +2,35 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
-    branches: [main, master]
+    branches: [development, master]
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action == 'edited' && !github.event.changes.base && 'metadata' || 'code' }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  commitlint:
-    name: commitlint
+  branch-target:
+    name: branch target
     if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check release PR source
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [[ "$GITHUB_BASE_REF" == master && ( "$GITHUB_HEAD_REF" != development || "$HEAD_REPO" != "$GITHUB_REPOSITORY" ) ]]; then
+            echo "::error::Target development for feature and fix PRs. Promote the repository's development branch to master for release."
+            exit 1
+          fi
+
+  commitlint:
+    name: commitlint${{ github.event.action == 'edited' && !github.event.changes.base && ' (metadata edit)' || '' }}
+    if: github.event_name == 'pull_request' && (github.event.action != 'edited' || github.event.changes.base)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +46,8 @@ jobs:
         run: pnpm exec commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
 
   frontend:
-    name: typecheck + lint + build
+    name: typecheck + lint + build${{ github.event.action == 'edited' && !github.event.changes.base && ' (metadata edit)' || '' }}
+    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +64,8 @@ jobs:
       - run: pnpm build
 
   rust:
-    name: cargo check + clippy (${{ matrix.os }})
+    name: cargo check + clippy (${{ matrix.os }})${{ github.event.action == 'edited' && !github.event.changes.base && ' (metadata edit)' || '' }}
+    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -75,7 +92,8 @@ jobs:
         working-directory: src-tauri
 
   audit:
-    name: cargo audit
+    name: cargo audit${{ github.event.action == 'edited' && !github.event.changes.base && ' (metadata edit)' || '' }}
+    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

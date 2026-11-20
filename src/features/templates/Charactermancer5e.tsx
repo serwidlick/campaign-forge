@@ -1,5 +1,5 @@
 import { Check, Dices, Minus, Plus, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import { Button } from "@/components/Button";
 
@@ -11,17 +11,22 @@ import {
   STANDARD_ARRAY,
   allSkills,
   baseScores,
+  buildLevel,
   buildProblems,
   buildSheet,
+  choosesSubclass,
+  classSkillChoice,
   computedHp,
   emptyBuild,
-  expertisePicks,
+  expertiseFor,
   finalAbilities,
   grantedSkills,
+  hitDiceText,
   placesScores,
   pointCost,
   pointsSpent,
   rollScores,
+  startingClass,
   subclassLevel,
   type Build5e,
   type ScoreMethod,
@@ -39,10 +44,13 @@ import {
   ABILITY_NAMES,
   ALIGNMENTS,
   SKILLS,
+  classSummary,
   modifier,
+  proficiencyBonus,
   sheetSummary,
   signed,
   type Ability,
+  type ClassLevel,
   type Sheet5e,
 } from "./dnd5e-model";
 
@@ -117,10 +125,10 @@ export function Charactermancer5e({
             <h2 className="font-serif text-lg text-ink-100">Charactermancer</h2>
             <p className="truncate text-xs text-ink-400">
               {build.name.trim() || "Unnamed"}
-              {build.species || build.class
-                ? ` · ${[build.species, build.class].filter(Boolean).join(" ")}`
+              {build.species || classSummary(build.classes)
+                ? ` · ${[build.species, classSummary(build.classes)].filter(Boolean).join(" ")}`
                 : ""}
-              {` · Level ${build.level}`}
+              {` · Level ${buildLevel(build)}`}
             </p>
           </div>
           <button
@@ -277,53 +285,78 @@ function asiText(
 // ---- Class -----------------------------------------------------------------
 
 function ClassStep({ build, patch }: StepProps) {
-  const current = classByName(build.class);
-  const subAt = subclassLevel(build.class);
-  const showSubclass =
-    current !== undefined &&
-    current.subclasses.length > 0 &&
-    build.level >= subAt;
+  const first = startingClass(build);
+  const current = classByName(first.name);
+  const total = buildLevel(build);
+  const multiclass = build.classes.length > 1;
+
+  /** Changes one class row; skill and expertise picks start over. */
+  function patchClass(
+    index: number,
+    fn: (c: ClassLevel) => ClassLevel,
+    resetSkills = true,
+  ) {
+    patch((b) => ({
+      ...b,
+      classes: b.classes.map((c, i) => (i === index ? fn(c) : c)),
+      ...(resetSkills ? { classSkills: [], expertise: [] } : { expertise: [] }),
+    }));
+  }
+
+  function setLevel(index: number, value: number) {
+    patch((b) => {
+      const others = b.classes.reduce(
+        (n, c, i) => (i === index ? n : n + c.level),
+        0,
+      );
+      const level = Math.max(1, Math.min(Math.max(1, 20 - others), value || 1));
+      return {
+        ...b,
+        classes: b.classes.map((c, i) => (i === index ? { ...c, level } : c)),
+        expertise: [],
+      };
+    });
+  }
+
   return (
     <div className="space-y-3">
       <StepIntro
         title="Choose a class and level"
-        blurb="Class gives the hit die, saving throws, armour and weapon training, a choice of skills, and spellcasting where the class has it."
+        blurb="Class gives the hit die, saving throws, armour and weapon training, a choice of skills, and spellcasting where the class has it. A character can start out multiclassed: add the other classes below."
       />
       <div className="flex flex-wrap items-end gap-3">
         <label className={LABEL}>
-          Level
+          {multiclass ? `${current?.name ?? "Starting class"} level` : "Level"}
           <input
             type="number"
             min={1}
             max={20}
-            value={build.level}
-            onChange={(e) =>
-              patch((b) => ({
-                ...b,
-                level: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
-                expertise: [],
-              }))
-            }
+            value={first.level}
+            onChange={(e) => setLevel(0, Number(e.target.value))}
             className={`mt-1 block w-20 ${FIELD}`}
           />
         </label>
         <label className={`${LABEL} flex-1`}>
           Homebrew class
           <input
-            value={current ? "" : build.class}
+            value={current ? "" : first.name}
             onChange={(e) =>
-              patch((b) => ({
-                ...b,
-                class: e.target.value,
+              patchClass(0, (c) => ({
+                ...c,
+                name: e.target.value,
                 subclass: "",
-                classSkills: [],
-                expertise: [],
               }))
             }
             placeholder="Or type a class of your own"
             className={`mt-1 block w-full ${FIELD} placeholder:text-ink-600`}
           />
         </label>
+        {multiclass && (
+          <span className="pb-1.5 text-xs text-ink-300">
+            {classSummary(build.classes)} · character level {total} ·
+            proficiency {signed(proficiencyBonus(total))}
+          </span>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
         {CLASSES.map((c) => (
@@ -331,13 +364,7 @@ function ClassStep({ build, patch }: StepProps) {
             key={c.name}
             selected={current?.name === c.name}
             onClick={() =>
-              patch((b) => ({
-                ...b,
-                class: c.name,
-                subclass: "",
-                classSkills: [],
-                expertise: [],
-              }))
+              patchClass(0, (row) => ({ ...row, name: c.name, subclass: "" }))
             }
             title={c.name}
           >
@@ -357,26 +384,169 @@ function ClassStep({ build, patch }: StepProps) {
           </Card>
         ))}
       </div>
-      {current && current.subclasses.length > 0 && (
-        <div className="rounded-md border border-ink-800 bg-ink-900/60 p-3">
-          <p className="text-xs text-ink-300">
-            {showSubclass
-              ? `Subclass (${current.name}s choose at level ${subAt})`
-              : `${current.name}s choose a subclass at level ${subAt}; this character is level ${build.level}, so none yet.`}
+      <SubclassPicker
+        row={first}
+        onPick={(sub) => patchClass(0, (c) => ({ ...c, subclass: sub }), false)}
+      />
+
+      <div className="space-y-3 rounded-md border border-ink-800 bg-ink-900/60 p-3">
+        <div>
+          <p className="text-xs font-semibold text-ink-200">Multiclass</p>
+          <p className="text-xs text-ink-400">
+            Other classes the character already has levels in. Only the starting
+            class above gives saving throws and its full choice of skills; a
+            bard, ranger or rogue taken later adds one skill. Each class chooses
+            its subclass by its own level; proficiency follows the character
+            level.
           </p>
-          {showSubclass && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {current.subclasses.map((sub) => (
-                <Chip
-                  key={sub}
-                  active={build.subclass === sub}
-                  onClick={() => patch((b) => ({ ...b, subclass: sub }))}
+        </div>
+        {build.classes.slice(1).map((row, i) => {
+          const index = i + 1;
+          const cls = classByName(row.name);
+          return (
+            <div
+              key={index}
+              className="space-y-2 rounded-md border border-ink-800 bg-ink-900 p-2.5"
+            >
+              <div className="flex flex-wrap items-end gap-3">
+                <ClassNameInput
+                  label={`Class ${index + 1}`}
+                  value={row.name}
+                  onChange={(v) =>
+                    patchClass(index, (c) => ({
+                      ...c,
+                      name: v,
+                      subclass: classByName(v)?.subclasses.includes(c.subclass)
+                        ? c.subclass
+                        : "",
+                    }))
+                  }
+                />
+                <label className={LABEL}>
+                  {cls ? `${cls.name} level` : "Level"}
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={row.level}
+                    onChange={(e) => setLevel(index, Number(e.target.value))}
+                    className={`mt-1 block w-20 ${FIELD}`}
+                  />
+                </label>
+                {cls && (
+                  <span className="pb-1.5 text-xs text-ink-400">
+                    d{cls.hitDie} hit die
+                    {cls.spellcasting
+                      ? ` · casts with ${abbr(cls.spellcasting.ability)}`
+                      : ""}
+                  </span>
+                )}
+                <span className="flex-1" />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    patch((b) => ({
+                      ...b,
+                      classes: b.classes.filter((_, j) => j !== index),
+                      classSkills: [],
+                      expertise: [],
+                    }))
+                  }
                 >
-                  {sub}
-                </Chip>
-              ))}
+                  <X size={14} /> Remove
+                </Button>
+              </div>
+              <SubclassPicker
+                row={row}
+                onPick={(sub) =>
+                  patchClass(index, (c) => ({ ...c, subclass: sub }), false)
+                }
+              />
             </div>
-          )}
+          );
+        })}
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={total >= 20}
+          onClick={() =>
+            patch((b) => ({
+              ...b,
+              classes: [...b.classes, { name: "", subclass: "", level: 1 }],
+              classSkills: [],
+              expertise: [],
+            }))
+          }
+        >
+          <Plus size={14} /> Add a class
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** A class name: pick from the list, or type a homebrew one. */
+function ClassNameInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const listId = useId();
+  return (
+    <label className={LABEL}>
+      {label}
+      <input
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Rogue"
+        autoComplete="off"
+        className={`mt-1 block w-40 ${FIELD} placeholder:text-ink-600`}
+      />
+      <datalist id={listId}>
+        {CLASSES.map((c) => (
+          <option key={c.name} value={c.name} />
+        ))}
+      </datalist>
+    </label>
+  );
+}
+
+/** The subclass chips for one class, or a note on when it gets to choose. */
+function SubclassPicker({
+  row,
+  onPick,
+}: {
+  row: ClassLevel;
+  onPick: (subclass: string) => void;
+}) {
+  const cls = classByName(row.name);
+  if (!cls || cls.subclasses.length === 0) return null;
+  const subAt = subclassLevel(row.name);
+  const ready = choosesSubclass(row);
+  return (
+    <div className="rounded-md border border-ink-800 bg-ink-900/60 p-3">
+      <p className="text-xs text-ink-300">
+        {ready
+          ? `Subclass (${cls.name}s choose at level ${subAt})`
+          : `${cls.name}s choose a subclass at level ${subAt}; this one is ${cls.name} ${row.level}, so none yet.`}
+      </p>
+      {ready && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {cls.subclasses.map((sub) => (
+            <Chip
+              key={sub}
+              active={row.subclass === sub}
+              onClick={() => onPick(sub)}
+            >
+              {sub}
+            </Chip>
+          ))}
         </div>
       )}
     </div>
@@ -660,17 +830,18 @@ function AbilitiesStep({ build, patch }: StepProps) {
 // ---- Skills ----------------------------------------------------------------
 
 function SkillsStep({ build, patch }: StepProps) {
-  const cls = classByName(build.class);
+  const cls = classByName(startingClass(build).name);
   const bg = backgroundByName(build.background);
   const granted = grantedSkills(build);
+  const choice = classSkillChoice(build.classes);
   const classFrom =
     cls === undefined
       ? []
-      : cls.skills.from.length === 0
+      : choice.from.length === 0
         ? SKILLS.map((s) => s.id)
-        : cls.skills.from;
-  const classChoose = cls?.skills.choose ?? 0;
-  const expertiseCount = expertisePicks(build.class, build.level);
+        : choice.from;
+  const classChoose = choice.choose;
+  const expertiseCount = expertiseFor(build.classes);
   const proficient = allSkills(build);
 
   function toggleIn(
@@ -704,8 +875,14 @@ function SkillsStep({ build, patch }: StepProps) {
       )}
       {cls ? (
         <Group
-          title={`${cls.name}: choose ${classChoose}`}
-          note={`${build.classSkills.length} of ${classChoose} chosen${cls.skills.from.length === 0 ? ", from any skill" : ""}`}
+          title={
+            build.classes.length > 1
+              ? `Class skills: choose ${classChoose}`
+              : `${cls.name}: choose ${classChoose}`
+          }
+          note={`${build.classSkills.length} of ${classChoose} chosen${choice.from.length === 0 ? ", from any skill" : ""}${
+            build.classes.length > 1 ? ` · ${choice.parts.join(", ")}` : ""
+          }`}
         >
           {classFrom.map((id) => {
             const already =
@@ -789,7 +966,7 @@ function SkillsStep({ build, patch }: StepProps) {
 
 function DetailsStep({ build, patch }: StepProps) {
   const auto = computedHp(build);
-  const cls = classByName(build.class);
+  const cls = classByName(startingClass(build).name);
   const con = modifier(finalAbilities(build).con);
   const personality = build.personality;
   function setPersonality(key: keyof Build5e["personality"], value: string) {
@@ -859,6 +1036,8 @@ function DetailsStep({ build, patch }: StepProps) {
                   Use it
                 </button>
               </>
+            ) : build.classes.length > 1 ? (
+              `d${cls.hitDie} at level 1, then each class's average for its own levels, ${signed(con)} Con each level.`
             ) : (
               `d${cls.hitDie} at level 1, then average, ${signed(con)} Con each level.`
             )}
@@ -900,11 +1079,15 @@ function ReviewStep({
 }) {
   const sheet = useMemo(() => buildSheet(build), [build]);
   const species = speciesByName(build.species);
-  const cls = classByName(build.class);
+  const cls = classByName(startingClass(build).name);
   const bg = backgroundByName(build.background);
-  const slots = Object.entries(sheet.spellcasting.slots)
-    .map(([lv, row]) => `${row.max}× level ${lv}`)
-    .join(", ");
+  const pact = sheet.spellcasting.pact;
+  const slots = [
+    ...Object.entries(sheet.spellcasting.slots).map(
+      ([lv, row]) => `${row.max}× level ${lv}`,
+    ),
+    ...(pact ? [`Pact Magic ${pact.max}× level ${pact.level}`] : []),
+  ].join(", ");
   return (
     <div className="space-y-4">
       <StepIntro
@@ -949,7 +1132,7 @@ function ReviewStep({
       <dl className="grid gap-x-6 gap-y-1.5 text-sm md:grid-cols-2">
         <Row label="Hit points">
           {sheet.hp.max ?? "—"}
-          {cls ? ` (d${cls.hitDie})` : ""}
+          {cls ? ` (${hitDiceText(sheet.classes)})` : ""}
         </Row>
         <Row label="Speed">{sheet.speed}</Row>
         <Row label="Saving throws">

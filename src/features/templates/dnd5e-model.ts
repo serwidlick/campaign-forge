@@ -105,12 +105,19 @@ export interface SlotRow {
   used: number;
 }
 
+/** Pact Magic slots: all of one level, back after a short rest. */
+export interface PactSlots extends SlotRow {
+  level: number;
+}
+
 export interface Spellcasting {
   ability: Ability | "";
   /** While true, slot maximums follow class and level. */
   slotsAuto: boolean;
-  /** Keyed "1".."9". */
+  /** Spellcasting slots, keyed "1".."9"; shared across casting classes. */
   slots: Record<string, SlotRow>;
+  /** Pact Magic slots, kept apart from the shared pool; `null` without them. */
+  pact: PactSlots | null;
   spells: Spell[];
 }
 
@@ -167,11 +174,27 @@ export function newId(): string {
   return crypto.randomUUID().slice(0, 8);
 }
 
+/** Levels taken in one class, and the subclass chosen for it (if any yet). */
+export interface ClassLevel {
+  name: string;
+  subclass: string;
+  level: number;
+}
+
 export interface Sheet5e {
   /** Table name of the player who may edit this sheet; empty for GM-only. */
   owner: string;
+  /**
+   * Every class the character has levels in, starting class first. This is
+   * what the sheet edits; `class`, `subclass` and `level` below are kept in
+   * step with it (the first class and the total) for whatever reads the
+   * file without knowing about multiclassing: list summaries, the
+   * assistant, older builds of the app.
+   */
+  classes: ClassLevel[];
   class: string;
   subclass: string;
+  /** Character level: the sum of every class's levels. */
   level: number;
   species: string;
   background: string;
@@ -203,6 +226,7 @@ export interface Sheet5e {
 
 export const EMPTY_SHEET: Sheet5e = {
   owner: "",
+  classes: [{ name: "", subclass: "", level: 1 }],
   class: "",
   subclass: "",
   level: 1,
@@ -222,7 +246,13 @@ export const EMPTY_SHEET: Sheet5e = {
   languages: "",
   attacks: [],
   features: [],
-  spellcasting: { ability: "", slotsAuto: true, slots: {}, spells: [] },
+  spellcasting: {
+    ability: "",
+    slotsAuto: true,
+    slots: {},
+    pact: null,
+    spells: [],
+  },
   inventory: [],
   currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
   personality: { traits: "", ideals: "", bonds: "", flaws: "" },
@@ -269,11 +299,9 @@ export function readSheet5e(v: unknown): Sheet5e | null {
   const skillIds = new Set(SKILLS.map((s) => s.id));
   const list = (x: unknown, keep: (s: unknown) => boolean) =>
     Array.isArray(x) ? (x.filter(keep) as string[]) : [];
-  return {
+  return withClasses({
     owner: str(o.owner),
-    class: str(o.class),
-    subclass: str(o.subclass),
-    level: Math.max(1, Math.min(20, int(o.level) ?? 1)),
+    ...readClasses(o),
     species: str(o.species),
     background: str(o.background),
     alignment: str(o.alignment),
@@ -316,7 +344,69 @@ export function readSheet5e(v: unknown): Sheet5e | null {
     currency: readCurrency(o.currency),
     personality: readPersonality(o.personality),
     status: readStatus(o.status),
+  });
+}
+
+function clampLevel(v: unknown, fallback = 1): number {
+  return Math.max(1, Math.min(20, int(v) ?? fallback));
+}
+
+/**
+ * The class list, or the single class a sheet written before multiclassing
+ * carries in `class`, `subclass` and `level`.
+ */
+function readClasses(
+  o: Record<string, unknown>,
+): Pick<Sheet5e, "classes" | "class" | "subclass" | "level"> {
+  const classes = readList(o.classes, (r) => ({
+    name: str(r.name),
+    subclass: str(r.subclass),
+    level: clampLevel(r.level),
+  }));
+  if (classes.length === 0) {
+    classes.push({
+      name: str(o.class),
+      subclass: str(o.subclass),
+      level: clampLevel(o.level),
+    });
+  }
+  return { classes, class: "", subclass: "", level: 1 };
+}
+
+/** Character level: every class's levels added up. */
+export function totalLevel(classes: ClassLevel[]): number {
+  return Math.max(
+    1,
+    Math.min(
+      20,
+      classes.reduce((n, c) => n + c.level, 0),
+    ),
+  );
+}
+
+/**
+ * Puts a class list on a sheet and brings `class`, `subclass` and `level`
+ * back in step with it. Every change to the classes goes through here so
+ * the mirrors never drift; an empty list becomes one blank class.
+ */
+export function withClasses(s: Sheet5e, classes = s.classes): Sheet5e {
+  const list = classes.length > 0 ? classes : [...EMPTY_SHEET.classes];
+  const first = list[0]!;
+  return {
+    ...s,
+    classes: list,
+    class: first.name,
+    subclass: first.subclass,
+    level: totalLevel(list),
   };
+}
+
+/** Levels held in a class, by name (case-insensitive); 0 without any. */
+export function levelIn(sheet: Sheet5e, className: string): number {
+  const n = className.trim().toLowerCase();
+  return sheet.classes
+    .filter((c) => c.name.trim().toLowerCase() === n)
+    .reduce((sum, c) => sum + c.level, 0);
 }
 
 function readAsiChosen(v: unknown): Partial<Record<Ability, number>> {
@@ -352,10 +442,21 @@ function readSpellcasting(v: unknown): Spellcasting {
     const used = Math.max(0, Math.min(max, int(row.used) ?? 0));
     if (max > 0 || used > 0) slots[String(l)] = { max, used };
   }
+  const pactRaw = obj(o.pact);
+  const pactMax = Math.max(0, int(pactRaw.max) ?? 0);
+  const pact: PactSlots | null =
+    pactMax > 0
+      ? {
+          level: Math.max(1, Math.min(5, int(pactRaw.level) ?? 1)),
+          max: pactMax,
+          used: Math.max(0, Math.min(pactMax, int(pactRaw.used) ?? 0)),
+        }
+      : null;
   return {
     ability: isAbility(o.ability) ? o.ability : "",
     slotsAuto: o.slotsAuto !== false,
     slots,
+    pact,
     spells: readList(o.spells, (r) => ({
       id: str(r.id) || newId(),
       name: str(r.name),
@@ -444,33 +545,76 @@ const FULL_CASTER_SLOTS: number[][] = [
   [4, 3, 3, 3, 3, 2, 2, 1, 1],
 ];
 
-/** Slot maximums ("1".."9") a class grants at a level. */
-export function slotsFor(
+/**
+ * What a class's levels add to the combined caster level that sets the
+ * shared Spellcasting slots: all of them for a full caster, half (rounded
+ * down) for a paladin or ranger, half rounded up for an artificer, a third
+ * for an Eldritch Knight or Arcane Trickster. Pact Magic adds nothing here.
+ */
+export function casterLevel(
   progression: SpellProgression,
   level: number,
+): number {
+  const lv = Math.max(0, Math.min(20, level));
+  switch (progression) {
+    case "full":
+      return lv;
+    case "half":
+      return Math.floor(lv / 2);
+    case "artificer":
+      return Math.ceil(lv / 2);
+    case "third":
+      return Math.floor(lv / 3);
+    case "pact":
+      return 0;
+  }
+}
+
+/** Shared slot maximums ("1".."9") at a combined caster level. */
+export function slotsAtCasterLevel(
+  casterLevel: number,
 ): Record<string, number> {
   const out: Record<string, number> = {};
-  const lv = Math.max(1, Math.min(20, level));
-  if (progression === "pact") {
-    const count = lv === 1 ? 1 : lv <= 10 ? 2 : lv <= 16 ? 3 : 4;
-    const slotLevel = lv <= 2 ? 1 : lv <= 4 ? 2 : lv <= 6 ? 3 : lv <= 8 ? 4 : 5;
-    out[String(slotLevel)] = count;
-    return out;
-  }
-  const effective =
-    progression === "full"
-      ? lv
-      : progression === "half"
-        ? Math.floor(lv / 2)
-        : progression === "artificer"
-          ? Math.ceil(lv / 2)
-          : Math.floor(lv / 3);
+  const effective = Math.min(20, casterLevel);
   if (effective < 1) return out;
   const row = FULL_CASTER_SLOTS[effective - 1] ?? [];
   row.forEach((n, i) => {
     if (n > 0) out[String(i + 1)] = n;
   });
   return out;
+}
+
+/** Pact Magic slots at a warlock level: how many, and of what level. */
+export function pactSlotsAt(level: number): { level: number; max: number } {
+  const lv = Math.max(1, Math.min(20, level));
+  return {
+    max: lv === 1 ? 1 : lv <= 10 ? 2 : lv <= 16 ? 3 : 4,
+    level: lv <= 2 ? 1 : lv <= 4 ? 2 : lv <= 6 ? 3 : lv <= 8 ? 4 : 5,
+  };
+}
+
+/**
+ * Slot maximums from a list of casting classes: every class but a warlock
+ * pools into one combined caster level and shares its slots, while Pact
+ * Magic keeps its own. A lone class comes out as its own table would say.
+ */
+export function slotsForClasses(
+  casters: { progression: SpellProgression; level: number }[],
+): {
+  slots: Record<string, number>;
+  pact: { level: number; max: number } | null;
+} {
+  const combined = casters.reduce(
+    (n, c) => n + casterLevel(c.progression, c.level),
+    0,
+  );
+  const warlock = casters
+    .filter((c) => c.progression === "pact")
+    .reduce((n, c) => n + c.level, 0);
+  return {
+    slots: slotsAtCasterLevel(combined),
+    pact: warlock > 0 ? pactSlotsAt(warlock) : null,
+  };
 }
 
 export function modifier(score: number): number {
@@ -640,12 +784,32 @@ export function attackRoll(sheet: Sheet5e, attack: Attack): RollFormula {
   return { die: "1d20", parts };
 }
 
-/** "Level 5 Human Fighter (Champion)" or whatever parts are filled in. */
+/**
+ * "Fighter (Champion)" for one class; "Fighter 3 (Champion) / Rogue 1" once
+ * there are more, each with its own levels.
+ */
+export function classSummary(classes: ClassLevel[]): string {
+  const named = classes.filter((c) => c.name.trim());
+  const multi = named.length > 1;
+  return named
+    .map(
+      (c) =>
+        c.name.trim() +
+        (multi ? ` ${c.level}` : "") +
+        (c.subclass.trim() ? ` (${c.subclass.trim()})` : ""),
+    )
+    .join(" / ");
+}
+
+/**
+ * "Level 5 Human Fighter (Champion)", or "Level 4 Human Fighter 3 (Champion)
+ * / Rogue 1" for a multiclass character; whatever parts are filled in.
+ */
 export function sheetSummary(sheet: Sheet5e): string {
   const parts = [
     `Level ${sheet.level}`,
     sheet.species,
-    sheet.class + (sheet.subclass ? ` (${sheet.subclass})` : ""),
+    classSummary(sheet.classes),
   ].filter((p) => p.trim());
   return parts.join(" ");
 }
