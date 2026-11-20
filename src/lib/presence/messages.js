@@ -304,6 +304,24 @@ function reducedMotion() {
 /** Puts the conversation's messages in place; returns whether one of your
  *  own just appeared. */
 function renderThread(h, view, entry) {
+  // Messages, with a time above the first and after every pause.
+  const items = withTimeBreaks(view.items, { offset: h.offset ?? 0 });
+  // Most frames (typing, Seen, unread) leave the conversation as it is:
+  // then each message is only repainted, with nothing measured or moved.
+  const ids = items.map((i) => i.id).join("\n");
+  if (h.ready && ids === h.ids) {
+    const now = Date.now();
+    for (const item of items) {
+      const node = h.nodes.get(item.id);
+      if (!node) continue;
+      if (item.kind === "time") node.textContent = formatClock(item.at, now);
+      else paintMessage(node, item, h);
+    }
+    // The status line stays where it is; renderStatus only rewords it.
+    h.statusRect = null;
+    return false;
+  }
+  h.ids = ids;
   // The status line lives among the messages; it steps out while they are
   // put in order, and renderStatus puts it back (gliding from here).
   h.statusRect =
@@ -315,8 +333,6 @@ function renderThread(h, view, entry) {
   for (const node of h.nodes.values()) {
     before.set(node, node.getBoundingClientRect());
   }
-  // Messages, with a time above the first and after every pause.
-  const items = withTimeBreaks(view.items, { offset: h.offset ?? 0 });
   const wanted = new Set(items.map((i) => i.id));
   // A pending send that turned into its message lifts into place from
   // where it was, rather than popping in.

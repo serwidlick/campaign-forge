@@ -1196,8 +1196,10 @@ async fn join<R: tauri::Runtime>(
             seats.len() >= MAX_SEATS && needs_new_seat(seats, &seat)
         };
         if full(&seats) {
+            // Only guests who no longer hold their name make room; a paired
+            // player's or GM's device keeps its seat however long it sleeps.
             let (now, grace) = (Instant::now(), s.roster.grace());
-            seats.retain(|_, p| p.holds_name(now, grace));
+            seats.retain(|_, p| p.player_id.is_some() || p.holds_name(now, grace));
         }
         if full(&seats) {
             return Err(ApiError(

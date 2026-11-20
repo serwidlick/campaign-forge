@@ -525,6 +525,11 @@ impl MessageHub {
         self.commit(hub);
     }
 
+    /// Whether players may message each other right now.
+    pub fn rules(&self) -> MessageRules {
+        self.hub().rules
+    }
+
     pub fn set_rules(&self, rules: MessageRules) {
         let mut hub = self.hub();
         if hub.rules == rules {

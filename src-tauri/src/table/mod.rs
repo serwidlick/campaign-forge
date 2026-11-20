@@ -70,6 +70,8 @@ pub struct HostStatus {
     pub spotlight: Option<String>,
     /// Who is at the table, as everyone there sees it.
     pub roster: Vec<share::RosterEntry>,
+    /// Whether players may message each other (the host panel's switch).
+    pub message_rules: server::messages::MessageRules,
 }
 
 impl Host {
@@ -89,6 +91,7 @@ impl Host {
             announce_error: self.announce_error.clone(),
             spotlight: self.spotlight.borrow().element.clone(),
             roster: self.roster.current(),
+            message_rules: self.messages.rules(),
         }
     }
 }

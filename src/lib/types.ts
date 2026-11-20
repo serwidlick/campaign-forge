@@ -420,6 +420,8 @@ export interface HostStatus {
   spotlight: string | null;
   /** Who is at the table, as everyone there sees it. */
   roster: RosterEntry[];
+  /** Whether players may message each other (the host panel's switch). */
+  messageRules?: MessageRules;
 }
 
 export interface FoundTable {

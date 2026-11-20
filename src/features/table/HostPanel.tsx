@@ -654,21 +654,15 @@ function GmNameField({
  */
 function PlayerMessagesToggle() {
   const hostingHere = useTableStore((s) => inTauri && s.session === null);
-  const [allowed, setAllowed] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!hostingHere) return;
-    let live = true;
-    void table
-      .chats()
-      .then((frame) => {
-        if (live) setAllowed(frame.messageRules?.playersMayMessage ?? true);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [hostingHere]);
-  if (!hostingHere || allowed === null) return null;
+  // Read from the host status, never through the chat snapshot: that would
+  // restart the hosting window's message cursor.
+  const fromHost = useTableStore(
+    (s) => s.hosting?.messageRules?.playersMayMessage,
+  );
+  const refreshHost = useTableStore((s) => s.refreshHost);
+  const [pending, setPending] = useState<boolean | null>(null);
+  if (!hostingHere || fromHost === undefined) return null;
+  const allowed = pending ?? fromHost;
   return (
     <label className="flex items-center gap-2 text-xs text-ink-400">
       <input
@@ -676,11 +670,12 @@ function PlayerMessagesToggle() {
         checked={allowed}
         onChange={(e) => {
           const next = e.target.checked;
-          setAllowed(next);
+          setPending(next);
           void table
             .setMessageRules(next)
-            .then((rules) => setAllowed(rules.playersMayMessage))
-            .catch(() => setAllowed(!next));
+            .then(() => refreshHost())
+            .catch(() => {})
+            .finally(() => setPending(null));
         }}
         className="accent-ember-400"
       />
