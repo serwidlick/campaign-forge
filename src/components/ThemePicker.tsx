@@ -1,27 +1,24 @@
 import { Check, Palette } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
-import { toolbarButtonClass } from "@/components/toolbar-style";
+import { railButtonClass } from "@/components/toolbar-style";
 import { THEMES, type Theme } from "@/lib/theme";
 import { useThemeStore } from "@/stores/theme-store";
 
 interface ThemePickerProps {
   /**
-   * An icon button for toolbars, a text link for footers, or a labelled
-   * tile for the sidebar's footer toolbar.
+   * An icon button for toolbars, a text link for footers, or a square
+   * button for the workspace rail.
    */
-  variant?: "icon" | "text" | "tile";
-  /**
-   * Where the menu opens relative to the button, or, for `above-fill`,
-   * relative to the nearest positioned ancestor, which it spans.
-   */
-  placement?: "below-end" | "above-start" | "above-fill";
+  variant?: "icon" | "text" | "rail";
+  /** Where the menu opens relative to the button. */
+  placement?: "below-end" | "above-start" | "right-end";
 }
 
 const PLACEMENT: Record<NonNullable<ThemePickerProps["placement"]>, string> = {
   "below-end": "top-full right-0 mt-1 w-64",
   "above-start": "bottom-full left-0 mb-1 w-64",
-  "above-fill": "bottom-full left-1 right-1 mb-1",
+  "right-end": "bottom-0 left-full ml-1 w-64",
 };
 
 export function ThemePicker({
@@ -69,7 +66,7 @@ export function ThemePicker({
       >
         <Palette size={14} />
       </button>
-    ) : variant === "tile" ? (
+    ) : variant === "rail" ? (
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -78,10 +75,9 @@ export function ThemePicker({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={menuId}
-        className={toolbarButtonClass({ pressed: open })}
+        className={railButtonClass({ active: open })}
       >
-        <Palette size={16} />
-        <span>Theme</span>
+        <Palette size={18} />
       </button>
     ) : (
       <button
@@ -96,13 +92,8 @@ export function ThemePicker({
       </button>
     );
 
-  // The fill placement positions the menu against the toolbar that holds
-  // the tile, so the root must not be positioned itself.
-  const rootClass =
-    placement === "above-fill" ? "flex" : "relative inline-block";
-
   return (
-    <div ref={rootRef} className={rootClass}>
+    <div ref={rootRef} className="relative inline-block">
       {trigger}
       {open && (
         <div

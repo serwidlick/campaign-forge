@@ -1,18 +1,27 @@
-/** Classes shared by the sidebar footer tiles and the theme picker tile. */
-export function toolbarButtonClass({
-  pressed,
+/** Classes shared by the rail's buttons and the theme picker's rail trigger. */
+export function railButtonClass({
+  active,
   tone = "default",
 }: {
-  pressed?: boolean;
+  active?: boolean;
   tone?: "default" | "accent" | "live";
 }) {
-  const state =
+  const colour =
     tone === "live"
-      ? "bg-green-500/15 text-green-300"
+      ? "text-green-300"
       : tone === "accent"
-        ? "bg-ember-500/20 text-ember-200"
-        : pressed
-          ? "bg-ink-700/60 text-ink-100"
-          : "text-ink-400 hover:bg-ink-800 hover:text-ink-200";
-  return `flex w-full flex-col items-center gap-1 rounded-md px-0.5 py-1.5 text-[10px] leading-none transition-colors ${state}`;
+        ? "text-ember-200"
+        : active
+          ? "text-ember-300"
+          : "text-ink-400 hover:text-ink-200";
+  const fill = active
+    ? tone === "live"
+      ? "bg-green-500/15 shadow-[inset_2px_0_0_var(--color-green-400)]"
+      : "bg-ember-500/15 shadow-[inset_2px_0_0_var(--color-ember-500)]"
+    : tone === "accent"
+      ? "bg-ember-500/20"
+      : tone === "live"
+        ? "bg-green-500/10"
+        : "hover:bg-ink-800";
+  return `relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors ${colour} ${fill}`;
 }
