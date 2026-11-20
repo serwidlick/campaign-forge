@@ -334,3 +334,40 @@ export function conversationView(state, withKey, you) {
     seenByMe: c?.seenByMe ?? 0,
   };
 }
+
+/** A pause this long between two messages gets a time line between them. */
+export const TIME_GAP = 5 * 60_000;
+
+/**
+ * The conversation's items with a time line (`{ kind: "time", id, at }`)
+ * before the first and wherever it paused for `gap` or crossed midnight.
+ * Sent messages carry the host's clock and `offset` (this clock minus the
+ * host's) brings them to this one; pending sends are already on it. `at`
+ * on a time line is this device's clock.
+ */
+export function withTimeBreaks(items, { offset = 0, gap = TIME_GAP } = {}) {
+  const out = [];
+  let last = null;
+  for (const item of items) {
+    const at = item.at ? (item.pending ? item.at : item.at + offset) : null;
+    if (
+      at != null &&
+      (last == null || at - last >= gap || !sameDay(at, last))
+    ) {
+      out.push({ kind: "time", id: "time:" + item.id, at });
+    }
+    out.push(item);
+    if (at != null) last = at;
+  }
+  return out;
+}
+
+function sameDay(a, b) {
+  const x = new Date(a);
+  const y = new Date(b);
+  return (
+    x.getFullYear() === y.getFullYear() &&
+    x.getMonth() === y.getMonth() &&
+    x.getDate() === y.getDate()
+  );
+}

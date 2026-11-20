@@ -80,9 +80,6 @@ export class TablePresence extends HTMLElement {
   #narrow = null;
   #drag = null;
   #dragFrom = null;
-  /** The bubble showing its name after a tap, and the timer that hides it. */
-  #tipped = null;
-  #tipTimer = 0;
   /** The bubbles' trips of the last shuffle, cancelled if another starts. */
   #shuffles = [];
   /** The bubble whose press caused the next render (the eye or "+N"):
@@ -256,7 +253,6 @@ export class TablePresence extends HTMLElement {
   disconnectedCallback() {
     // Removal releases pointer capture; a drag must not outlive it.
     this.#drag?.reset();
-    this.#hideTip();
     this.#card?.close({ focus: "none" });
     clearInterval(this.#ticker);
     this.#ticker = 0;
@@ -352,7 +348,6 @@ export class TablePresence extends HTMLElement {
     if (!visible) {
       this.#expanded = false;
       this.#motion = null;
-      this.#hideTip();
       this.#tick(false);
       return;
     }
@@ -483,7 +478,6 @@ export class TablePresence extends HTMLElement {
   #forget(keep) {
     for (const [key, bubble] of this.#bubbles) {
       if (keep.has(key)) continue;
-      if (this.#tipped === bubble) this.#hideTip();
       this.#playing.get(key)?.stop();
       this.#playing.delete(key);
       this.#bubbles.delete(key);
@@ -498,7 +492,6 @@ export class TablePresence extends HTMLElement {
     const wanted = new Set(order);
     const leaving = [...this.#group.children].filter((el) => !wanted.has(el));
     for (const el of leaving) {
-      if (this.#tipped === el) this.#hideTip();
       el.remove();
     }
     order.forEach((bubble, index) => {
@@ -598,7 +591,6 @@ export class TablePresence extends HTMLElement {
 
   #dragStart = () => {
     this.#dragFrom = { ...this.#pos };
-    this.#hideTip();
     this.#card?.close({ focus: "none" });
     for (const trip of this.#shuffles) trip.cancel();
     this.#shuffles = [];
@@ -641,12 +633,6 @@ export class TablePresence extends HTMLElement {
 
   // ---- Interaction ----------------------------------------------------------
 
-  #hideTip() {
-    clearTimeout(this.#tipTimer);
-    this.#tipped?.classList.remove("tip-on");
-    this.#tipped = null;
-  }
-
   #onClick = (event) => {
     const bubble = event.target.closest?.(".bubble");
     if (!bubble) return;
@@ -656,12 +642,10 @@ export class TablePresence extends HTMLElement {
       this.#concealed = !this.#concealed;
       writeHidden(this.#concealed);
       this.#expanded = false;
-      this.#hideTip();
       haptic("tap");
       this.#render();
     } else if (bubble === this.#inbox) {
       // The latest person to write, opened right here, still hidden.
-      this.#hideTip();
       const key = this.#latestUnread();
       const entry = key ? this.#entries.get(key) : null;
       if (!entry || !this.#card) return;
@@ -671,12 +655,10 @@ export class TablePresence extends HTMLElement {
     } else if (bubble === this.#more) {
       this.#motion = bubble;
       this.#expanded = !this.#expanded;
-      this.#hideTip();
       haptic("tap");
       this.#render();
     } else {
       // A person: their card opens (or closes, if it was theirs).
-      this.#hideTip();
       const key = [...this.#bubbles].find(([, b]) => b === bubble)?.[0];
       const entry = key ? this.#entries.get(key) : null;
       if (!entry || !this.#card) return;
@@ -690,20 +672,16 @@ export class TablePresence extends HTMLElement {
     if (side && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       this.#moveToSide(side);
-    } else if (event.key === "Escape" && (this.#tipped || this.#expanded)) {
+    } else if (event.key === "Escape" && this.#expanded) {
       event.stopPropagation();
-      this.#hideTip();
-      if (this.#expanded) {
-        this.#motion = this.#more;
-        this.#expanded = false;
-        this.#render();
-      }
+      this.#motion = this.#more;
+      this.#expanded = false;
+      this.#render();
     }
   };
 
   #onOutside = (event) => {
     if (!event.composedPath().includes(this)) {
-      this.#hideTip();
       // A press elsewhere closes the card and keeps its own focus.
       this.#card?.close({ focus: "none" });
     }

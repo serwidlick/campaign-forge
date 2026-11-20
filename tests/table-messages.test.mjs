@@ -13,7 +13,9 @@ import {
   queueSend,
   rosterChanged,
   unreadCounts,
+  withTimeBreaks,
 } from "../src/lib/presence/conversation.js";
+import { daysAgo, formatClock } from "../src/lib/presence/time.js";
 import { CARD_GAP, placeCard } from "../src/lib/presence/placement.js";
 import { setHapticDriver } from "../src/lib/presence/haptics.js";
 
@@ -358,4 +360,40 @@ test("the hosting window's chat takes acks straight from its commands", async ()
   assert.equal(view.items.length, 1);
   assert.equal(view.status, "sent");
   chat.dispose();
+});
+
+test("a time line goes above the first message and after every pause", () => {
+  const noon = new Date(2026, 10, 20, 12, 0).getTime();
+  const min = 60_000;
+  const items = [
+    { id: "a", at: noon },
+    { id: "b", at: noon + 2 * min },
+    { id: "c", at: noon + 9 * min },
+    { id: "d", at: noon + 10 * min, pending: "sending" },
+  ];
+  const shown = withTimeBreaks(items).map((i) => i.id);
+  assert.deepEqual(shown, ["time:a", "a", "b", "time:c", "c", "d"]);
+  // Host times are moved onto this clock; pending ones already are.
+  const ahead = withTimeBreaks(items, { offset: 3 * min });
+  assert.equal(ahead[0].at, noon + 3 * min);
+  // A pause across midnight always gets a line, however short.
+  const late = new Date(2026, 10, 20, 23, 58).getTime();
+  const marks = withTimeBreaks([
+    { id: "x", at: late },
+    { id: "y", at: late + 3 * min },
+  ]).map((i) => i.id);
+  assert.deepEqual(marks, ["time:x", "x", "time:y", "y"]);
+});
+
+test("times read as today, yesterday, the weekday, then the date", () => {
+  const now = new Date(2026, 10, 20, 9, 0).getTime();
+  const at = (d, h) => new Date(2026, 10, d, h, 30).getTime();
+  assert.equal(daysAgo(at(20, 8), now), 0);
+  assert.equal(daysAgo(at(19, 23), now), 1, "late last night is yesterday");
+  assert.equal(daysAgo(at(14, 12), now), 6);
+  const today = formatClock(at(20, 8), now, "en-GB");
+  assert.match(today, /^0?8:30$/);
+  assert.match(formatClock(at(19, 23), now, "en-GB"), /^Yesterday 23:30$/);
+  assert.match(formatClock(at(16, 10), now, "en-GB"), /^Monday 10:30$/);
+  assert.match(formatClock(at(2, 10), now, "en-GB"), /^2 Nov 10:30$/);
 });

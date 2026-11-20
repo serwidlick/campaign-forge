@@ -8,7 +8,9 @@
  */
 
 import { defineCardSection } from "./card-sections.js";
+import { withTimeBreaks } from "./conversation.js";
 import { icon } from "./icons.js";
+import { formatClock } from "./time.js";
 
 /** Typing is refreshed this often while the person keeps typing. */
 const TYPING_REFRESH_MS = 2_500;
@@ -53,17 +55,6 @@ export function composerBlocked(state, me, them) {
     return them.name + " is disconnected right now.";
   }
   return null;
-}
-
-function timeOf(at) {
-  try {
-    return new Date(at).toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
 }
 
 function atBottom(node) {
@@ -201,6 +192,7 @@ defineCardSection("message", {
     const state = ctx.state("message");
     const view = state?.view?.(entry.key) ?? null;
     h.view = view;
+    h.offset = ctx.offset ?? 0;
     h.blocked = composerBlocked(state, ctx.me, entry);
     h.box.disabled = Boolean(h.blocked);
     h.send.disabled = Boolean(h.blocked);
@@ -246,7 +238,6 @@ function messageNode(item, h) {
   const node = el("div", "msg " + (item.mine ? "mine" : "theirs"));
   const text = el("p", "msg-text", item.text);
   node.appendChild(text);
-  if (item.at) node.title = timeOf(item.at);
   node.dataset.id = item.id;
   paintMessage(node, item, h);
   return node;
@@ -309,7 +300,9 @@ function renderThread(h, view, entry) {
   for (const node of h.nodes.values()) {
     before.set(node, node.getBoundingClientRect());
   }
-  const wanted = new Set(view.items.map((i) => i.id));
+  // Messages, with a time above the first and after every pause.
+  const items = withTimeBreaks(view.items, { offset: h.offset ?? 0 });
+  const wanted = new Set(items.map((i) => i.id));
   // A pending send that turned into its message lifts into place from
   // where it was, rather than popping in.
   const liftFrom = new Map();
@@ -325,9 +318,17 @@ function renderThread(h, view, entry) {
     h.nodes.delete(id);
   }
   const fresh = [];
-  view.items.forEach((item, index) => {
+  const now = Date.now();
+  items.forEach((item, index) => {
     let node = h.nodes.get(item.id);
-    if (!node) {
+    if (item.kind === "time") {
+      if (!node) {
+        node = el("p", "thread-time");
+        h.nodes.set(item.id, node);
+      }
+      // Kept current: "4:32 PM" becomes "Yesterday 4:32 PM" overnight.
+      node.textContent = formatClock(item.at, now);
+    } else if (!node) {
       node = messageNode(item, h);
       h.nodes.set(item.id, node);
       fresh.push([node, item]);

@@ -99,11 +99,10 @@
   outline-offset: 3px;
 }
 
-/* The bubble being read (hovered, focused or tapped) sits above its
-   neighbours, so its tips are never covered by the next bubble's badges. */
+/* The bubble being read (hovered or focused) sits above its neighbours,
+   so its tips are never covered by the next bubble's badges. */
 .bubble:hover,
-.bubble:focus-visible,
-.bubble.tip-on {
+.bubble:focus-visible {
   z-index: 3;
 }
 
@@ -543,19 +542,18 @@
   --tp-tip-x: 0px;
 }
 
-.bubble.tip-on .tip,
 .bubble:focus-visible .tip {
   z-index: 3;
   opacity: 1;
 }
 
-.side-left .bubble:is(.tip-on, :focus-visible) .tip,
-.side-right .bubble:is(.tip-on, :focus-visible) .tip {
+.side-left .bubble:focus-visible .tip,
+.side-right .bubble:focus-visible .tip {
   --tp-tip-x: 0px;
 }
 
-.side-top .bubble:is(.tip-on, :focus-visible) .tip,
-.side-bottom .bubble:is(.tip-on, :focus-visible) .tip {
+.side-top .bubble:focus-visible .tip,
+.side-bottom .bubble:focus-visible .tip {
   --tp-tip-y: 0px;
 }
 
@@ -856,6 +854,19 @@
   color: var(--tp-muted);
   font-size: 12px;
   text-align: center;
+}
+
+/* When the conversation was: above the first message and after a pause. */
+.thread-time {
+  align-self: center;
+  margin: 6px 0 0;
+  color: var(--tp-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.thread-time:first-child {
+  margin-top: 0;
 }
 
 .msg {
