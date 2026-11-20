@@ -401,7 +401,7 @@ pub struct PlayerDelta {
 type Served<R = tauri::Wry> = Arc<ServerState<R>>;
 
 struct ServerState<R: tauri::Runtime> {
-    origins: Vec<String>,
+    secure: bool,
     tickets: Arc<Mutex<Tickets>>,
     handshakes: Arc<tokio::sync::Semaphore>,
     app: AppHandle<R>,
@@ -443,11 +443,7 @@ const BODY_LIMIT: usize = MAX_DOCUMENT_BYTES as usize + 16 * 1024 * 1024;
 
 /// Binds the first free preferred port (or any free one) on every
 /// interface and serves until `stop` is sent.
-pub async fn start(
-    app: AppHandle,
-    code: String,
-    ips: &[std::net::Ipv4Addr],
-) -> Result<Running, String> {
+pub async fn start(app: AppHandle, code: String) -> Result<Running, String> {
     let tls = load_tls().await?;
     let ports = if tls.is_some() {
         [443, 47531]
@@ -481,7 +477,7 @@ pub async fn start(
         }
     });
     let served = Arc::new(ServerState {
-        origins: browser_origins(origin.as_deref(), port, ips),
+        secure: tls.is_some(),
         tickets: Arc::default(),
         handshakes: Arc::new(tokio::sync::Semaphore::new(32)),
         app,
@@ -494,6 +490,19 @@ pub async fn start(
         roster: roster.clone(),
     });
     tauri::async_runtime::spawn(roster::run(served.clone()));
+    let mut reconcile_stop = stop.subscribe();
+    let reconcile_app = served.app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = reconcile_stop.changed() => break,
+                _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                    let app = reconcile_app.clone();
+                    let _ = tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().refresh_table()).await;
+                }
+            }
+        }
+    });
     let router = Router::new()
         .route("/", get(player_page))
         .route("/marked.umd.js", get(player_script))
@@ -585,7 +594,7 @@ fn page_csp() -> &'static str {
     })
 }
 
-/// `'sha256-…'` sources for every inline block between `open` and `close`,
+/// `'sha256-â€¦'` sources for every inline block between `open` and `close`,
 /// hashed exactly as a browser does: the text between the tags, after the
 /// HTML parser's newline normalisation (CRLF and lone CR become LF). A
 /// Windows checkout with `core.autocrlf` embeds the page with CRLF, which
@@ -629,49 +638,29 @@ fn served(content_type: &'static str, body: impl IntoResponse, csp: Option<&str>
     response
 }
 
-// Only advertise browser origins the table actually serves. A client-supplied
-// Host header alone cannot add an origin to this list.
-fn browser_origins(secure: Option<&str>, port: u16, ips: &[std::net::Ipv4Addr]) -> Vec<String> {
-    if let Some(origin) = secure {
-        return vec![origin.to_owned()];
-    }
-    let suffix = if port == 80 {
-        String::new()
-    } else {
-        format!(":{port}")
-    };
-    [super::discovery::HOST_NAME, "localhost", "127.0.0.1"]
-        .into_iter()
-        .map(str::to_owned)
-        .chain(ips.iter().map(ToString::to_string))
-        .map(|host| format!("http://{host}{suffix}"))
-        .collect()
-}
-
-fn request_origin<'a>(origins: &'a [String], headers: &HeaderMap) -> Option<&'a str> {
+/// Browsers supply Host and Origin independently. Build the expected origin from
+/// the listener scheme and a validated authority, including the effective port.
+fn request_origin(secure: bool, headers: &HeaderMap) -> Option<String> {
     let host = headers.get(header::HOST)?.to_str().ok()?;
-    let authority: axum::http::uri::Authority = host.parse().ok()?;
-    origins.iter().find_map(|origin| {
-        let (scheme, expected) = origin.split_once("://")?;
-        let default_port = if scheme == "https" { 443 } else { 80 };
-        let actual = if authority.port_u16() == Some(default_port) {
-            authority.host()
-        } else {
-            host
-        };
-        expected
-            .eq_ignore_ascii_case(actual)
-            .then_some(origin.as_str())
-    })
+    if !host
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))
+    {
+        return None;
+    }
+    let scheme = if secure { "https" } else { "http" };
+    let url = reqwest::Url::parse(&format!("{scheme}://{host}")).ok()?;
+    Some(url.origin().ascii_serialization())
 }
 
-fn socket_csp(policy: &str, origins: &[String]) -> String {
-    let sources = origins
-        .iter()
-        .map(|origin| origin.replacen("http", "ws", 1))
-        .collect::<Vec<_>>()
-        .join(" ");
-    policy.replace("connect-src ", &format!("connect-src {sources} "))
+fn socket_csp(policy: &str, secure: bool, headers: &HeaderMap) -> String {
+    match request_origin(secure, headers) {
+        Some(origin) => {
+            let socket = origin.replacen("http", "ws", 1);
+            policy.replace("connect-src ", &format!("connect-src {socket} "))
+        }
+        None => policy.to_owned(),
+    }
 }
 
 async fn live_script() -> Response {
@@ -732,8 +721,8 @@ async fn presence_module(Path(file): Path<String>) -> Response {
     }
 }
 
-async fn player_page(State(s): State<Served>) -> Response {
-    let csp = socket_csp(page_csp(), &s.origins);
+async fn player_page(State(s): State<Served>, headers: HeaderMap) -> Response {
+    let csp = socket_csp(page_csp(), s.secure, &headers);
     served("text/html; charset=utf-8", PLAYER_PAGE, Some(&csp))
 }
 
@@ -764,7 +753,7 @@ async fn player_icon() -> Response {
 
 /// The app's CSP from `tauri.conf.json` comes with the HTML, as the app's
 /// own window gets it; the browser is told the same.
-fn app_asset_response(s: &Served, path: &str) -> Option<Response> {
+fn app_asset_response(s: &Served, path: &str, request_headers: &HeaderMap) -> Option<Response> {
     let asset = s.app.asset_resolver().get(path.to_owned())?;
     let mut response = asset.bytes.into_response();
     let headers = response.headers_mut();
@@ -776,7 +765,7 @@ fn app_asset_response(s: &Served, path: &str) -> Option<Response> {
         HeaderValue::from_static("nosniff"),
     );
     if let Some(csp) = asset.csp_header.as_deref() {
-        let csp = socket_csp(csp, &s.origins);
+        let csp = socket_csp(csp, s.secure, request_headers);
         if let Ok(value) = HeaderValue::from_str(&csp) {
             headers.insert(header::CONTENT_SECURITY_POLICY, value);
         }
@@ -784,8 +773,8 @@ fn app_asset_response(s: &Served, path: &str) -> Option<Response> {
     Some(response)
 }
 
-async fn gm_page(State(s): State<Served>) -> Response {
-    app_asset_response(&s, "/index.html").unwrap_or_else(|| {
+async fn gm_page(State(s): State<Served>, headers: HeaderMap) -> Response {
+    app_asset_response(&s, "/index.html", &headers).unwrap_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             "The GM page is not built into this copy of Campaign Forge. In development, run `pnpm build` once so the dist folder exists.",
@@ -795,11 +784,11 @@ async fn gm_page(State(s): State<Served>) -> Response {
 }
 
 /// Scripts, styles and images the GM page refers to by absolute path.
-async fn app_asset(State(s): State<Served>, uri: axum::http::Uri) -> Response {
+async fn app_asset(State(s): State<Served>, uri: axum::http::Uri, headers: HeaderMap) -> Response {
     if uri.path().starts_with("/api/") {
         return StatusCode::NOT_FOUND.into_response();
     }
-    app_asset_response(&s, uri.path())
+    app_asset_response(&s, uri.path(), &headers)
         .unwrap_or_else(|| (StatusCode::NOT_FOUND, "not found").into_response())
 }
 
@@ -880,18 +869,17 @@ fn authorize<R: tauri::Runtime>(s: &Served<R>, token: &str, seen: bool) -> Resul
     };
     let p = seats.get_mut(token).ok_or_else(unauthorized)?;
     if let Some(id) = &p.player_id {
-        let registry = players::load(&s.app.state::<AppState>());
-        let record = p
-            .device
-            .as_ref()
-            .and_then(|d| players::find_by_device(&registry, &d.fingerprint))
-            .filter(|record| &record.id == id);
-        let Some(record) = record else {
+        let identity = p.device.as_ref().and_then(|d| {
+            s.app
+                .state::<AppState>()
+                .paired_identity(&d.fingerprint, id)
+        });
+        let Some((name, gm)) = identity else {
             seats.remove(token);
             return Err(unauthorized());
         };
-        p.gm = record.gm;
-        p.name.clone_from(&record.name);
+        p.gm = gm;
+        p.name = name;
     }
     if seen {
         p.last_seen = now();

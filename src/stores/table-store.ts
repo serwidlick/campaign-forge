@@ -57,7 +57,12 @@ interface TableState {
   /** Forget earlier results so a new search starts clean. */
   clearFound: () => void;
   stopDiscovery: () => Promise<void>;
-  join: (address: string, name: string, code?: string) => Promise<boolean>;
+  join: (
+    address: string,
+    name: string,
+    code?: string,
+    endpoints?: string[],
+  ) => Promise<boolean>;
   /** GM: pair a connected device with a player (existing id, or new by name). */
   bindDevice: (
     token: string,
@@ -327,10 +332,10 @@ export const useTableStore = create<TableState>((set, get) => {
       }
     },
 
-    async join(address, name, code) {
+    async join(address, name, code, endpoints) {
       set({ joining: true, error: null });
       try {
-        const session = await table.join(address, name, code);
+        const session = await table.join(address, name, code, endpoints);
         set({ notice: null });
         await attach(session);
         void get().stopDiscovery();

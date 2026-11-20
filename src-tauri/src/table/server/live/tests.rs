@@ -174,11 +174,7 @@ async fn exercise_table(secure: bool) {
         element: Some(visible.meta.id.clone()),
     });
     let served = Arc::new(ServerState {
-        origins: browser_origins(
-            secure.then_some(origin.as_str()),
-            listener.local_addr().unwrap().port(),
-            &[],
-        ),
+        secure,
         app: app.handle().clone(),
         code: "123456".into(),
         players: Arc::default(),
@@ -429,7 +425,7 @@ async fn plain_table() -> Table {
     let (stop, closing) = watch::channel(false);
     let (spotlight_tx, spotlight) = watch::channel(Spotlight::default());
     let served = Arc::new(ServerState {
-        origins: browser_origins(None, port, &[]),
+        secure: false,
         app: app.handle().clone(),
         code: "123456".into(),
         players: Arc::default(),
@@ -785,4 +781,24 @@ async fn idle_reports_make_people_away_and_back() {
     table.served.roster.set_host_away(false);
     roster_until(&mut a, roster, |r| r[0].state == RosterState::Active).await;
     table.close().await;
+}
+#[test]
+fn origin_and_csp_follow_the_address_used_by_the_browser() {
+    for (secure, host, expected) in [
+        (false, "GM-Laptop.lan:80", "http://gm-laptop.lan"),
+        (true, "[::1]:47531", "https://[::1]:47531"),
+        (false, "10.0.0.10:47530", "http://10.0.0.10:47530"),
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, host.parse().unwrap());
+        assert_eq!(request_origin(secure, &headers).as_deref(), Some(expected));
+        assert!(
+            socket_csp(page_csp(), secure, &headers).contains(&expected.replacen("http", "ws", 1))
+        );
+    }
+    for host in ["bad;host", "user@host", "host/path", "host:65536"] {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, host.parse().unwrap());
+        assert!(request_origin(false, &headers).is_none());
+    }
 }
