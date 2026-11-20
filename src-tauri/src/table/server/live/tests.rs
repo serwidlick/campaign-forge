@@ -767,6 +767,32 @@ async fn presence_counts_every_socket_and_survives_a_poisoned_lock() {
 }
 
 #[tokio::test]
+async fn a_socket_found_dead_counts_as_closed_at_its_last_pong() {
+    use super::super::roster::PresenceGuard;
+    let table = plain_table().await;
+    let gil = table.seat("Gil").await;
+    let last_closed = |t: &Table| {
+        t.served.players.lock().unwrap()[&gil.token]
+            .presence
+            .last_closed
+    };
+    let silent_since = Instant::now() - Duration::from_secs(50);
+    let mut dead = PresenceGuard::register(&table.served, &gil.token).unwrap();
+    dead.lost_at(silent_since);
+    drop(dead);
+    assert_eq!(last_closed(&table), Some(silent_since));
+    // A later, ordinary close is not moved back by an older silent one.
+    drop(PresenceGuard::register(&table.served, &gil.token).unwrap());
+    let closed_now = last_closed(&table);
+    assert!(closed_now > Some(silent_since));
+    let mut stale = PresenceGuard::register(&table.served, &gil.token).unwrap();
+    stale.lost_at(silent_since);
+    drop(stale);
+    assert_eq!(last_closed(&table), closed_now);
+    table.close().await;
+}
+
+#[tokio::test]
 async fn idle_reports_make_people_away_and_back() {
     use share::roster::RosterState;
     let table = plain_table().await;

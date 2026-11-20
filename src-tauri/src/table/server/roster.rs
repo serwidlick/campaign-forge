@@ -88,15 +88,22 @@ impl RosterHub {
 
 /// Rebuilds on presence changes, campaign changes (players, GM flags and the
 /// GM's name live in `campaign.json`), disconnected entries expiring, and stops
-/// when the table closes.
+/// when the table closes. Element saves (autosave included) bump the same
+/// change counter but cannot change the roster, so they cost no rebuild.
 pub(super) async fn run<R: tauri::Runtime>(s: Served<R>) {
     let mut changes = s.app.state::<AppState>().changes();
+    let mut seen = *changes.borrow_and_update();
     let mut closing = s.closing.clone();
+    let mut expiry = None;
+    let mut rebuild = true;
     loop {
         if *closing.borrow_and_update() {
             break;
         }
-        let expiry = publish(&s);
+        if rebuild {
+            expiry = publish(&s);
+        }
+        rebuild = true;
         let expired = async {
             match expiry {
                 Some(at) => {
@@ -111,6 +118,13 @@ pub(super) async fn run<R: tauri::Runtime>(s: Served<R>) {
                 if result.is_err() {
                     break;
                 }
+                let now = *changes.borrow_and_update();
+                rebuild = s
+                    .app
+                    .state::<AppState>()
+                    .changes_since(seen)
+                    .campaign_changed;
+                seen = now;
             }
             result = closing.changed() => {
                 if result.is_err() {
@@ -169,6 +183,8 @@ fn publish<R: tauri::Runtime>(s: &Served<R>) -> Option<Instant> {
 pub(super) struct PresenceGuard<R: tauri::Runtime> {
     s: Served<R>,
     token: String,
+    /// Set when the socket is found dead: the last time it was heard from.
+    lost_at: Option<Instant>,
 }
 
 impl<R: tauri::Runtime> PresenceGuard<R> {
@@ -188,7 +204,16 @@ impl<R: tauri::Runtime> PresenceGuard<R> {
         Some(Self {
             s: s.clone(),
             token: token.to_owned(),
+            lost_at: None,
         })
+    }
+
+    /// The socket went silent at `at` (its last pong) and is only now
+    /// found dead. Its grace, and with it the hold on its name, counts from
+    /// then, not from when the host noticed: otherwise a phone that was
+    /// simply switched off would keep its name for two minutes.
+    pub(super) fn lost_at(&mut self, at: Instant) {
+        self.lost_at = Some(at);
     }
 }
 
@@ -204,7 +229,10 @@ impl<R: tauri::Runtime> Drop for PresenceGuard<R> {
             if let Some(seat) = seats.get_mut(&self.token) {
                 seat.presence.sockets = seat.presence.sockets.saturating_sub(1);
                 if seat.presence.sockets == 0 {
-                    seat.presence.last_closed = Some(Instant::now());
+                    let closed = self.lost_at.unwrap_or_else(Instant::now);
+                    // Another socket of theirs may have closed later.
+                    seat.presence.last_closed =
+                        Some(seat.presence.last_closed.map_or(closed, |c| c.max(closed)));
                     seat.online = false;
                 }
             }

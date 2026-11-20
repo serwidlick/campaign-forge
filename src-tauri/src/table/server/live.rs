@@ -191,7 +191,7 @@ async fn live<R: tauri::Runtime>(
 ) {
     // Count this socket for as long as the loop runs. A seat removed since
     // its ticket was issued gets nothing.
-    let Some(_presence) = super::roster::PresenceGuard::register(&s, &token) else {
+    let Some(mut presence) = super::roster::PresenceGuard::register(&s, &token) else {
         return;
     };
     let state = s.app.state::<AppState>();
@@ -308,7 +308,12 @@ async fn live<R: tauri::Runtime>(
                 _ => break,
             },
             _ = heartbeat.tick() => {
-                if last_pong.elapsed() > Duration::from_secs(45) || !send(&mut socket, Message::Text("heartbeat".into())).await || !send(&mut socket, Message::Ping(Bytes::new())).await { break; }
+                if last_pong.elapsed() > Duration::from_secs(45) {
+                    // Silent since its last pong: gone since then.
+                    presence.lost_at(last_pong);
+                    break;
+                }
+                if !send(&mut socket, Message::Text("heartbeat".into())).await || !send(&mut socket, Message::Ping(Bytes::new())).await { break; }
             }
         }
     }

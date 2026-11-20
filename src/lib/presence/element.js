@@ -77,6 +77,8 @@ export class TablePresence extends HTMLElement {
    *  arrivals come out of it and departures fold into it. */
   #motion = null;
   #ticker = 0;
+  /** A render is queued for the end of this task (see #update). */
+  #queued = false;
   /** Bubbles by roster key, kept across updates so focus, animation and
    *  the pop-in stay with the right person. */
   #bubbles = new Map();
@@ -104,7 +106,7 @@ export class TablePresence extends HTMLElement {
 
   set roster(entries) {
     this.#roster = Array.isArray(entries) ? entries : [];
-    if (this.#built) this.#render();
+    this.#update();
   }
 
   /** How far this device's clock is ahead of the host's (ms), so "away for"
@@ -115,7 +117,7 @@ export class TablePresence extends HTMLElement {
 
   set clockOffset(ms) {
     this.#clockOffset = Number.isFinite(ms) ? ms : 0;
-    if (this.#built) this.#render();
+    this.#update();
   }
 
   /** The roster key of the person at this device, so their own bubble is
@@ -128,7 +130,7 @@ export class TablePresence extends HTMLElement {
     const next = typeof key === "string" && key ? key : null;
     if (next === this.#you) return;
     this.#you = next;
-    if (this.#built) this.#render();
+    this.#update();
   }
 
   /** True while this device cannot reach the host: the host shows as
@@ -143,7 +145,7 @@ export class TablePresence extends HTMLElement {
     if (next === this.#offline) return;
     this.#offline = next;
     if (next && this.#roster.length) haptic("warn");
-    if (this.#built) this.#render();
+    this.#update();
   }
 
   /** Starts an activity (see activities.js) on someone's bubble, or stops
@@ -151,7 +153,7 @@ export class TablePresence extends HTMLElement {
   setActivity(key, activity) {
     if (activity) this.#activities.set(key, activity);
     else this.#activities.delete(key);
-    if (this.#built) this.#render();
+    this.#update();
   }
 
   connectedCallback() {
@@ -216,6 +218,21 @@ export class TablePresence extends HTMLElement {
 
   // ---- Rendering ----------------------------------------------------------
 
+  /**
+   * Renders once at the end of the current task, however many properties
+   * the page set in it: a roster frame usually sets the clock offset and
+   * the roster together, and two renders would paint, measure and start a
+   * slide twice. Presses that cause motion still render at once.
+   */
+  #update() {
+    if (!this.#built || this.#queued) return;
+    this.#queued = true;
+    queueMicrotask(() => {
+      this.#queued = false;
+      if (this.isConnected) this.#render();
+    });
+  }
+
   #render() {
     const visible = this.#styled && this.#roster.length > 0;
     this.hidden = !visible;
@@ -274,6 +291,10 @@ export class TablePresence extends HTMLElement {
     const leaving = this.#arrange(order);
     this.#group.setAttribute("aria-label", "At the table, " + roster.length);
     this.#tick(roster.some((e) => statusOf(e.state).ticks));
+    // While the group is carried it stays where the finger has it: placing
+    // it would snap it back to its edge, and the drop would then land
+    // there. Bubbles still come and go; the drop lays everything out.
+    if (this.#drag?.dragging) return;
     this.#place();
     this.#move(order, leaving, before);
   }
@@ -356,7 +377,7 @@ export class TablePresence extends HTMLElement {
   /** Keeps time-based words ("away for 7 min") current while any show. */
   #tick(on) {
     if (on && !this.#ticker) {
-      this.#ticker = setInterval(() => this.#render(), TICK_MS);
+      this.#ticker = setInterval(() => this.#update(), TICK_MS);
     } else if (!on && this.#ticker) {
       clearInterval(this.#ticker);
       this.#ticker = 0;
@@ -525,11 +546,12 @@ export class TablePresence extends HTMLElement {
   };
 
   #onResize = () => {
-    if (!this.hidden) this.#place();
+    // A carried group stays under the finger; the drop places it.
+    if (!this.hidden && !this.#drag?.dragging) this.#place();
   };
 
   #onNarrow = () => {
-    if (this.#built) this.#render();
+    this.#update();
   };
 }
 

@@ -72,7 +72,7 @@ Each bubble shows how its person is:
 
 - **Active**: a green dot. They are connected and have used their device in the last five minutes.
 - **Away**: a moon, and the bubble turns grey. Their device has had no input for five minutes. Hover over the moon to see how long they have been away ("Away for 7 min"); it updates as time passes. Using the device again makes them active.
-- **Disconnected**: a crossed-out Wi-Fi sign and a dashed ring. Their connection dropped; a phone that locks or a laptop that changes Wi-Fi comes back without anyone noticing. If they are not back within a minute, they leave the list. Leaving the table works the same way. A device that walks out of Wi-Fi range without closing can take up to another minute to be noticed.
+- **Disconnected**: a crossed-out Wi-Fi sign and a dashed ring. Their connection dropped; a phone that locks or a laptop that changes Wi-Fi comes back without anyone noticing. If they are not back within a minute, they leave the list. Leaving the table works the same way. A device that walks out of Wi-Fi range without closing can take up to a minute to be noticed, and that minute counts towards the one it has to come back. A phone whose screen locks usually shows as disconnected rather than away: phones pause a locked page's connection and timers, so the table stops hearing from it before five idle minutes are up. Unlocking it brings the person back.
 
 Your own bubble has a light ring around it and a **You** tag. It comes right after the GM, so the order is the GM, you, then everyone else in the order they arrived, and it always shows, even when the rest fold into **+N**.
 
