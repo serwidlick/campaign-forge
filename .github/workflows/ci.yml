@@ -7,7 +7,7 @@ on:
     branches: [development, master]
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action == 'edited' && !github.event.changes.base && 'metadata' || 'code' }}
   cancel-in-progress: true
 
 permissions:
@@ -29,8 +29,8 @@ jobs:
           fi
 
   commitlint:
-    name: commitlint
-    if: github.event_name == 'pull_request'
+    name: commitlint${{ github.event.action == 'edited' && !github.event.changes.base && ' (metadata edit)' || '' }}
+    if: github.event_name == 'pull_request' && (github.event.action != 'edited' || github.event.changes.base)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +46,8 @@ jobs:
         run: pnpm exec commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
 
   frontend:
-    name: typecheck + lint + build
+    name: typecheck + lint + build${{ github.event.action == 'edited' && !github.event.changes.base && ' (metadata edit)' || '' }}
+    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +63,8 @@ jobs:
       - run: pnpm build
 
   rust:
-    name: cargo check + clippy (${{ matrix.os }})
+    name: cargo check + clippy (${{ matrix.os }})${{ github.event.action == 'edited' && !github.event.changes.base && ' (metadata edit)' || '' }}
+    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -87,7 +89,8 @@ jobs:
         working-directory: src-tauri
 
   audit:
-    name: cargo audit
+    name: cargo audit${{ github.event.action == 'edited' && !github.event.changes.base && ' (metadata edit)' || '' }}
+    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
