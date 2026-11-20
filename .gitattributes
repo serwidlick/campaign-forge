@@ -1,0 +1,3 @@
+# The phone page's inline blocks are allowed by hash (table/server.rs);
+# keep it LF in every checkout so the embedded bytes match what browsers see.
+src-tauri/web/*.html text eol=lf

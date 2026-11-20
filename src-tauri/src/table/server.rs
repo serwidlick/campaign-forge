@@ -486,7 +486,10 @@ fn page_csp() -> &'static str {
 }
 
 /// `'sha256-…'` sources for every inline block between `open` and `close`,
-/// hashed exactly as a browser does: the text between the tags, verbatim.
+/// hashed exactly as a browser does: the text between the tags, after the
+/// HTML parser's newline normalisation (CRLF and lone CR become LF). A
+/// Windows checkout with `core.autocrlf` embeds the page with CRLF, which
+/// the browser never sees, so hashing the raw bytes would block the page.
 fn inline_hashes(html: &str, open: &str, close: &str) -> String {
     let mut out = String::new();
     let mut rest = html;
@@ -495,7 +498,8 @@ fn inline_hashes(html: &str, open: &str, close: &str) -> String {
         let Some(end) = body.find(close) else {
             break;
         };
-        let digest = Sha256::digest(&body.as_bytes()[..end]);
+        let text = body[..end].replace("\r\n", "\n").replace('\r', "\n");
+        let digest = Sha256::digest(text.as_bytes());
         out.push_str(&format!(" 'sha256-{}'", BASE64_STANDARD.encode(digest)));
         rest = &body[end + close.len()..];
     }
@@ -1210,5 +1214,27 @@ mod tests {
             1
         );
         assert!(page_csp().contains("script-src 'self' 'sha256-"));
+    }
+
+    #[test]
+    fn inline_blocks_hash_the_same_whatever_the_line_endings() {
+        // Escapes, not a multi-line literal: rustc turns CRLF in source into
+        // LF, while `include_str!` keeps a CRLF checkout's bytes as they are.
+        let lf = "<script>\nlet a = 1;\nlet b = 2;\n</script><style>\nb{}\n</style>";
+        let crlf = "<script>\r\nlet a = 1;\r\nlet b = 2;\r\n</script><style>\r\nb{}\r\n</style>";
+        let cr = "<script>\rlet a = 1;\rlet b = 2;\r</script><style>\rb{}\r</style>";
+        for (open, close) in [("<script>", "</script>"), ("<style>", "</style>")] {
+            let expected = inline_hashes(lf, open, close);
+            assert_eq!(inline_hashes(crlf, open, close), expected);
+            assert_eq!(inline_hashes(cr, open, close), expected);
+        }
+        // What a browser lists for the LF script: SHA-256 of its text.
+        assert_eq!(
+            inline_hashes(crlf, "<script>", "</script>"),
+            format!(
+                " 'sha256-{}'",
+                BASE64_STANDARD.encode(Sha256::digest("\nlet a = 1;\nlet b = 2;\n"))
+            )
+        );
     }
 }
