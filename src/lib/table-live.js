@@ -1,3 +1,5 @@
+export const LIVE_PROTOCOL = "table.ws.v1";
+
 /** One reader per joined browser tab. Queue overflow forces a fresh snapshot. */
 export function tableSocket(ticket, player = false) {
   const { location, WebSocket, clearTimeout, setTimeout } = globalThis;
@@ -6,7 +8,7 @@ export function tableSocket(ticket, player = false) {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(
     scheme + "//" + location.host + "/api/live",
-    "table.ws.v1",
+    LIVE_PROTOCOL,
   );
   const queue = [];
   let waiting;
@@ -27,7 +29,7 @@ export function tableSocket(ticket, player = false) {
   }
   deadline(10000);
   socket.onopen = () => {
-    if (ended || socket.protocol !== "table.ws.v1") return close();
+    if (ended || socket.protocol !== LIVE_PROTOCOL) return close();
     socket.send(JSON.stringify({ ticket, player }));
   };
   socket.onclose = socket.onerror = close;

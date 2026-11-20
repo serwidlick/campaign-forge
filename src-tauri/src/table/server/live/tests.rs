@@ -22,7 +22,7 @@ fn tickets_expire_and_can_only_be_consumed_once() {
 
 type ClientSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
-async fn receive(socket: &mut ClientSocket) -> VersionResponse {
+async fn receive(socket: &mut ClientSocket) -> TableChange {
     let frame = tokio::time::timeout(Duration::from_secs(5), socket.next())
         .await
         .unwrap()
@@ -135,7 +135,7 @@ async fn exercise_table(secure: bool) {
         )
         .unwrap();
     let hidden = campaign.create_element("location", "Secret", None).unwrap();
-    let (_stop, closing) = watch::channel(false);
+    let (stop, closing) = watch::channel(false);
     let (spot, spotlight) = watch::channel(Spotlight {
         seq: 1,
         element: Some(visible.meta.id.clone()),
@@ -186,9 +186,24 @@ async fn exercise_table(secure: bool) {
     assert!(
         matches!(denied, Err(tokio_tungstenite::tungstenite::Error::Http(response)) if response.status() == StatusCode::FORBIDDEN)
     );
-    let joined: JoinResponse = http
+    let incompatible = http
         .post(format!("{origin}/api/join"))
         .json(&json!({"name":"Mira","code":"123456"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(incompatible.status(), StatusCode::BAD_REQUEST);
+    assert!(
+        incompatible
+            .text()
+            .await
+            .unwrap()
+            .contains("Update your Campaign Forge client")
+    );
+    assert!(served.players.lock().unwrap().is_empty());
+    let joined: JoinResponse = http
+        .post(format!("{origin}/api/join"))
+        .json(&json!({"name":"Mira","code":"123456", "liveProtocol":LIVE_PROTOCOL}))
         .send()
         .await
         .unwrap()
@@ -312,5 +327,20 @@ async fn exercise_table(secure: bool) {
             .status(),
         StatusCode::UNAUTHORIZED
     );
+    let other: JoinResponse = http
+        .post(format!("{origin}/api/join"))
+        .json(&json!({"name":"Jules","code":"123456","liveProtocol":LIVE_PROTOCOL}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let mut active = connect(&origin, &http, connector, &other.token).await;
+    assert!(receive(&mut active).await.delta.unwrap().reset);
+    stop.send_replace(true);
+    assert!(receive(&mut active).await.closed);
     task.abort();
 }

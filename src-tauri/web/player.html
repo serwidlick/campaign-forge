@@ -1211,10 +1211,8 @@
           filter: null,
           query: "",
           openId: null,
-          version: 0,
           event: 0,
           urls: {},
-          stopped: false,
         };
 
         var $ = function (id) {
@@ -1362,11 +1360,25 @@
           $("name").value = localStorage.getItem("cf.playerName") || "";
         } catch (e) {}
 
+        var LIVE_PROTOCOL = "table.ws.v1";
+        var UPGRADE_HOST =
+          "Update the GM’s host and reload this page to join the WebSocket table.";
+        function checkHost(info) {
+          if (info.liveProtocol !== LIVE_PROTOCOL)
+            throw new Error(UPGRADE_HOST);
+          return info;
+        }
+
         fetch("/api/table")
           .then(function (r) {
             return r.json();
           })
           .then(function (info) {
+            if (info.liveProtocol !== LIVE_PROTOCOL) {
+              $("join-sub").textContent = UPGRADE_HOST;
+              $("join-btn").disabled = true;
+              return;
+            }
             $("join-sub").textContent =
               "This is " +
               info.name +
@@ -1490,7 +1502,7 @@
               if (!code && !device) {
                 throw new Error("The code the GM reads out is needed.");
               }
-              var body = { name: name };
+              var body = { name: name, liveProtocol: LIVE_PROTOCOL };
               if (code) body.code = code;
               if (device) body.device = device;
               return fetch("/api/join", {
@@ -1506,13 +1518,13 @@
               });
             })
             .then(function (joined) {
+              checkHost(joined.info);
               // A paired browser takes the name the GM gave the player.
               var who = joined.name || name;
               state.token = joined.token;
               state.name = who;
               state.playerId = joined.playerId || null;
               state.info = joined.info;
-              state.version = joined.info.version;
               try {
                 localStorage.setItem("cf.playerName", who);
                 sessionStorage.setItem("cf.token", joined.token);
@@ -1542,19 +1554,17 @@
             state.token = t;
             state.name = n;
             state.playerId = sessionStorage.getItem("cf.playerId") || null;
-            // The table may have been restarted since: prove the token with
-            // a call that needs it before sitting back down, or the page
-            // would show an empty table instead of the join screen.
-            json("/api/elements")
-              .then(function () {
-                return json("/api/table");
-              })
+            // The socket ticket revalidates this saved session after a restart.
+            json("/api/table")
+              .then(checkHost)
               .then(function (info) {
                 state.info = info;
                 enter();
               })
-              .catch(function () {
-                leave();
+              .catch(function (error) {
+                leave(
+                  error.message === UPGRADE_HOST ? UPGRADE_HOST : undefined,
+                );
               });
           }
         } catch (e) {}
@@ -1564,14 +1574,12 @@
           show("table");
           $("campaign-name").textContent = state.info.name;
           $("player-name").textContent = " · " + state.name;
-          state.stopped = false;
           runTable(state.token);
         }
 
         function leave(message) {
           flushDraft();
           flushNote();
-          state.stopped = true;
           if (state.live) state.live.close();
           state.live = null;
           state.elements = [];
@@ -1615,48 +1623,21 @@
           state.urls = {};
         }
 
-        function refresh() {
-          var token = state.token;
-          return json("/api/elements").then(function (els) {
-            if (token !== state.token) return;
-            state.elements = els;
-            renderFilters();
-            renderList();
-            if (state.openId && !byId(state.openId)) clearReader();
-            else if (state.openId) openElement(state.openId, true);
-          });
-        }
-
         async function runTable(token) {
           var failures = 0;
           while (state.token === token) {
             var socket;
             try {
-              var protocol = state.info.liveProtocol;
-              var module;
-              if (protocol) {
-                if (protocol !== "table.ws.v1")
-                  throw new Error("Unsupported table protocol");
-                module = await import("/table-live.js");
-                var auth = await json("/api/live/ticket", {
-                  method: "POST",
-                  signal: AbortSignal.timeout(15000),
-                });
-                if (token !== state.token) return;
-                socket = module.tableSocket(auth.ticket, true);
-                state.live = socket;
-              } else {
-                await refresh();
-              }
+              var module = await import("/table-live.js");
+              var auth = await json("/api/live/ticket", {
+                method: "POST",
+                signal: AbortSignal.timeout(15000),
+              });
+              if (token !== state.token) return;
+              socket = module.tableSocket(auth.ticket, true);
+              state.live = socket;
               while (state.token === token) {
-                var v = socket
-                  ? await socket.next()
-                  : await json(
-                      "/api/version?after=" +
-                        state.version +
-                        "&event=" +
-                        state.event,
-                    );
+                var v = await socket.next();
                 if (state.token !== token) return;
                 if (v.closed) throw new Error("CLOSED");
                 if (failures) setNotice("");
@@ -1680,9 +1661,6 @@
                   ) {
                     openElement(state.openId, true);
                   }
-                } else if (!socket && v.version !== state.version) {
-                  await refresh();
-                  if (state.token !== token) return;
                 }
                 if (
                   v.spotlightSeq !== state.event ||
@@ -1694,7 +1672,6 @@
                 }
                 state.event = v.spotlightSeq;
                 state.spotlight = v.spotlight;
-                state.version = v.version;
               }
             } catch (e) {
               if (state.token !== token) return;
@@ -2134,7 +2111,7 @@
         // here: hit points, hit dice, death saves, inspiration, conditions,
         // exhaustion, spell slots, item counts and coins. The whole sheet goes
         // back with PUT, as the app does, and the GM's copy returns through
-        // the version loop; everything else on the sheet stays as the GM set
+        // the live connection; everything else on the sheet stays as the GM set
         // it.
         var CONDITIONS = [
           "Blinded",
@@ -3092,7 +3069,7 @@
               return r.json();
             })
             .then(function (saved) {
-              // The GM's copy comes back through the version loop and is
+              // The GM's copy comes back through the live connection and is
               // adopted at the next repaint; swapping the draft here would
               // leave the painted fields reading a stale object.
               if (draft.id !== id) return;
@@ -3394,7 +3371,6 @@
             .then(function () {
               if (note.id === id) note.id = null;
               if (state.openId === id) $("back").click();
-              refresh();
             })
             .catch(function (e) {
               note.failed = true;
@@ -3435,12 +3411,7 @@
             .then(noteResponse)
             .then(function (created) {
               closeNoteForm();
-              if (!state.filter || state.filter === "note") {
-                state.elements.push(created);
-                renderList();
-              }
               openElement(created.id);
-              refresh();
             })
             .catch(function (err) {
               var box = $("new-note-error");

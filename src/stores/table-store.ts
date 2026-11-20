@@ -99,29 +99,13 @@ export const useTableStore = create<TableState>((set, get) => {
     set({ hosting: null });
   }
 
-  /**
-   * Keeps us current with the host: a player fetches the shared list, then
-   * waits for the GM's version to move, then fetches again. A GM's device
-   * is told what changed instead and reloads just that, the way the host's
-   * own window follows an edit from another program. On any failure, back
-   * off and retry until we leave.
-   */
-  async function runSyncLoop(generation: number, startVersion: number) {
-    let version = startVersion;
+  /** Consume the host's initial snapshot, then process live changes in order. */
+  async function runSyncLoop(generation: number) {
     let event = 0;
-    const live = !!get().session?.info.liveProtocol;
-    let needFetch = !live;
-    let subscribe = live;
+    let subscribe = true;
     while (generation === loopGeneration) {
       try {
-        const gm = get().session?.gm ?? false;
-        if (needFetch && !gm) {
-          const elements = await table.fetchElements();
-          if (generation !== loopGeneration) return;
-          set({ elements, version, connection: "connected" });
-          needFetch = false;
-        }
-        const next = await table.waitForChange(version, event, subscribe);
+        const next = await table.nextEvent(subscribe);
         subscribe = false;
         if (generation !== loopGeneration) return;
         if (next.closed) {
@@ -158,7 +142,6 @@ export const useTableStore = create<TableState>((set, get) => {
             exitGm();
           }
           if (generation !== loopGeneration) return;
-          needFetch = !live;
         }
         if (next.delta) {
           set({ elements: applyDelta(get().elements, next.delta) });
@@ -175,19 +158,8 @@ export const useTableStore = create<TableState>((set, get) => {
             set({ spotlight: { id: next.spotlight, seq: next.spotlightSeq } });
           }
         }
-        if (
-          next.version > version ||
-          next.delta?.reset ||
-          (live && next.changes)
-        ) {
-          version = next.version;
-          set({ version });
-          if (next.gm) {
-            if (next.changes) notifyFilesChanged(next.changes);
-          } else {
-            needFetch = !live;
-          }
-        }
+        set({ version: next.version });
+        if (next.gm && next.changes) notifyFilesChanged(next.changes);
       } catch (err) {
         if (generation !== loopGeneration) return;
         if (errorMessage(err) === "TABLE_UNAUTHORIZED") {
@@ -198,9 +170,8 @@ export const useTableStore = create<TableState>((set, get) => {
           await detach(CLOSED_NOTICE);
           return;
         }
-        subscribe = live;
+        subscribe = true;
         set({ connection: "reconnecting" });
-        needFetch = !live;
         await sleep(RETRY_MS + Math.random() * 1000);
       }
     }
@@ -228,9 +199,7 @@ export const useTableStore = create<TableState>((set, get) => {
       error: null,
     });
     if (session.gm && !isMobile) await enterGm();
-    // Start one version behind so the first wait returns at once if the GM
-    // changed something between join and now.
-    void runSyncLoop(generation, Math.max(0, session.info.version - 1));
+    void runSyncLoop(generation);
   }
 
   return {

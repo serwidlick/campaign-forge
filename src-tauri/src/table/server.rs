@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! GET  /api/table                       who is hosting what (no auth)
-//! POST /api/join   {name, code}         -> {token, info}
+//! POST /api/join   {name, liveProtocol, code or device proof} -> {token, info}
 //! GET  /api/elements                    shared summaries
 //! GET  /api/elements/{id}               one shared element
 //! GET  /api/assets/{*path}              a shared map image
@@ -11,7 +11,8 @@
 //! POST /api/notes  {name, body}         a player writes a note into the campaign
 //! PUT  /api/notes/{id}                  the author changes or shares a note
 //! DELETE /api/notes/{id}                the author deletes a note
-//! GET  /api/version?after=N             long-poll: returns once version > N
+//! POST /api/live/ticket                 mint a single-use WebSocket ticket
+//! GET  /api/live                        upgrade to the live table WebSocket
 //!
 //! POST /api/gm/call {command, args}     a GM's device: run any storage command
 //! GET  /api/gm/assets/{*path}           a GM's device: any asset
@@ -21,12 +22,10 @@
 //! The same server also serves a small web page at `/` so a phone or
 //! tablet can sit at the table from its browser, with the same API.
 //!
-//! Everything but `/api/table` and the page needs `Authorization: Bearer <token>`. The
-//! token comes from `/api/join`, which checks the six-digit code the GM reads
-//! out at the table. That is the whole security model: same Wi-Fi plus the
-//! code. Fine for a living room, and we say so in the UI. The `/api/gm/`
-//! routes answer only a device paired with a player the GM marked as a GM
-//! ([`super::gm`]); they see and change everything, like the GM's own window.
+//! The host checks the live protocol and join code or paired-device proof
+//! before issuing a session token. Protected HTTP requests use that bearer.
+//! Each WebSocket authenticates with a single-use ticket. GM-only commands
+//! additionally check the device's current role.
 
 mod live;
 use live::{Tickets, issue_ticket, load_tls, upgrade};
@@ -56,8 +55,7 @@ use super::gm;
 use super::players;
 use super::share::{self, Viewer};
 
-/// How long a version long-poll waits before answering "nothing new".
-const LONG_POLL: Duration = Duration::from_secs(25);
+pub(super) const LIVE_PROTOCOL: &str = "table.ws.v1";
 
 /// Sent to players once the GM has stopped hosting.
 pub const CLOSED_MESSAGE: &str = "the GM ended the table";
@@ -142,7 +140,7 @@ const CODE_LOCKOUT: Duration = Duration::from_secs(60);
 const CODE_MEMORY: Duration = Duration::from_secs(600);
 
 /// How recently a seated guest must have been heard from to still hold
-/// their name. A connected page polls at least every 25 seconds.
+/// their name. Connected clients answer WebSocket heartbeats.
 const SEAT_TIMEOUT: chrono::Duration = chrono::Duration::seconds(60);
 
 /// Wrong join codes from one address.
@@ -233,7 +231,10 @@ fn name_taken(
 pub type Players = Arc<Mutex<HashMap<String, Player>>>;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JoinRequest {
+    #[serde(default)]
+    pub live_protocol: Option<String>,
     #[serde(default)]
     pub name: String,
     #[serde(default)]
@@ -267,15 +268,6 @@ pub struct JoinResponse {
     pub gm: bool,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct AfterQuery {
-    #[serde(default)]
-    pub after: u64,
-    /// Last spotlight sequence number the player has seen.
-    #[serde(default)]
-    pub event: u64,
-}
-
 /// What the GM is showing everyone right now. `seq` grows on every change
 /// so players can tell a new spotlight from one they already opened.
 #[derive(Debug, Clone, Default)]
@@ -287,7 +279,7 @@ pub struct Spotlight {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[derive(Default)]
-pub struct VersionResponse {
+pub struct TableChange {
     pub version: u64,
     /// The GM stopped hosting; the player should leave.
     #[serde(default)]
@@ -301,7 +293,7 @@ pub struct VersionResponse {
     /// or revoke that while the device is connected.
     #[serde(default)]
     pub gm: bool,
-    /// For a GM's device: what changed since `after`, so its window can
+    /// For a GM's device: what changed since the last event, so its window can
     /// reload exactly what the hosting window would on an outside edit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes: Option<DiskChanges>,
@@ -423,7 +415,6 @@ pub async fn start(
         .route("/api/notes", post(create_note))
         .route("/api/notes/{id}", put(update_note).delete(delete_note))
         .route("/api/assets/{*path}", get(asset))
-        .route("/api/version", get(version))
         .route("/api/live/ticket", post(issue_ticket))
         .route("/api/live", get(upgrade))
         .route("/table-live.js", get(live_script))
@@ -647,6 +638,9 @@ async fn gm_page(State(s): State<Served>) -> Response {
 
 /// Scripts, styles and images the GM page refers to by absolute path.
 async fn app_asset(State(s): State<Served>, uri: axum::http::Uri) -> Response {
+    if uri.path().starts_with("/api/") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     app_asset_response(&s, uri.path())
         .unwrap_or_else(|| (StatusCode::NOT_FOUND, "not found").into_response())
 }
@@ -803,6 +797,13 @@ async fn join<R: tauri::Runtime>(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(req): Json<JoinRequest>,
 ) -> Result<Json<JoinResponse>, ApiError> {
+    if req.live_protocol.as_deref() != Some(LIVE_PROTOCOL) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "Update your Campaign Forge client or reload this page to join this WebSocket table."
+                .into(),
+        ));
+    }
     // A device proves itself by signing a nonce we issued; the nonce is
     // single-use and short-lived, so a captured join cannot be replayed.
     let device = match req.device {
@@ -1108,81 +1109,6 @@ async fn delete_note(
             StatusCode::FORBIDDEN,
             "this note is not yours to delete".to_owned(),
         ))
-    }
-}
-
-fn visible_spotlight(
-    state: &AppState,
-    who: &Who,
-    id: Option<String>,
-) -> Result<Option<String>, ApiError> {
-    if who.gm || id.is_none() {
-        return Ok(id);
-    }
-    let entries = share::shared_versions(state, Some(&who.viewer())).map_err(storage_error)?;
-    Ok(id.filter(|id| entries.iter().any(|(e, _)| &e.meta.id == id)))
-}
-
-pub(super) const LIVE_PROTOCOL: &str = "table.ws.v1";
-
-/// Answers as soon as the campaign changes past `after`, or after a while
-/// with the current version so clients can simply loop.
-async fn version(
-    State(s): State<Served>,
-    headers: HeaderMap,
-    Query(q): Query<AfterQuery>,
-) -> Result<Json<VersionResponse>, ApiError> {
-    authed(&s, &headers)?;
-    let state = s.app.state::<AppState>();
-    let mut rx = state.changes();
-    let mut closing = s.closing.clone();
-    let mut spot_rx = s.spotlight.clone();
-    let deadline = tokio::time::sleep(LONG_POLL);
-    tokio::pin!(deadline);
-    let respond = |version: u64, spot: Spotlight, closed: bool| {
-        // A GM's window reloads exactly what changed; players re-fetch the
-        // shared list and need no detail.
-        if closed {
-            return Ok(Json(VersionResponse {
-                closed: true,
-                version,
-                ..Default::default()
-            }));
-        }
-        let who = authed(&s, &headers)?;
-        let spotlight = visible_spotlight(&state, &who, spot.element)?;
-        let changes = (who.gm && version > q.after).then(|| state.changes_since(q.after));
-        Ok(Json(VersionResponse {
-            version,
-            closed,
-            spotlight,
-            spotlight_seq: spot.seq,
-            gm: who.gm,
-            player_id: who.player_id,
-            delta: None,
-            changes,
-        }))
-    };
-    loop {
-        let current = *rx.borrow();
-        let spot = spot_rx.borrow().clone();
-        if *closing.borrow() {
-            return respond(current, spot, true);
-        }
-        if current > q.after || spot.seq > q.event {
-            return respond(current, spot, false);
-        }
-        tokio::select! {
-            _ = &mut deadline => return respond(current, spot, false),
-            changed = rx.changed() => {
-                if changed.is_err() {
-                    return respond(current, spot, false);
-                }
-            }
-            _ = spot_rx.changed() => {}
-            // A closed channel means the host was dropped: that is a close too.
-            _ = closing.changed() => return respond(current, spot, true),
-        }
     }
 }
 
