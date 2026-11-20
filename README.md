@@ -92,7 +92,7 @@ Players only need the same installer, or the Android app on a phone. They do not
 
 ### Making a release
 
-Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub Actions for Windows, macOS (Apple Silicon) and Linux, plus the Android player APK. Include the version bump in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` in a PR to `development`. Once the release is ready, open a PR from `development` to `master` and use **Create a merge commit** to preserve the shared history for the next release. After it merges, tag the promoted commit on `master`. For example, for version `0.5.0`:
+Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub Actions for Windows, macOS (Apple Silicon) and Linux, plus the Android player APK. Include the version bump in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` in a PR to `development`. Once the release is ready, open a PR from `development` to `master` and merge it with **Squash and merge**: the `master` ruleset allows no other method, and it also requires the branch to be up to date with `master` and every CI job to pass. After it merges, tag the promoted commit on `master`, then merge `origin/master` back into `development` so the next release PR shows only new work. For example, for version `0.5.0`:
 
 ```bash
 git fetch origin
