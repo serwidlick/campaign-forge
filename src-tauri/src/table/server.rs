@@ -309,6 +309,20 @@ fn same_name(a: &str, b: &str) -> bool {
     a.trim().eq_ignore_ascii_case(b.trim())
 }
 
+/// Whether a join takes a place at the table: not when it replaces the same
+/// device's own guest seat under the same name (`seat_guest` swaps it).
+fn needs_new_seat(seats: &HashMap<String, Player>, joining: &Player) -> bool {
+    let Some(fp) = joining.device.as_ref().map(|d| &d.fingerprint) else {
+        return true;
+    };
+    !seats.values().any(|p| {
+        p.player_id.is_none()
+            && joining.player_id.is_none()
+            && same_name(&p.name, &joining.name)
+            && p.device.as_ref().is_some_and(|d| &d.fingerprint == fp)
+    })
+}
+
 /// Admits a guest under `name` and seats them, in one critical section so
 /// two joins cannot both pass the check. Older guest seats under the same
 /// name hold it no longer (or the join is refused), so they are removed:
@@ -337,6 +351,14 @@ fn seat_guest(
     {
         player.roster_key.clone_from(&old.roster_key);
         player.presence.first_connected = old.presence.first_connected;
+        // Until the new socket connects, the person is "just disconnected",
+        // not gone: their grace runs from now (or from when they did go), so
+        // the roster keeps them and their conversations survive the handover.
+        player.presence.last_closed = if old.presence.sockets > 0 {
+            Some(now)
+        } else {
+            old.presence.last_closed
+        };
     }
     seats.retain(|_, p| !(p.player_id.is_none() && same_name(&p.name, &player.name)));
     seats.insert(token, player);
@@ -1169,11 +1191,15 @@ async fn join<R: tauri::Runtime>(
     };
     {
         let mut seats = s.players.lock().map_err(|_| poisoned())?;
-        if seats.len() >= MAX_SEATS {
+        // A device taking back its own seat needs no new place.
+        let full = |seats: &HashMap<String, Player>| {
+            seats.len() >= MAX_SEATS && needs_new_seat(seats, &seat)
+        };
+        if full(&seats) {
             let (now, grace) = (Instant::now(), s.roster.grace());
             seats.retain(|_, p| p.holds_name(now, grace));
         }
-        if seats.len() >= MAX_SEATS {
+        if full(&seats) {
             return Err(ApiError(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "the table is full".to_owned(),
@@ -1701,6 +1727,15 @@ mod tests {
         seat_guest(&mut seats, &[], "new".into(), again, now, GRACE).unwrap();
         assert!(!seats.contains_key("old"));
         assert_eq!(seats["new"].roster_key, key);
+        // Until the new socket connects the person stays on the roster as
+        // just disconnected, so their conversations are not ended.
+        assert_eq!(seats["new"].presence.sockets, 0);
+        assert_eq!(seats["new"].presence.last_closed, Some(now));
+        // At a full table, taking back your own seat needs no new place.
+        let mine = with_device("Tam", "fp-tam");
+        assert!(!needs_new_seat(&seats, &mine));
+        assert!(needs_new_seat(&seats, &with_device("Tam", "fp-other")));
+        assert!(needs_new_seat(&seats, &guest_seat("Tam", 0)));
         // Without a device there is nothing to recognise: refused as before.
         assert!(
             seat_guest(

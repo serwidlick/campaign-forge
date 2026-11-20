@@ -534,6 +534,7 @@ impl Table {
         }
         // As `Host::bind_device` does: the seat changed after the registry.
         self.served.roster.wake();
+        self.served.messages.wake();
         record.id
     }
 

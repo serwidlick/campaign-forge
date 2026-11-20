@@ -285,6 +285,9 @@ export class Card {
     const area = this.#host.area();
     card.classList.remove("sheet");
     card.style.width = "";
+    // Never taller than what is on screen (a phone's keyboard included);
+    // the conversation scrolls inside.
+    card.style.maxHeight = Math.max(160, area.height - 24) + "px";
     const size = { width: card.offsetWidth, height: card.offsetHeight };
     const rect = bubble
       ? bubble.getBoundingClientRect()

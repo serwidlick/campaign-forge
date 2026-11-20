@@ -273,6 +273,9 @@ impl TableState {
         }
         // The registry was saved before the seat changed; rebuild from both.
         host.roster.wake();
+        // Wake its sockets even if the roster looks the same (re-paired as
+        // the same player): the new epoch must reach them with a snapshot.
+        host.messages.wake();
         Ok(host.status())
     }
 }

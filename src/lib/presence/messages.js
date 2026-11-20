@@ -16,6 +16,9 @@ import { formatClock } from "./time.js";
 const TYPING_REFRESH_MS = 2_500;
 /** How close to the bottom counts as "reading the newest". */
 const AT_BOTTOM_PX = 24;
+/** Seen reports closer together than this are dropped by the host, so a
+ *  later one waits, and one not taken is tried again after it. */
+const SEEN_SPACING_MS = 1_100;
 
 const STATUS_WORDS = {
   sending: "Sending…",
@@ -154,8 +157,9 @@ defineCardSection("message", {
     box.addEventListener(
       "keydown",
       (event) => {
-        // Keys typed here are the message's, not the bubbles' docking keys.
-        event.stopPropagation();
+        // Keys typed here are the message's, not the bubbles' docking keys;
+        // Escape still reaches the card, which closes.
+        if (event.key !== "Escape") event.stopPropagation();
         if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
           event.preventDefault();
           submit();
@@ -213,6 +217,7 @@ defineCardSection("message", {
     markSeen(h);
   },
   unmount(h) {
+    clearTimeout(h.seenTimer);
     h.stopTyping?.();
   },
 });
@@ -225,13 +230,23 @@ function fit(box) {
 
 /** Tells the table you have read the newest message, when you can see it. */
 function markSeen(h) {
+  clearTimeout(h.seenTimer);
   const v = h.view;
   if (!v?.cid || !v.lastSeq) return;
-  if (v.lastSeq <= Math.max(v.seenByMe, h.seenSent)) return;
+  // Done once the host says so; until then it is sent again.
+  if (v.lastSeq <= v.seenByMe) return;
   if (document.visibilityState === "hidden") return;
   if (!atBottom(h.thread)) return;
-  h.seenSent = v.lastSeq;
+  const since = Date.now() - (h.seenAt ?? 0);
+  if (since < SEEN_SPACING_MS) {
+    // Too soon after the last report (the host would drop it): send this
+    // one when it may go, and again later if it was not taken.
+    h.seenTimer = setTimeout(() => markSeen(h), SEEN_SPACING_MS - since);
+    return;
+  }
+  h.seenAt = Date.now();
   h.api.emit("seen", { cid: v.cid, seq: v.lastSeq });
+  h.seenTimer = setTimeout(() => markSeen(h), SEEN_SPACING_MS * 2);
 }
 
 function messageNode(item, h) {

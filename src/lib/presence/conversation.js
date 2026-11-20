@@ -19,6 +19,17 @@
 export const RESEND_FOR = 2 * 60_000;
 /** Waits the host may ask for: "not ready" has none, so this. */
 const NOT_READY_WAIT = 1_000;
+/** Messages kept per conversation on this device, as on the host. */
+export const KEEP_MESSAGES = 100;
+
+/** Keeps a conversation to its last `KEEP_MESSAGES`. */
+function trim(conversation) {
+  const extra = conversation.messages.length - KEEP_MESSAGES;
+  if (extra > 0) {
+    conversation.messages.splice(0, extra);
+    conversation.trimmed = true;
+  }
+}
 
 /** A fresh state: nothing known yet. */
 export function emptyChats() {
@@ -37,7 +48,7 @@ export function emptyChats() {
 }
 
 function conversationFrom(c) {
-  return {
+  const conversation = {
     cid: c.cid,
     with: c.with,
     messages: [...(c.messages ?? [])].sort((a, b) => a.seq - b.seq),
@@ -46,6 +57,8 @@ function conversationFrom(c) {
     unread: c.unread ?? 0,
     trimmed: Boolean(c.trimmed),
   };
+  trim(conversation);
+  return conversation;
 }
 
 function byCid(state, cid) {
@@ -93,10 +106,18 @@ export function applyFrame(state, frame) {
       state.byWith.set(conversation.with, conversation);
       reconcile(state, conversation);
     }
-    // A send that named a conversation no longer here went nowhere.
     for (const p of state.pending.values()) {
-      if (p.cid && !byCid(state, p.cid) && p.status !== "failed") {
+      if (p.status === "failed") continue;
+      if (p.cid && !byCid(state, p.cid)) {
+        // It named a conversation that is no longer here: it went nowhere.
         fail(p, "conversation ended");
+      } else if (!p.cid && p.sentOn != null) {
+        // A first message that went out on the old socket and is not in the
+        // new snapshot: it did not arrive, or its conversation has ended
+        // since. Resending could start a conversation with someone who has
+        // left and come back meanwhile, so it is left for the person to
+        // retry.
+        fail(p, "unsure");
       }
     }
     state.synced = true;
@@ -124,6 +145,7 @@ export function applyFrame(state, frame) {
       if (fresh.length) {
         conversation.messages.push(...fresh);
         conversation.messages.sort((a, b) => a.seq - b.seq);
+        trim(conversation);
         const theirs = fresh.filter((m) => m.from === c.with);
         if (theirs.length) arrived.push({ with: c.with, messages: theirs });
       }
@@ -225,6 +247,7 @@ export function dueSends(state, connection, now = Date.now()) {
     }
     if (p.sentOn === connection || p.retryAt > now) continue;
     p.sentOn = connection;
+    p.retryAt = 0;
     due.push(sendCommand(state, p));
   }
   return due;

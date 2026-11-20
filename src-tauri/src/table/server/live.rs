@@ -251,7 +251,9 @@ async fn live<R: tauri::Runtime>(
             who.gm = false;
         }
         let spot = spots.borrow_and_update().clone();
-        let key = (who.gm, who.player_id.clone(), who.name.clone());
+        // The epoch is part of who this is: a re-pairing, even back to the
+        // same player, starts the chats over with a fresh snapshot.
+        let key = (who.gm, who.player_id.clone(), who.name.clone(), who.epoch);
         let reset = identity.as_ref() != Some(&key);
         let changed = current != previous_version;
         let mut delta = None;

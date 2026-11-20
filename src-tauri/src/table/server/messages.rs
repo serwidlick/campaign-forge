@@ -270,6 +270,9 @@ struct Lease {
 
 #[derive(Default)]
 struct Hub {
+    /// Moves with every change, under this lock, so a frame and the state
+    /// it describes always agree on it.
+    revision: u64,
     /// People on the roster as last published, and their roles.
     present: HashMap<String, RosterRole>,
     rules: MessageRules,
@@ -405,6 +408,9 @@ pub async fn run<R: tauri::Runtime>(
 #[derive(Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatFrame {
+    /// The hub's revision this frame was made at. The hosting window uses it
+    /// to drop events older than the snapshot it started from.
+    pub revision: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chats: Option<Chats>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -441,8 +447,19 @@ impl MessageHub {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn bump(&self) {
-        self.revision.send_modify(|r| *r += 1);
+    /// Records a change made under `hub` and wakes everyone watching.
+    fn commit(&self, mut hub: std::sync::MutexGuard<'_, Hub>) {
+        hub.revision += 1;
+        let revision = hub.revision;
+        drop(hub);
+        self.revision.send_replace(revision);
+    }
+
+    /// Wakes every socket to look again (after a seat's identity changed,
+    /// say), without changing anything here.
+    pub fn wake(&self) {
+        let hub = self.hub();
+        self.commit(hub);
     }
 
     pub fn subscribe(&self) -> watch::Receiver<u64> {
@@ -481,8 +498,7 @@ impl MessageHub {
                 (Some(f), Some(t)) => allowed(*f, *t, rules),
                 _ => false,
             });
-        drop(hub);
-        self.bump();
+        self.commit(hub);
     }
 
     pub fn set_rules(&self, rules: MessageRules) {
@@ -497,8 +513,7 @@ impl MessageHub {
                 (Some(f), Some(t)) => allowed(*f, *t, rules),
                 _ => false,
             });
-        drop(hub);
-        self.bump();
+        self.commit(hub);
     }
 
     /// Sends a message from `from`. The caller has checked the sender's
@@ -620,8 +635,7 @@ impl MessageHub {
         while records.len() > DEDUPE_CAP {
             records.pop_front();
         }
-        drop(hub);
-        self.bump();
+        self.commit(hub);
         ack
     }
 
@@ -631,8 +645,7 @@ impl MessageHub {
         let mut hub = self.hub();
         if !on {
             if hub.leases.remove(&socket).is_some() {
-                drop(hub);
-                self.bump();
+                self.commit(hub);
             }
             return;
         }
@@ -664,9 +677,8 @@ impl MessageHub {
                 true
             }
         };
-        drop(hub);
         if changed {
-            self.bump();
+            self.commit(hub);
         }
     }
 
@@ -708,8 +720,7 @@ impl MessageHub {
         if c.messages.front().is_none_or(|m| seq >= m.seq) {
             c.evicted_unread.remove(from);
         }
-        drop(hub);
-        self.bump();
+        self.commit(hub);
     }
 
     /// Drops expired typing leases; returns when the next one expires.
@@ -718,10 +729,20 @@ impl MessageHub {
         let before = hub.leases.len();
         hub.leases.retain(|_, l| l.expires > now);
         let changed = hub.leases.len() != before;
+        // Records of people who have gone quiet, or left, go once their
+        // window is over, so the hub never grows with everyone who ever sat
+        // down.
+        hub.dedupe.retain(|_, records| {
+            records.retain(|r| now.saturating_duration_since(r.at) < DEDUPE_TTL);
+            !records.is_empty()
+        });
+        hub.sends.retain(|_, sends| {
+            sends.retain(|t| now.saturating_duration_since(*t) < SEND_WINDOW);
+            !sends.is_empty()
+        });
         let next = hub.leases.values().map(|l| l.expires).min();
-        drop(hub);
         if changed {
-            self.bump();
+            self.commit(hub);
         }
         next
     }
@@ -731,7 +752,10 @@ impl MessageHub {
     /// is a full snapshot.
     pub fn frame_for(&self, key: &str, view: &mut ChatView, now: Instant) -> ChatFrame {
         let hub = self.hub();
-        let mut frame = ChatFrame::default();
+        let mut frame = ChatFrame {
+            revision: hub.revision,
+            ..ChatFrame::default()
+        };
         let snapshot = !view.started;
         view.started = true;
 
@@ -1078,6 +1102,29 @@ mod tests {
         assert!(n > 160, "{n} sends");
         let resent = hub.post(1, "player:a", HOST_KEY, None, "lost", "first", t, 1);
         assert_eq!(resent, lost);
+    }
+
+    #[test]
+    fn records_of_people_who_left_are_pruned() {
+        let hub = table();
+        let start = Instant::now();
+        hub.post(1, "guest:c", HOST_KEY, None, "m1", "bye", start, 1);
+        assert!(!hub.hub().dedupe.is_empty());
+        hub.set_present(&[entry(HOST_KEY, RosterRole::Host)]);
+        hub.expire(start + DEDUPE_TTL);
+        let h = hub.hub();
+        assert!(h.dedupe.is_empty(), "dedupe records outlived their window");
+        assert!(h.sends.is_empty(), "send buckets outlived their window");
+    }
+
+    #[test]
+    fn frames_carry_the_revision_of_the_state_they_show() {
+        let hub = table();
+        let before = hub.frame_for(HOST_KEY, &mut ChatView::default(), Instant::now());
+        send(&hub, "player:a", HOST_KEY, "m1", "hi");
+        let after = hub.frame_for(HOST_KEY, &mut ChatView::default(), Instant::now());
+        assert!(after.revision > before.revision);
+        assert_eq!(after.chats.unwrap().conversations[0].messages.len(), 1);
     }
 
     #[test]

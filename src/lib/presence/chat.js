@@ -225,15 +225,19 @@ export class TableChat {
       }
     }
     clearTimeout(this.#timer);
+    // Only a wait that can end in a send is timed: offline, or before the
+    // new socket's snapshot, the reconnect itself flushes again.
     let wake = Infinity;
-    for (const p of this.#state.pending.values()) {
-      if (p.status === "sending" && p.retryAt) wake = Math.min(wake, p.retryAt);
+    const now = this.#now();
+    if (this.#online && this.#state.synced) {
+      for (const p of this.#state.pending.values()) {
+        if (p.status === "sending" && p.retryAt > now) {
+          wake = Math.min(wake, p.retryAt);
+        }
+      }
     }
     if (wake < Infinity) {
-      this.#timer = setTimeout(
-        () => this.#flush(),
-        Math.max(0, wake - this.#now()),
-      );
+      this.#timer = setTimeout(() => this.#flush(), wake - now);
     }
     this.#publish();
   }

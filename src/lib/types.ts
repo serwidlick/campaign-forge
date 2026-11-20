@@ -478,6 +478,8 @@ export interface TableChange {
   typing?: string[];
   /** Whether players may message each other. */
   messageRules?: MessageRules;
+  /** The hosting window's message frames: the hub revision they show. */
+  revision?: number;
 }
 
 /** One message. Mirrors `ChatMessage` in src-tauri/src/table/server/messages.rs. */

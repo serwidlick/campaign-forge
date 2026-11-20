@@ -1660,6 +1660,9 @@
           if (!v.you && !v.chats && !v.acks && !v.typing && !v.messageRules) {
             if (!v.roster) return;
           }
+          // Back at a table after leaving: the component is already loaded,
+          // so the chat starts again here.
+          if (!chat && presenceModule && presence) startChat(presenceModule);
           if (chat) chat.receive(chatFrame(v));
           else if (chatBacklog.length < 64) chatBacklog.push(chatFrame(v));
         }

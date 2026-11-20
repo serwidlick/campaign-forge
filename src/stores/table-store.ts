@@ -15,6 +15,7 @@ import type {
   FoundTable,
   HostStatus,
   RosterEntry,
+  TableChange,
   TableCommand,
   TableSession,
 } from "@/lib/types";
@@ -455,15 +456,30 @@ useTableStore.subscribe((s) => {
     chat.you = "host";
     let unlisten: (() => void) | null = null;
     let stopped = false;
+    // Listen first, then take the snapshot: events from before it are held
+    // and only those newer than the snapshot's revision are applied, so
+    // nothing falls between the two and nothing old overwrites it.
+    let base: number | null = null;
+    const held: TableChange[] = [];
+    const onChange = (frame: TableChange) => {
+      if (base === null) held.push(frame);
+      else if ((frame.revision ?? Infinity) > base) chat.receive(frame);
+    };
     void table
-      .onChats((frame) => chat.receive(frame))
+      .onChats(onChange)
       .then((off) => {
-        if (stopped) off();
-        else unlisten = off;
-      });
-    void table
-      .chats()
-      .then((frame) => chat.receive(frame))
+        if (stopped) {
+          off();
+          return;
+        }
+        unlisten = off;
+        return table.chats().then((snapshot) => {
+          if (stopped) return;
+          base = snapshot.revision ?? 0;
+          chat.receive(snapshot);
+          for (const frame of held.splice(0)) onChange(frame);
+        });
+      })
       .catch(() => {});
     hostChat = {
       chat,

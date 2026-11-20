@@ -109,15 +109,60 @@ test("a send waits for its snapshot, goes out once per connection, and settles",
     text: "first",
   });
   assert.deepEqual(dueSends(s, 0, 0), [], "not twice on one connection");
-  // The socket drops before any answer: the next one resends it.
+  // The socket drops before any answer, and the first message is not in
+  // the new snapshot: it is left to the person, never sent into what may be
+  // a new meeting.
   disconnected(s);
   applyFrame(s, snapshot([]));
-  assert.equal(dueSends(s, 1, 10).length, 1);
-  // Two minutes on, it stops and says it may not have gone.
+  assert.deepEqual(dueSends(s, 1, 10), []);
+  assert.equal(conversationView(s, BO, ME).status, "unsure");
+});
+
+test("a message in a conversation is resent after a drop, for two minutes", () => {
+  const s = emptyChats();
+  const open = {
+    cid: "c1",
+    with: BO,
+    messages: [],
+    seenByMe: 0,
+    seenByThem: 0,
+    unread: 0,
+  };
+  applyFrame(s, snapshot([open]));
+  queueSend(s, { to: BO, text: "again", clientId: "m1", now: 0 });
+  assert.equal(dueSends(s, 0, 0)[0].cid, "c1");
   disconnected(s);
-  applyFrame(s, snapshot([]));
+  applyFrame(s, snapshot([open]));
+  assert.equal(dueSends(s, 1, 10).length, 1, "resent on the new socket");
+  disconnected(s);
+  applyFrame(s, snapshot([open]));
   assert.equal(dueSends(s, 2, RESEND_FOR + 1).length, 0);
   assert.equal(conversationView(s, BO, ME).status, "unsure");
+});
+
+test("this device keeps the last 100 messages of a conversation", () => {
+  const s = emptyChats();
+  applyFrame(s, snapshot([]));
+  for (let i = 1; i <= 250; i++) {
+    applyFrame(s, {
+      chats: {
+        conversations: [
+          {
+            cid: "c1",
+            with: BO,
+            messages: [message(i, BO, "m" + i)],
+            seenByMe: 0,
+            seenByThem: 0,
+            unread: i,
+          },
+        ],
+      },
+    });
+  }
+  const c = s.byWith.get(BO);
+  assert.equal(c.messages.length, 100);
+  assert.equal(c.messages[0].seq, 151);
+  assert.equal(conversationView(s, BO, ME).trimmed, true);
 });
 
 test("ack, echo and snapshot settle a send in any order, with no copies", () => {
@@ -310,10 +355,18 @@ test("the chat controller resends on a new socket after its snapshot", async () 
     },
     now: () => 0,
   });
+  const open = {
+    cid: "c1",
+    with: BO,
+    messages: [],
+    seenByMe: 0,
+    seenByThem: 0,
+    unread: 0,
+  };
   chat.receive({
     you: ME,
     epoch: 4,
-    chats: { snapshot: true, conversations: [] },
+    chats: { snapshot: true, conversations: [open] },
   });
   chat.sendMessage(BO, "  hello  ");
   assert.equal(sent.length, 1);
@@ -325,7 +378,7 @@ test("the chat controller resends on a new socket after its snapshot", async () 
   chat.connected(true);
   up = true;
   assert.equal(sent.length, 1, "waits for the snapshot");
-  chat.receive({ epoch: 4, chats: { snapshot: true, conversations: [] } });
+  chat.receive({ epoch: 4, chats: { snapshot: true, conversations: [open] } });
   assert.deepEqual(
     sent.slice(1).map((c) => c.text),
     ["hello", "while down"],

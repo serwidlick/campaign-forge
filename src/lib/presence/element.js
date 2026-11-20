@@ -246,6 +246,9 @@ export class TablePresence extends HTMLElement {
     this.#narrow = window.matchMedia(NARROW);
     this.#narrow.addEventListener("change", this.#onNarrow);
     window.addEventListener("resize", this.#onResize);
+    // A phone's keyboard shrinks only the visual viewport: the card follows.
+    globalThis.visualViewport?.addEventListener("resize", this.#onViewport);
+    globalThis.visualViewport?.addEventListener("scroll", this.#onViewport);
     document.addEventListener("pointerdown", this.#onOutside, true);
     this.#render();
   }
@@ -260,6 +263,8 @@ export class TablePresence extends HTMLElement {
     this.#playing.clear();
     this.#narrow?.removeEventListener("change", this.#onNarrow);
     window.removeEventListener("resize", this.#onResize);
+    globalThis.visualViewport?.removeEventListener("resize", this.#onViewport);
+    globalThis.visualViewport?.removeEventListener("scroll", this.#onViewport);
     document.removeEventListener("pointerdown", this.#onOutside, true);
   }
 
@@ -296,13 +301,16 @@ export class TablePresence extends HTMLElement {
     this.#card = new Card({
       layer: cardLayer,
       element: this,
-      area: () => this.#area(),
+      area: () => this.#visibleArea(),
       side: () => this.#spot.side,
       bubbleFor: (key) => {
         const b = this.#bubbles.get(key);
         if (b?.isConnected && !b.classList.contains("exiting")) return b;
-        // Everyone hidden: a card opened from the inbox grows out of it.
-        return this.#concealed && this.#inbox?.isConnected ? this.#inbox : null;
+        // Everyone hidden: a card opened from the inbox sits by it, or by
+        // the eye once nothing is left unread.
+        if (!this.#concealed) return null;
+        if (this.#inbox?.isConnected) return this.#inbox;
+        return this.#eye?.isConnected ? this.#eye : null;
       },
       context: () => this.#cardContext(),
       state: (id) => this.#sectionState.get(id),
@@ -425,9 +433,9 @@ export class TablePresence extends HTMLElement {
     // left" if they are gone (or hidden behind the eye or "+N").
     if (this.#card?.key) {
       const key = this.#card.key;
-      const shownNow = this.#concealed
-        ? Boolean(this.#inbox)
-        : shown.some((e) => e.key === key);
+      // Hidden, a card opened from the inbox stays open while you read and
+      // reply, even once nothing is unread.
+      const shownNow = this.#concealed || shown.some((e) => e.key === key);
       if (!this.#entries.has(key)) this.#card.refresh(null);
       else if (!shownNow) this.#card.close({ focus: "none" });
       else this.#card.refresh(this.#entries.get(key));
@@ -686,6 +694,31 @@ export class TablePresence extends HTMLElement {
       this.#card?.close({ focus: "none" });
     }
   };
+
+  #onViewport = () => {
+    this.#card?.reposition();
+  };
+
+  /** The free area, cut to what is actually on screen: with a phone's
+   *  keyboard up, only the part above it. */
+  #visibleArea() {
+    const area = this.#area();
+    const vv = globalThis.visualViewport;
+    if (!vv) return area;
+    const left = Math.max(area.left, vv.offsetLeft);
+    const top = Math.max(area.top, vv.offsetTop);
+    const right = Math.min(area.right, vv.offsetLeft + vv.width);
+    const bottom = Math.min(area.bottom, vv.offsetTop + vv.height);
+    if (right - left < 120 || bottom - top < 120) return area;
+    return {
+      left,
+      top,
+      right,
+      bottom,
+      width: right - left,
+      height: bottom - top,
+    };
+  }
 
   #onResize = () => {
     // A carried group stays under the finger; the drop places it.
