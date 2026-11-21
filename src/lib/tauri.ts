@@ -20,6 +20,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { inTauri, type PickedFile } from "./platform";
 import type {
   CampaignMeta,
+  ChatAck,
   ConversationSummary,
   DeviceIdentity,
   DiskChanges,
@@ -27,16 +28,19 @@ import type {
   ElementSummary,
   FoundTable,
   HostStatus,
+  MessageRules,
   PlayerRecord,
   ImportedDocument,
   ImportedImage,
   NoteInput,
   PdfSlice,
   PdfText,
+  RosterEntry,
   SaveElementInput,
   SearchHit,
   StoredConversation,
   TableChange,
+  TableCommand,
   TableSession,
 } from "./types";
 import { deviceLabel, web } from "./web-table";
@@ -123,6 +127,10 @@ async function webCommand(
       return web.deleteNote(args.id as string);
     case "table_next_event":
       return web.nextEvent(args.subscribe === true);
+    case "table_report_presence":
+      return web.reportPresence(args.away === true);
+    case "table_live_send":
+      return web.liveSend(args.command as TableCommand);
     case "table_gm_call":
       return web.gmCall(args.command as string, args.args);
     case "table_gm_asset":
@@ -477,9 +485,62 @@ export const table = {
   nextEvent(subscribe: boolean) {
     return ipc<TableChange>("table_next_event", { subscribe });
   },
+  /** Tells the table this window's user went idle, or came back: the
+   *  hosting GM's own status, or this seat's at a joined table. */
+  reportPresence(away: boolean) {
+    return ipc<void>("table_report_presence", { away });
+  },
+  /** Joined: sends one message command on the live socket. Resolves false
+   *  when there is no socket open to take it. */
+  liveSend(command: TableCommand): Promise<boolean> {
+    return ipc<boolean | null>("table_live_send", { command }).then(
+      (sent) => sent !== false,
+      () => false,
+    );
+  },
+  /** Hosting: send a message as the GM. Resolves with the table's answer. */
+  sendMessage(to: string, text: string, clientId: string, cid?: string) {
+    return ipc<ChatAck>("table_send_message", {
+      to,
+      text,
+      clientId,
+      cid: cid ?? null,
+    });
+  },
+  /** Hosting: the GM is (or stopped) typing to someone. */
+  setTyping(to: string, on: boolean) {
+    return ipc<void>("table_set_typing", { to, on });
+  },
+  /** Hosting: the GM has read a conversation up to `seq`. */
+  markSeen(cid: string, seq: number) {
+    return ipc<void>("table_mark_seen", { cid, seq });
+  },
+  /** Hosting: whether players may message each other. */
+  setMessageRules(playersMayMessage: boolean) {
+    return ipc<MessageRules>("table_message_rules", { playersMayMessage });
+  },
+  /** Hosting: the GM's conversations as they are now. */
+  chats() {
+    return ipc<TableChange>("table_chats");
+  },
+  /** Hosting: what changes in the GM's conversations, as it happens. */
+  onChats(handler: (frame: TableChange) => void): Promise<UnlistenFn> {
+    if (!inTauri) return Promise.resolve(() => {});
+    return listen<TableChange>("table://chats", (event) => {
+      if (!remoteGm) handler(event.payload);
+    });
+  },
   /** Show an element on every player's screen; null clears it. */
   spotlight(id: string | null) {
     return call<HostStatus>("table_spotlight", { id });
+  },
+  /** Hosting GM: who is at the table, whenever it changes. A GM's second
+   *  device gets the same roster over the table instead. */
+  onRoster(handler: (roster: RosterEntry[]) => void): Promise<UnlistenFn> {
+    if (!inTauri) return Promise.resolve(() => {});
+    return listen<RosterEntry[]>("table://roster", (event) => {
+      if (!remoteGm) handler(event.payload);
+    });
   },
 };
 

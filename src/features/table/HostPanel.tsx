@@ -4,11 +4,16 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/Button";
 import { isShared } from "@/features/player/player-model";
+import { inTauri } from "@/lib/platform";
+import { table } from "@/lib/tauri";
 import type { PlayerRecord, TablePlayer } from "@/lib/types";
 
 import { playersOf, shortFingerprint } from "./players-model";
 import { useCampaignStore } from "@/stores/campaign-store";
 import { useTableStore } from "@/stores/table-store";
+
+/** Longest GM name the roster shows; it cuts longer ones short anyway. */
+const GM_NAME_LIMIT = 40;
 
 const STATUS_POLL_MS = 3000;
 
@@ -280,6 +285,17 @@ export function HostPanel({
                   {hosting.players.length}
                 </span>
               </SectionTitle>
+              <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <GmNameField
+                  value={
+                    typeof campaign?.gmName === "string" ? campaign.gmName : ""
+                  }
+                  onSave={(gmName) =>
+                    void updateCampaignSettings({ gmName: gmName || null })
+                  }
+                />
+                <PlayerMessagesToggle />
+              </div>
               {hosting.players.length === 0 ? (
                 <p className="text-sm text-ink-500">
                   Nobody yet. The table is announced as “
@@ -430,7 +446,7 @@ function ConnectionRow({
     <li className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
       <span
         className={`h-2 w-2 rounded-full ${
-          isRecent(p.lastSeen) ? "bg-green-400" : "bg-ink-600"
+          p.online ? "bg-green-400" : "bg-ink-600"
         }`}
       />
       <span className="min-w-0 flex-1">
@@ -442,7 +458,7 @@ function ConnectionRow({
         </span>
       </span>
       <span className="text-xs text-ink-500">
-        {isRecent(p.lastSeen) ? "connected" : `last seen ${ago(p.lastSeen)}`}
+        {p.online ? "connected" : `last seen ${ago(p.lastSeen)}`}
       </span>
       {paired ? (
         <span
@@ -593,6 +609,81 @@ function PlayersSection({
   );
 }
 
+/** What the GM is called in everyone's roster; saved with the campaign. */
+function GmNameField({
+  value,
+  onSave,
+}: {
+  value: string;
+  onSave: (name: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [seen, setSeen] = useState(value);
+  // Follow a change made elsewhere (another GM device) when not editing.
+  if (value !== seen) {
+    setSeen(value);
+    setDraft(value);
+  }
+  function commit() {
+    const name = draft.trim().slice(0, GM_NAME_LIMIT);
+    setDraft(name);
+    if (name !== value) onSave(name);
+  }
+  return (
+    <label className="flex items-center gap-2 text-xs text-ink-400">
+      Your name at the table
+      <input
+        value={draft}
+        maxLength={GM_NAME_LIMIT}
+        placeholder="Game Master"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        className="w-40 rounded border border-ink-700 bg-ink-900 px-2 py-1 text-sm text-ink-100 placeholder:text-ink-600"
+      />
+    </label>
+  );
+}
+
+/**
+ * Whether players may message each other (they can always message the GM,
+ * and the GM anyone). Only the hosting machine decides it: a GM's second
+ * device does not see the switch.
+ */
+function PlayerMessagesToggle() {
+  const hostingHere = useTableStore((s) => inTauri && s.session === null);
+  // Read from the host status, never through the chat snapshot: that would
+  // restart the hosting window's message cursor.
+  const fromHost = useTableStore(
+    (s) => s.hosting?.messageRules?.playersMayMessage,
+  );
+  const refreshHost = useTableStore((s) => s.refreshHost);
+  const [pending, setPending] = useState<boolean | null>(null);
+  if (!hostingHere || fromHost === undefined) return null;
+  const allowed = pending ?? fromHost;
+  return (
+    <label className="flex items-center gap-2 text-xs text-ink-400">
+      <input
+        type="checkbox"
+        checked={allowed}
+        onChange={(e) => {
+          const next = e.target.checked;
+          setPending(next);
+          void table
+            .setMessageRules(next)
+            .then(() => refreshHost())
+            .catch(() => {})
+            .finally(() => setPending(null));
+        }}
+        className="accent-ember-400"
+      />
+      Players can message each other
+    </label>
+  );
+}
+
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
@@ -601,14 +692,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** WebSocket heartbeats keep active seats fresh; older seats appear offline. */
 /** The phone page's address for a host name or IP; port 80 is left off. */
 function browserUrlOf(host: string, port: number): string {
   return port === 80 ? `http://${host}/` : `http://${host}:${port}/`;
-}
-
-function isRecent(iso: string): boolean {
-  return Date.now() - Date.parse(iso) < 60_000;
 }
 
 function ago(iso: string): string {

@@ -6,6 +6,7 @@ import {
   GmOnPhoneScreen,
   PlayerWelcomeScreen,
 } from "@/features/table/PlayerWelcomeScreen";
+import { PresenceBar } from "@/features/table/PresenceBar";
 import { RemoteGmScreen } from "@/features/table/RemoteGmScreen";
 import { TableScreen } from "@/features/table/TableScreen";
 import { WebJoinScreen } from "@/features/table/WebJoinScreen";
@@ -57,6 +58,7 @@ export default function App() {
             <PlayerWelcomeScreen />
           )}
         </div>
+        <PresenceBar />
       </div>
     );
   }
@@ -81,6 +83,7 @@ export default function App() {
     <div className="flex h-full flex-col">
       <UpdateBanner />
       <div className="min-h-0 flex-1">{screen}</div>
+      <PresenceBar />
     </div>
   );
 }

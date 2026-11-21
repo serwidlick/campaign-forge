@@ -2,6 +2,7 @@ import { applyDelta } from "@/lib/table-live.js";
 import { create } from "zustand";
 
 import { inTauri, isMobile } from "@/lib/platform";
+import { TableChat } from "@/lib/table-presence.js";
 import {
   errorMessage,
   notifyFilesChanged,
@@ -9,9 +10,13 @@ import {
   table,
 } from "@/lib/tauri";
 import type {
+  ChatAck,
   ElementSummary,
   FoundTable,
   HostStatus,
+  RosterEntry,
+  TableChange,
+  TableCommand,
   TableSession,
 } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
@@ -37,6 +42,16 @@ interface TableState {
   notice: string | null;
   /** What the GM is showing everyone; `seq` distinguishes repeats. */
   spotlight: { id: string; seq: number } | null;
+  /** Who is at the joined table, as its host last said. */
+  roster: RosterEntry[];
+  /** How far this clock is ahead of the joined host's, for "away for". */
+  rosterOffset: number;
+  /** Which roster entry is this device's person, as the joined host said. */
+  rosterYou: string | null;
+  /** Table messages for this window: the joined table's, or the hosting
+   *  GM's own. Lives with the connection, so nothing is missed before the
+   *  bubbles mount; PresenceBar attaches it to them. */
+  chat: TableChat | null;
 
   error: string | null;
 
@@ -118,6 +133,10 @@ export const useTableStore = create<TableState>((set, get) => {
           return;
         }
         set({ connection: "connected" });
+        // A frame came through: the socket is up, and its frames (the first
+        // one carries the whole set of conversations) go to the chat.
+        get().chat?.connected(true);
+        get().chat?.receive(next);
         const session = get().session;
         if (
           session &&
@@ -151,6 +170,16 @@ export const useTableStore = create<TableState>((set, get) => {
         if (next.delta) {
           set({ elements: applyDelta(get().elements, next.delta) });
         }
+        // Frames on one socket arrive in order and each new socket starts
+        // with the roster, so the latest one always replaces ours.
+        if (next.roster) {
+          set({
+            roster: next.roster,
+            rosterOffset:
+              next.serverTime === undefined ? 0 : Date.now() - next.serverTime,
+            rosterYou: next.you ?? null,
+          });
+        }
         if (!next.spotlight) set({ spotlight: null });
         if (
           next.spotlightSeq > event ||
@@ -177,6 +206,7 @@ export const useTableStore = create<TableState>((set, get) => {
         }
         subscribe = true;
         set({ connection: "reconnecting" });
+        get().chat?.connected(false);
         await sleep(RETRY_MS + Math.random() * 1000);
       }
     }
@@ -185,8 +215,18 @@ export const useTableStore = create<TableState>((set, get) => {
   /** Leaves the table; with a notice, the welcome screen says why. */
   async function detach(notice: string | null) {
     loopGeneration += 1;
+    get().chat?.dispose();
+    set({ chat: null });
     if (get().session?.gm) exitGm();
-    set({ session: null, elements: [], version: 0, notice, spotlight: null });
+    set({
+      session: null,
+      elements: [],
+      version: 0,
+      notice,
+      spotlight: null,
+      roster: [],
+      rosterYou: null,
+    });
     try {
       await table.leave();
     } catch {
@@ -196,9 +236,18 @@ export const useTableStore = create<TableState>((set, get) => {
 
   async function attach(session: TableSession) {
     const generation = ++loopGeneration;
+    get().chat?.dispose();
+    // Message commands go out on the joined table's live socket.
+    set({
+      chat: new TableChat({
+        send: (command: TableCommand) => table.liveSend(command),
+      }),
+    });
     set({
       session,
       elements: [],
+      roster: [],
+      rosterYou: null,
       version: session.info.version,
       connection: "connected",
       error: null,
@@ -207,7 +256,14 @@ export const useTableStore = create<TableState>((set, get) => {
     void runSyncLoop(generation);
   }
 
+  // The hosting GM hears roster changes from Rust, between status polls.
+  void table.onRoster((roster) => {
+    const hosting = get().hosting;
+    if (hosting) set({ hosting: { ...hosting, roster } });
+  });
+
   return {
+    chat: null,
     hosting: null,
     hostBusy: false,
     found: [],
@@ -218,6 +274,9 @@ export const useTableStore = create<TableState>((set, get) => {
     joining: false,
     notice: null,
     spotlight: null,
+    roster: [],
+    rosterOffset: 0,
+    rosterYou: null,
     error: null,
 
     async restore() {
@@ -330,4 +389,113 @@ export const useTableStore = create<TableState>((set, get) => {
       set({ notice: null });
     },
   };
+});
+
+/** Who is at the table this window is part of: the joined table's roster,
+ *  or, on the hosting machine, the one it publishes. */
+export function useTableRoster(): RosterEntry[] {
+  return useTableStore((s) =>
+    s.session ? s.roster : (s.hosting?.roster ?? NO_ONE),
+  );
+}
+
+const NO_ONE: RosterEntry[] = [];
+
+/** How far this clock is ahead of the clock the roster's times use: the
+ *  joined host's, or none on the hosting machine itself. */
+export function useRosterOffset(): number {
+  return useTableStore((s) => (s.session ? s.rosterOffset : 0));
+}
+
+/** Which roster entry is the person at this window: what the joined host
+ *  said, or the host's own entry on the hosting machine. */
+export function useRosterYou(): string | null {
+  return useTableStore((s) =>
+    s.session ? s.rosterYou : s.hosting ? "host" : null,
+  );
+}
+
+/** True while a joined table cannot be reached ("trying to reconnect"):
+ *  the bubbles then show its host as disconnected. */
+export function useTableOffline(): boolean {
+  return useTableStore(
+    (s) => s.session !== null && s.connection === "reconnecting",
+  );
+}
+
+/** The table messages for this window, once there are any. */
+export function useTableChat(): TableChat | null {
+  return useTableStore((s) => s.chat);
+}
+
+/** Hands a message command to the hosting machine's own message hub. */
+function hostSend(command: TableCommand): Promise<ChatAck | void> {
+  switch (command.t) {
+    case "send":
+      return table.sendMessage(
+        command.to,
+        command.text,
+        command.clientId,
+        command.cid,
+      );
+    case "typing":
+      return table.setTyping(command.to, command.on);
+    case "seen":
+      return table.markSeen(command.cid, command.seq);
+  }
+}
+
+// The hosting GM's own messages: while this window hosts (and is not also
+// joined to a table), its chat talks to the host's hub through commands and
+// hears what changes through `table://chats`.
+let hostChat: { chat: TableChat; stop: () => void } | null = null;
+useTableStore.subscribe((s) => {
+  const hosting = inTauri && s.hosting !== null && s.session === null;
+  if (hosting && !hostChat) {
+    const chat = new TableChat({ send: hostSend });
+    chat.you = "host";
+    let unlisten: (() => void) | null = null;
+    let stopped = false;
+    // Listen first, then take the snapshot: events from before it are held
+    // and only those newer than the snapshot's revision are applied, so
+    // nothing falls between the two and nothing old overwrites it.
+    let base: number | null = null;
+    const held: TableChange[] = [];
+    const onChange = (frame: TableChange) => {
+      if (base === null) held.push(frame);
+      else if ((frame.revision ?? Infinity) > base) chat.receive(frame);
+    };
+    void table
+      .onChats(onChange)
+      .then((off) => {
+        if (stopped) {
+          off();
+          return;
+        }
+        unlisten = off;
+        return table.chats().then((snapshot) => {
+          if (stopped) return;
+          base = snapshot.revision ?? 0;
+          chat.receive(snapshot);
+          for (const frame of held.splice(0)) onChange(frame);
+        });
+      })
+      .catch(() => {});
+    hostChat = {
+      chat,
+      stop: () => {
+        stopped = true;
+        unlisten?.();
+        chat.dispose();
+      },
+    };
+    useTableStore.setState({ chat });
+  } else if (!hosting && hostChat) {
+    const { chat, stop } = hostChat;
+    hostChat = null;
+    stop();
+    if (useTableStore.getState().chat === chat) {
+      useTableStore.setState({ chat: null });
+    }
+  }
 });
