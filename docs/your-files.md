@@ -23,6 +23,8 @@ my-campaign/
     docs/players-handbook.pdf documents
   conversations/
     3f2b…e91.json             saved assistant conversations
+  .trash/
+    location/old-mill.md      recently deleted elements, kept 30 days
 ```
 
 File names come from the element's name when it is created and do not change on rename; links use the id, not the name, so nothing breaks. The kind comes from the `type` line in the file, not from the folder it sits in: to turn a journal entry into an encounter, change its kind in the app (the kind label above the name), which rewrites `type` and moves the file, or edit the `type` line yourself.
@@ -64,6 +66,7 @@ The part between the `---` lines is YAML frontmatter. Keys the app knows:
 | `date`, `worldDate`, `scope`                                                | journal   | Real date, in-world date, and `{ type, id }` where type is campaign, arc or session. |
 | `image`, `width`, `height`, `fit`, `scale`, `pins`, `routes`, `territories` | map       | See [maps](maps.md). Pins, routes and territories each carry `shared`.               |
 | `file`, `fileName`, `fileBytes`                                             | document  | The PDF under `assets/docs/`.                                                        |
+| `deletedAt`, `deletedFrom`                                                  | all       | Only on files in `.trash/`: when it was deleted and the path it had.                 |
 
 Unknown keys are preserved, so other tools can add their own.
 
@@ -76,6 +79,10 @@ Links in bodies look like `[Name](cf://element/<id>)`. The id is the target's `i
 ## Assistant conversations
 
 `conversations/` holds one JSON file per [assistant](assistant.md) conversation: its title and dates, the chat as you saw it, and the exact transcript sent to Anthropic, which the app replays when you reopen it. They are GM-only and never shown to players. Deleting a file removes that conversation from the list; the rest of the campaign does not depend on them. If you keep the campaign in git and do not want them tracked, add `conversations/` to your `.gitignore`.
+
+## Recently deleted
+
+Deleting an element moves its file to `.trash/<kind>/` and adds two keys to its frontmatter: `deletedAt`, when, and `deletedFrom`, the path it had. **Recently deleted** in the app lists these files and restores one by moving it back and dropping the two keys, so the element returns with its id, fields and notes intact and every link to it works again. Anything deleted more than 30 days ago is removed when the campaign is opened. The folder is never searched or shown to players. If you keep the campaign in git, you may want `.trash/` in your `.gitignore`.
 
 ## Backups and cloud drives
 

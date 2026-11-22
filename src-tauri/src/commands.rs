@@ -10,7 +10,7 @@ use crate::pdf::{self, PdfText};
 use crate::storage::{
     AppState, CampaignMeta, Conversation, ConversationSummary, Element, ElementSummary, Extra,
     ImportedDocument, ImportedImage, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES, SaveElementInput,
-    SearchHit, StorageError,
+    SearchHit, StorageError, TrashedElement,
 };
 use crate::table::share;
 use crate::watcher::FolderWatch;
@@ -150,6 +150,21 @@ pub fn change_element_kind(
 #[tauri::command]
 pub fn delete_element(state: State<'_, AppState>, id: String) -> CommandResult<()> {
     state.delete_element(&id).map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn list_trash(state: State<'_, AppState>) -> CommandResult<Vec<TrashedElement>> {
+    state.list_trash().map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn restore_element(state: State<'_, AppState>, id: String) -> CommandResult<Element> {
+    state.restore_element(&id).map_err(to_command_error)
+}
+
+#[tauri::command]
+pub fn purge_element(state: State<'_, AppState>, id: String) -> CommandResult<()> {
+    state.purge_element(&id).map_err(to_command_error)
 }
 
 #[tauri::command]

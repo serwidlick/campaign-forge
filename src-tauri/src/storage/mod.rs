@@ -8,6 +8,7 @@
 //!   elements/<kind>/<slug>.md  one Markdown file per world-bible element,
 //!                              YAML frontmatter + body
 //!   conversations/<id>.json    saved assistant conversations (GM-only)
+//!   .trash/<kind>/<slug>.md    recently deleted elements, kept for 30 days
 //! ```
 //!
 //! The files are the source of truth. The in-memory index maps element IDs to
@@ -24,6 +25,7 @@ mod links;
 mod model;
 mod search;
 mod slug;
+mod trash;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -37,6 +39,7 @@ pub use error::StorageError;
 pub use links::extract_links;
 pub use model::{CampaignMeta, Element, ElementSummary, Extra, SaveElementInput};
 pub use search::SearchHit;
+pub use trash::TrashedElement;
 
 /// Whether `path` still holds a campaign (its `campaign.json` is present).
 /// Needs no open campaign and touches nothing on disk.
@@ -410,6 +413,8 @@ impl AppState {
         Ok(changed)
     }
 
+    /// Moves an element to the trash, where [`Self::restore_element`] can
+    /// bring it back for 30 days.
     pub fn delete_element(&self, id: &str) -> Result<(), StorageError> {
         let mut guard = self.lock()?;
         let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
@@ -418,13 +423,46 @@ impl AppState {
             .get(id)
             .cloned()
             .ok_or_else(|| StorageError::ElementNotFound(id.to_owned()))?;
-        elements::delete(&path)?;
+        trash::delete(&open.root, &path)?;
         open.index.remove(id);
         open.seen.remove(&path);
         open.table_index.remove(id);
         drop(guard);
         self.bump_with(DiskChanges::list());
         Ok(())
+    }
+
+    /// Deleted elements still in the trash, most recently deleted first.
+    pub fn list_trash(&self) -> Result<Vec<TrashedElement>, StorageError> {
+        trash::list(&self.root()?)
+    }
+
+    /// Brings a deleted element back with its id, frontmatter and body, so
+    /// every link to it works again.
+    pub fn restore_element(&self, id: &str) -> Result<Element, StorageError> {
+        let mut guard = self.lock()?;
+        let open = guard.as_mut().ok_or(StorageError::NoCampaignOpen)?;
+        if open.index.contains_key(id) {
+            return Err(StorageError::InvalidInput(format!(
+                "element {id} is not deleted"
+            )));
+        }
+        let restored = trash::restore(&open.root, id)?;
+        let path = open.root.join(&restored.meta.path);
+        open.seen.insert(path.clone(), restored.version.clone());
+        open.index.insert(id.to_owned(), path);
+        open.table_index
+            .insert(restored.meta.id.clone(), TableEntry::from(&restored));
+        drop(guard);
+        let mut note = DiskChanges::element(&restored.meta.id, &restored.version);
+        note.list_changed = true;
+        self.bump_with(note);
+        Ok(restored)
+    }
+
+    /// Removes a deleted element from the trash for good.
+    pub fn purge_element(&self, id: &str) -> Result<(), StorageError> {
+        trash::purge(&self.root()?, id)
     }
 
     /// Copies an image file into the campaign's assets folder for the given
@@ -580,6 +618,10 @@ impl AppState {
     }
 
     fn set_open(&self, root: PathBuf, meta: CampaignMeta) -> Result<(), StorageError> {
+        // Old deletions go for good. A failure here must not stop the open.
+        if let Err(err) = trash::prune(&root, chrono::Duration::days(trash::KEEP_DAYS)) {
+            eprintln!("trash: could not prune {}: {err}", root.display());
+        }
         let (entries, index) = elements::scan(&root)?;
         let mut guard = self.lock()?;
         *guard = Some(OpenCampaign {
@@ -829,6 +871,135 @@ mod tests {
             Err(StorageError::ElementNotFound(_))
         ));
         assert_eq!(fresh.list_elements().unwrap().len(), 1);
+
+        // It went to the trash, not away: same id, and the list says where
+        // it came from.
+        let trashed = fresh.list_trash().unwrap();
+        assert_eq!(trashed.len(), 1);
+        assert_eq!(trashed[0].summary.meta.id, twin.meta.id);
+        assert_eq!(trashed[0].deleted_from, twin.meta.path);
+        assert_eq!(
+            trashed[0].summary.meta.path,
+            ".trash/location/the-rusty-tankard-2.md"
+        );
+        assert!(root.0.join(&trashed[0].summary.meta.path).is_file());
+        assert!(!trashed[0].deleted_at.is_empty());
+    }
+
+    #[test]
+    fn a_deleted_element_comes_back_whole_and_old_ones_are_pruned() {
+        let root = TempRoot::new("trash");
+        let state = AppState::default();
+        state
+            .create_campaign(root.path(), "Trash".into(), None)
+            .unwrap();
+        let inn = state
+            .create_element("location", "The Rusty Tankard", None)
+            .unwrap();
+        let inn = state
+            .save_element(SaveElementInput {
+                id: inn.meta.id.clone(),
+                name: inn.meta.name.clone(),
+                tags: vec!["inn".into()],
+                body: "# The Rusty Tankard\n\nA low-beamed inn.\n".into(),
+                extra: Some(
+                    serde_json::json!({ "shared": true })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
+                base_version: None,
+            })
+            .unwrap();
+        let session = state.create_element("session", "Session 1", None).unwrap();
+        state
+            .save_element(SaveElementInput {
+                id: session.meta.id.clone(),
+                name: "Session 1".into(),
+                tags: Vec::new(),
+                body: format!(
+                    "# Session 1\n\nAt the [inn](cf://element/{}).\n",
+                    inn.meta.id
+                ),
+                extra: None,
+                base_version: None,
+            })
+            .unwrap();
+
+        let before = state.read_element(&inn.meta.id).unwrap();
+
+        // Deleted: out of the list and unreadable, but in the trash.
+        state.delete_element(&inn.meta.id).unwrap();
+        assert!(!root.0.join(&inn.meta.path).exists());
+        assert!(matches!(
+            state.read_element(&inn.meta.id),
+            Err(StorageError::ElementNotFound(_))
+        ));
+        assert_eq!(state.list_elements().unwrap().len(), 1);
+        assert_eq!(state.list_trash().unwrap().len(), 1);
+
+        // Restored: the same file name, id, tags, fields and body, with the
+        // trash keys gone, so the session's link resolves again.
+        let restored = state.restore_element(&inn.meta.id).unwrap();
+        assert_eq!(restored.meta.id, inn.meta.id);
+        assert_eq!(restored.meta.path, inn.meta.path);
+        assert_eq!(restored.meta.tags, vec!["inn".to_owned()]);
+        assert_eq!(restored.body, before.body);
+        // Byte for byte the file it was.
+        assert_eq!(restored.version, before.version);
+        assert_eq!(
+            restored.meta.extra.get("shared"),
+            Some(&serde_json::Value::Bool(true))
+        );
+        assert!(!restored.meta.extra.contains_key("deletedAt"));
+        assert!(!restored.meta.extra.contains_key("deletedFrom"));
+        assert!(state.list_trash().unwrap().is_empty());
+        assert!(!root.0.join(".trash").join("location").exists());
+        assert!(state.read_element(&inn.meta.id).is_ok());
+        assert_eq!(state.list_elements().unwrap().len(), 2);
+        let session = state.read_element(&session.meta.id).unwrap();
+        assert!(session.links.contains(&inn.meta.id));
+        let on_disk = std::fs::read_to_string(root.0.join(&inn.meta.path)).unwrap();
+        assert!(!on_disk.contains("deleted"));
+
+        // An element that is not deleted cannot be restored.
+        assert!(matches!(
+            state.restore_element(&inn.meta.id),
+            Err(StorageError::InvalidInput(_))
+        ));
+
+        // Purged: gone for good.
+        state.delete_element(&session.meta.id).unwrap();
+        state.purge_element(&session.meta.id).unwrap();
+        assert!(state.list_trash().unwrap().is_empty());
+        assert!(matches!(
+            state.restore_element(&session.meta.id),
+            Err(StorageError::ElementNotFound(_))
+        ));
+
+        // Aged past the keep window: pruned when the campaign is next opened.
+        state.delete_element(&inn.meta.id).unwrap();
+        let trashed = root
+            .0
+            .join(&state.list_trash().unwrap()[0].summary.meta.path);
+        let text = std::fs::read_to_string(&trashed).unwrap();
+        let aged: String = text
+            .lines()
+            .map(|line| {
+                if line.starts_with("deletedAt:") {
+                    "deletedAt: 2000-01-01T00:00:00Z"
+                } else {
+                    line
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&trashed, aged).unwrap();
+        let fresh = AppState::default();
+        fresh.open_campaign(root.path()).unwrap();
+        assert!(fresh.list_trash().unwrap().is_empty());
+        assert!(!trashed.exists());
+        assert_eq!(fresh.list_elements().unwrap().len(), 0);
     }
 
     #[test]

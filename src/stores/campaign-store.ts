@@ -12,6 +12,7 @@ import {
   type DiskChanges,
   type Element,
   type ElementSummary,
+  type TrashedElement,
 } from "@/lib/types";
 
 /** Any subset of an element's fields, including kind-specific ones. */
@@ -28,6 +29,8 @@ interface Layout {
 interface CampaignState {
   campaign: CampaignMeta | null;
   elements: ElementSummary[];
+  /** Deleted elements that can still be restored, most recent first. */
+  trash: TrashedElement[];
   /** The element in the main column. */
   selectedId: string | null;
   selected: Element | null;
@@ -81,7 +84,14 @@ interface CampaignState {
   saveElement: (id: string, patch: ElementPatch) => Promise<void>;
   /** Shorthand for saving the main column's element. */
   saveSelected: (patch: ElementPatch) => Promise<void>;
+  /** Move an element to Recently deleted, where it can be restored. */
   deleteElement: (id: string) => Promise<void>;
+  /** Re-read the Recently deleted list from disk. */
+  refreshTrash: () => Promise<void>;
+  /** Bring a deleted element back, with its id, and open it. */
+  restoreElement: (id: string) => Promise<void>;
+  /** Remove a deleted element for good. */
+  purgeElement: (id: string) => Promise<void>;
   /** Make an open element another kind; its id, body and fields stay. */
   changeElementKind: (id: string, kind: string) => Promise<void>;
   /** Re-read an element from disk after an external change. */
@@ -258,6 +268,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
   return {
     campaign: null,
     elements: [],
+    trash: [],
     selectedId: null,
     selected: null,
     paneIds: [],
@@ -273,6 +284,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
         if (!campaign) return;
         set({ campaign });
         await get().refreshElements();
+        await get().refreshTrash();
         await restoreLayout(campaign);
       } catch (err) {
         set({ error: errorMessage(err) });
@@ -305,6 +317,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
           conflicts: {},
         });
         await get().refreshElements();
+        await get().refreshTrash();
         await restoreLayout(campaign);
       } catch (err) {
         set({ error: errorMessage(err) });
@@ -321,6 +334,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
         set({
           campaign,
           elements: [],
+          trash: [],
           selectedId: null,
           selected: null,
           paneIds: [],
@@ -341,6 +355,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
       set({
         campaign: null,
         elements: [],
+        trash: [],
         selectedId: null,
         selected: null,
         paneIds: [],
@@ -491,6 +506,7 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
       try {
         await storage.deleteElement(id);
         await get().refreshElements();
+        await get().refreshTrash();
         set((s) => {
           const loaded = { ...s.loaded };
           delete loaded[id];
@@ -502,6 +518,38 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
           };
         });
         persistLayout();
+      } catch (err) {
+        set({ error: errorMessage(err) });
+      }
+    },
+
+    async refreshTrash() {
+      try {
+        const trash = await storage.listTrash();
+        set({ trash });
+      } catch (err) {
+        set({ error: errorMessage(err) });
+      }
+    },
+
+    async restoreElement(id) {
+      set({ error: null });
+      try {
+        const element = await storage.restoreElement(id);
+        await get().refreshElements();
+        await get().refreshTrash();
+        set({ selectedId: element.id, selected: element });
+        persistLayout();
+      } catch (err) {
+        set({ error: errorMessage(err) });
+      }
+    },
+
+    async purgeElement(id) {
+      set({ error: null });
+      try {
+        await storage.purgeElement(id);
+        await get().refreshTrash();
       } catch (err) {
         set({ error: errorMessage(err) });
       }
@@ -570,6 +618,8 @@ export const useCampaignStore = create<CampaignState>((set, get) => {
         // Names, tags and links in the list may have changed too.
         await get().refreshElements();
       }
+      // A deletion or a restore elsewhere moves a file in or out of .trash/.
+      if (changes.listChanged) await get().refreshTrash();
       const { selectedId, paneIds } = get();
       for (const id of changes.elementIds) {
         if (id !== selectedId && !paneIds.includes(id)) continue;

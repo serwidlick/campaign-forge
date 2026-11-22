@@ -42,6 +42,7 @@ import type {
   TableChange,
   TableCommand,
   TableSession,
+  TrashedElement,
 } from "./types";
 import { deviceLabel, web } from "./web-table";
 
@@ -291,8 +292,24 @@ export const storage = {
     return call<Element>("change_element_kind", { id, kind });
   },
 
+  /** Moves an element to the campaign's `.trash/` folder. */
   deleteElement(id: string) {
     return call<void>("delete_element", { id });
+  },
+
+  /** Deleted elements that can still be restored, most recent first. */
+  listTrash() {
+    return call<TrashedElement[]>("list_trash");
+  },
+
+  /** Puts a deleted element back with its id, frontmatter and body. */
+  restoreElement(id: string) {
+    return call<Element>("restore_element", { id });
+  },
+
+  /** Removes a deleted element for good. */
+  purgeElement(id: string) {
+    return call<void>("purge_element", { id });
   },
 
   /** Copies an image into the campaign's assets folder for a map element. */

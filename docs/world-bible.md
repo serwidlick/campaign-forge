@@ -21,7 +21,7 @@ Most kinds are just a body. Sessions, arcs, encounters, maps, events, journal en
 - The name is the big title at the top of the editor. Change it any time; links keep working because they point at the element's id, not its name.
 - Tags are a comma-separated line under the name. The list search matches names and tags.
 - The small kind label above the name is a dropdown: pick another kind and the element becomes one, keeping its id, name, tags, body and every field. On disk the file's `type` is rewritten and the file moves to that kind's folder, so links to it keep working. Moving a file between folders by hand does not do this; the app reads the kind from the `type` line, not the folder.
-- The red bin button in the header deletes the element and its file: click it once and it asks in place, click **Delete** to confirm or anywhere else to keep it. There is no undo beyond your own backups.
+- The red bin button in the header deletes the element: click it once and it asks in place, click **Delete** to confirm or anywhere else to keep it. The file is not destroyed: it moves to a `.trash` folder inside the campaign, and **Recently deleted** at the bottom of the kinds column lists everything there for 30 days. **Restore** puts an element back exactly as it was, with the same id, so sessions and other elements that linked to it find it again; the bin beside it removes the file for good. Anything older than 30 days is removed the next time the campaign opens.
 
 Everything saves itself a moment after you stop typing. The small word next to the bin says Saved, Unsaved or Saving.
 

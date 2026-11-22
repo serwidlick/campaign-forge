@@ -197,10 +197,6 @@ pub fn save(root: &Path, path: &Path, input: SaveElementInput) -> Result<Element
     })
 }
 
-pub fn delete(path: &Path) -> Result<(), StorageError> {
-    fs::remove_file(path).map_err(|e| StorageError::io(path, e))
-}
-
 /// Makes the element at `path` a `kind`: rewrites `type` and moves the file
 /// into that kind's folder, keeping its file name where free. Every other
 /// frontmatter key survives, so nothing is lost if the change is undone.
@@ -241,7 +237,7 @@ pub fn change_kind(root: &Path, path: &Path, kind: &str) -> Result<Element, Stor
     // The new file is complete before the old one goes, so a crash in
     // between leaves a duplicate id (which the scan tolerates), never a loss.
     if !in_place {
-        delete(path)?;
+        fs::remove_file(path).map_err(|e| StorageError::io(path, e))?;
     }
     Ok(Element {
         meta,
@@ -252,7 +248,7 @@ pub fn change_kind(root: &Path, path: &Path, kind: &str) -> Result<Element, Stor
 }
 
 /// Writes the element file and returns its new version.
-fn write(path: &Path, meta: &ElementMeta, body: &str) -> Result<String, StorageError> {
+pub(super) fn write(path: &Path, meta: &ElementMeta, body: &str) -> Result<String, StorageError> {
     // `path` is runtime-only and skipped when empty; clear it before writing.
     let mut persisted = meta.clone();
     persisted.path = String::new();
@@ -267,7 +263,7 @@ fn write(path: &Path, meta: &ElementMeta, body: &str) -> Result<String, StorageE
     Ok(version)
 }
 
-fn unique_path(dir: &Path, slug: &str) -> PathBuf {
+pub(super) fn unique_path(dir: &Path, slug: &str) -> PathBuf {
     let candidate = dir.join(format!("{slug}.md"));
     if !candidate.exists() {
         return candidate;

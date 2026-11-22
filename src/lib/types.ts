@@ -70,6 +70,14 @@ export interface Element extends ElementSummary {
   version?: string;
 }
 
+/** A deleted element as "Recently deleted" lists it: `.trash/<kind>/<slug>.md`. */
+export interface TrashedElement extends ElementSummary {
+  /** When it was deleted, RFC 3339. */
+  deletedAt: string;
+  /** The path it had under `elements/`, where restoring puts it back. */
+  deletedFrom: string;
+}
+
 /** A saved assistant conversation, as listed: `conversations/<id>.json`. */
 export interface ConversationSummary {
   id: string;
