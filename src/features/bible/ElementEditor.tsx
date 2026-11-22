@@ -342,7 +342,7 @@ export function ElementEditor({ element, panel }: Props) {
               className="flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/10 py-0.5 pl-2 pr-0.5 text-[11px] text-red-200"
               onPointerDown={(e) => e.stopPropagation()}
             >
-              Delete from disk?
+              Move to Recently deleted?
               <Button
                 variant="danger"
                 size="sm"
@@ -368,7 +368,7 @@ export function ElementEditor({ element, panel }: Props) {
               size="sm"
               onClick={() => setConfirmingDelete(true)}
               aria-label="Delete element"
-              title="Delete"
+              title="Delete (restorable from Recently deleted for 30 days)"
             >
               <Trash2 size={14} />
             </Button>

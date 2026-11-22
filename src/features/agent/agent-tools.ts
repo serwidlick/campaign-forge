@@ -420,7 +420,7 @@ const deleteElement: AgentTool = {
   definition: {
     name: "delete_element",
     description:
-      "Delete an element permanently. The file is removed from disk. Only use this when the GM explicitly asked for that element to be deleted, and name it back to them first.",
+      "Delete an element. Its file moves to the campaign's Recently deleted list, where the GM can restore it for 30 days. Only use this when the GM explicitly asked for that element to be deleted, and name it back to them first.",
     input_schema: {
       type: "object",
       properties: { id: { type: "string" } },
@@ -433,7 +433,7 @@ const deleteElement: AgentTool = {
     if (!parsed.success) return invalid(parsed.error);
     const name = nameOf(parsed.data.id);
     await useCampaignStore.getState().deleteElement(parsed.data.id);
-    return `Deleted "${name}" (${parsed.data.id}).`;
+    return `Deleted "${name}" (${parsed.data.id}). It can be restored from Recently deleted.`;
   },
 };
 

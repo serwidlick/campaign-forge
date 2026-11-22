@@ -13,9 +13,17 @@ import {
   Search,
   Sparkles,
   Swords,
+  Trash2,
   X,
 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { Button } from "@/components/Button";
@@ -58,6 +66,7 @@ import { useTableStore } from "@/stores/table-store";
 
 import { ElementEditorFor } from "./ElementEditorFor";
 import { OverviewPanel } from "./OverviewPanel";
+import { TrashList } from "./TrashList";
 
 // Numbers in react-resizable-panels v4 are pixels; strings without units are
 // percentages. Pixels suit sidebars, which should not scale with the window.
@@ -67,6 +76,7 @@ const SEPARATOR_CLASS =
 export function BibleScreen() {
   const campaign = useCampaignStore((s) => s.campaign);
   const elements = useCampaignStore((s) => s.elements);
+  const trash = useCampaignStore((s) => s.trash);
   const selectedId = useCampaignStore((s) => s.selectedId);
   const selected = useCampaignStore((s) => s.selected);
   const revisions = useCampaignStore((s) => s.revisions);
@@ -87,7 +97,7 @@ export function BibleScreen() {
   const [mancerName, setMancerName] = useState<string | null>(null);
   const rules = rulesOf(campaign);
   const [view, setView] = useState<
-    "elements" | "timeline" | "graph" | "journal" | "table" | "import"
+    "elements" | "timeline" | "graph" | "journal" | "table" | "import" | "trash"
   >("elements");
   const hosting = useTableStore((s) => s.hosting);
   const stopHosting = useTableStore((s) => s.stopHosting);
@@ -422,6 +432,18 @@ export function BibleScreen() {
                     ))}
                 </div>
               ))}
+              <div className="mt-3 border-t border-ink-800 pt-3">
+                <KindRow
+                  label={
+                    <span className="flex items-center gap-1.5">
+                      <Trash2 size={13} /> Recently deleted
+                    </span>
+                  }
+                  count={trash.length}
+                  active={view === "trash"}
+                  onClick={() => setView("trash")}
+                />
+              </div>
             </nav>
           </Panel>
 
@@ -434,7 +456,9 @@ export function BibleScreen() {
             maxSize={520}
             className="flex flex-col bg-ink-850"
           >
-            {view === "journal" ? (
+            {view === "trash" ? (
+              <TrashList />
+            ) : view === "journal" ? (
               <JournalList selectedId={selectedId} />
             ) : view === "timeline" ? (
               <TimelineList
@@ -651,9 +675,11 @@ export function BibleScreen() {
                         ? "Journal"
                         : view === "import"
                           ? "Import a PDF"
-                          : filter
-                            ? filterNames(filter).plural
-                            : "Everything"}
+                          : view === "trash"
+                            ? "Recently deleted"
+                            : filter
+                              ? filterNames(filter).plural
+                              : "Everything"}
               </span>
               <span className="flex-1" />
               {hosting ? (
@@ -716,6 +742,14 @@ export function BibleScreen() {
                     key={`${selected.id}:${revisions[selected.id] ?? 0}`}
                     element={selected}
                   />
+                ) : view === "trash" ? (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-1 text-sm text-ink-600">
+                    <span>Restore an element and it opens here.</span>
+                    <span className="text-xs text-ink-700">
+                      Deleted elements keep their id, so links to them work
+                      again once restored.
+                    </span>
+                  </div>
                 ) : (
                   <div className="flex flex-1 flex-col items-center justify-center gap-1 text-sm text-ink-600">
                     <span>Select an element, or create one.</span>
@@ -839,7 +873,7 @@ function KindRow({
   active,
   onClick,
 }: {
-  label: string;
+  label: ReactNode;
   count: number;
   active: boolean;
   onClick: () => void;

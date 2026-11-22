@@ -14,12 +14,12 @@ It is the only part of the app that talks to a server, and only the Anthropic AP
 
 Four switches decide what the assistant may do. Off means the app refuses that kind of call.
 
-| Switch | Lets it                                                                           |
-| ------ | --------------------------------------------------------------------------------- |
-| Read   | Search and read elements, and the PDF of a Document a few pages at a time.        |
-| Write  | Create new elements.                                                              |
-| Put    | Change existing elements: rename, retag, append to or replace a body, set fields. |
-| Delete | Delete elements. Leave this off unless you have a reason.                         |
+| Switch | Lets it                                                                                             |
+| ------ | --------------------------------------------------------------------------------------------------- |
+| Read   | Search and read elements, and the PDF of a Document a few pages at a time.                          |
+| Write  | Create new elements.                                                                                |
+| Put    | Change existing elements: rename, retag, append to or replace a body, set fields.                   |
+| Delete | Delete elements (they go to Recently deleted for 30 days). Leave this off unless you have a reason. |
 
 The app checks every call against the switches before running it, and the assistant is told which abilities it has. You can flip a switch mid-conversation: the next message tells the assistant what changed.
 

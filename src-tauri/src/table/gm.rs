@@ -213,6 +213,20 @@ pub async fn call(app: &AppHandle, command: &str, args_json: Value) -> Result<Va
             notify(app, DiskChanges::list());
             ok(())
         }
+        "list_trash" => ok(state.list_trash().map_err(storage_error)?),
+        "restore_element" => {
+            let a: Id = args(args_json)?;
+            let restored = state.restore_element(&a.id).map_err(storage_error)?;
+            let mut note = DiskChanges::element(&restored.meta.id, &restored.version);
+            note.list_changed = true;
+            notify(app, note);
+            ok(restored)
+        }
+        "purge_element" => {
+            let a: Id = args(args_json)?;
+            state.purge_element(&a.id).map_err(storage_error)?;
+            ok(())
+        }
         "import_element_image_bytes" => {
             let a: ElementImage = args(args_json)?;
             let bytes = decode_base64(&a.data_base64)?;
