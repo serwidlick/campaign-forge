@@ -60,6 +60,7 @@ import {
   type CharacterRole,
   type ElementSummary,
   type ListFilter,
+  type SearchHit,
 } from "@/lib/types";
 import { useCampaignStore } from "@/stores/campaign-store";
 import { useTableStore } from "@/stores/table-store";
@@ -210,6 +211,51 @@ export function BibleScreen() {
     );
     return sortForList(filtered, filter?.kind ?? null);
   }, [elements, filter, query]);
+
+  // Words in the notes themselves: the storage layer reads every body, so
+  // this is asked once the GM pauses typing rather than on every keystroke.
+  // It works offline and without the assistant.
+  const [bodyHits, setBodyHits] = useState<SearchHit[]>([]);
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      storage
+        .searchElements(q, 100)
+        .then((hits) => {
+          if (!cancelled) setBodyHits(hits);
+        })
+        .catch(() => {
+          /* the error banner already reports storage failures */
+        });
+    }, BODY_SEARCH_DELAY_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, elements]);
+
+  // Entries the list above missed: the phrase is only in their notes. The
+  // kind filter still applies, and anything already listed by name or tag
+  // is not repeated. Hits answer the query as it was when they were asked
+  // for, so while a newer search is in flight only the excerpts that still
+  // contain the phrase are shown.
+  const noteHits = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return [];
+    const listed = new Set(visible.map((e) => e.id));
+    const byId = new Map(elements.map((e) => [e.id, e]));
+    const out: { element: ElementSummary; snippet: string }[] = [];
+    for (const hit of bodyHits) {
+      if (listed.has(hit.id)) continue;
+      if (!hit.snippet.toLowerCase().includes(needle)) continue;
+      const element = byId.get(hit.id);
+      if (!element || !matchesFilter(element, filter)) continue;
+      out.push({ element, snippet: hit.snippet });
+    }
+    return out;
+  }, [bodyHits, visible, elements, filter, query]);
 
   const creatingKind = filter?.kind ?? newKind;
   // Inside the player characters or NPCs list the role is implied; on
@@ -601,7 +647,7 @@ export function BibleScreen() {
                 )}
 
                 <ul className="flex-1 overflow-y-auto py-1">
-                  {visible.length === 0 && (
+                  {visible.length === 0 && noteHits.length === 0 && (
                     <li className="px-4 py-6 text-center text-sm text-ink-500">
                       {elements.length === 0
                         ? "Nothing here yet. Create your first element."
@@ -648,6 +694,60 @@ export function BibleScreen() {
                             {elementLabel(e)}
                             {e.tags.length > 0 && <> · {e.tags.join(", ")}</>}
                           </div>
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                  {noteHits.length > 0 && (
+                    <li
+                      className="mt-2 border-t border-ink-800 px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-ink-600"
+                      aria-label="Matches in notes"
+                    >
+                      In notes
+                    </li>
+                  )}
+                  {noteHits.map(({ element: e, snippet }) => (
+                    <li key={e.id}>
+                      <button
+                        type="button"
+                        onClick={(ev) =>
+                          void navigate(e.id, {
+                            pane: ev.ctrlKey || ev.metaKey,
+                          })
+                        }
+                        title="Click to open · Ctrl+click to open beside the current element"
+                        className={`flex w-full items-start gap-3 px-4 py-2 text-left transition-colors ${
+                          e.id === selectedId
+                            ? "bg-ink-700/60"
+                            : "hover:bg-ink-800"
+                        }`}
+                      >
+                        <Portrait
+                          path={portraitOf(e)}
+                          name={e.name}
+                          kind={e.type}
+                          size={30}
+                          scope="local"
+                          load={storage.readAsset}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 text-sm text-ink-100">
+                            <span className="truncate">{displayName(e)}</span>
+                            <span className="shrink-0 text-[11px] text-ink-500">
+                              {elementLabel(e)}
+                            </span>
+                            {isShared(e) && (
+                              <span
+                                title="Shared with players"
+                                className="shrink-0 text-ember-400/80"
+                              >
+                                <Eye size={12} />
+                              </span>
+                            )}
+                          </div>
+                          <p className="line-clamp-2 text-[11px] leading-snug text-ink-400">
+                            {highlight(snippet, query)}
+                          </p>
                         </div>
                       </button>
                     </li>
@@ -830,6 +930,31 @@ export function BibleScreen() {
       )}
     </div>
   );
+}
+
+/** How long the GM pauses typing before the notes are searched. */
+const BODY_SEARCH_DELAY_MS = 180;
+
+/** The excerpt with every occurrence of the search phrase marked. */
+function highlight(text: string, query: string): ReactNode {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return text;
+  const lower = text.toLowerCase();
+  const parts: ReactNode[] = [];
+  let from = 0;
+  for (;;) {
+    const at = lower.indexOf(needle, from);
+    if (at === -1) break;
+    if (at > from) parts.push(text.slice(from, at));
+    parts.push(
+      <mark key={at} className="rounded-sm bg-ember-500/25 px-0.5 text-ink-100">
+        {text.slice(at, at + needle.length)}
+      </mark>,
+    );
+    from = at + needle.length;
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return parts;
 }
 
 /** A stable key for a sidebar row: the kind, plus the role for characters. */
